@@ -1,14 +1,17 @@
 export type { ChainConfig } from './types';
 export { BASE_MAINNET } from './base';
+export { BASE_SEPOLIA } from './base-sepolia';
 export { BASE_TARGET_PAIRS, findPairById } from './target-pairs';
 export type { TargetPair } from './target-pairs';
 
 import { BASE_MAINNET } from './base';
+import { BASE_SEPOLIA } from './base-sepolia';
 import type { ChainConfig } from './types';
 
 /** Registry de todas as chains suportadas. Adicionar Arbitrum/Optimism aqui. */
 export const CHAINS: Record<number, ChainConfig> = {
   [BASE_MAINNET.chainId]: BASE_MAINNET,
+  [BASE_SEPOLIA.chainId]: BASE_SEPOLIA,
 };
 
 /** Helper para resolver config por chainId */

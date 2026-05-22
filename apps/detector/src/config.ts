@@ -36,8 +36,14 @@ const envSchema = z.object({
 
   // Wallet
   EXECUTOR_PRIVATE_KEY: optionalPrivateKey(),
-  EXECUTOR_ADDRESS: optionalAddress(),
+  /** Endereço do contrato ZeusExecutor deployado on-chain (usado como `to:` na simulação) */
+  EXECUTOR_CONTRACT_ADDRESS: optionalAddress(),
+  /** EOA do bot — quem assina txs (derivado da private key) */
+  EXECUTOR_BOT_ADDRESS: optionalAddress(),
+  /** Owner do contrato (em dev = bot; em prod = multisig) */
   EXECUTOR_OWNER_ADDRESS: optionalAddress(),
+  /** @deprecated usar EXECUTOR_CONTRACT_ADDRESS */
+  EXECUTOR_ADDRESS: optionalAddress(),
 
   // Estratégia
   MAX_TRADE_ETH: z.coerce.number().positive().default(0.1),

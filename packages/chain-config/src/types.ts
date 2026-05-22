@@ -17,13 +17,16 @@ export interface ChainConfig {
   };
 
   uniswapV3: {
-    factory: Address;
+    factory?: Address;
     swapRouter02: Address;
-    universalRouter: Address;
+    universalRouter?: Address;
     quoterV2: Address;
-    nftPositionManager: Address;
+    nftPositionManager?: Address;
     feeTiers: readonly number[];
   };
+
+  /** Testnet flag — só true em chains sem liquidez/oportunidade real */
+  isTestnet?: boolean;
 
   aerodrome?: {
     router: Address;

@@ -219,16 +219,20 @@ async function main() {
   // Se EXECUTOR_ADDRESS + EXECUTOR_OWNER_ADDRESS estiverem setados, simula via eth_call
   // após cada oportunidade passar nos filtros. Não submete tx — apenas valida custom errors
   // e estima gas. Fase 3 = simulação only; submissão real entra na Fase 5+.
+  // Aceita EXECUTOR_CONTRACT_ADDRESS (preferido) com fallback pro legado EXECUTOR_ADDRESS
+  const contractAddress = env.EXECUTOR_CONTRACT_ADDRESS ?? env.EXECUTOR_ADDRESS;
+  const callerAddress = env.EXECUTOR_BOT_ADDRESS ?? env.EXECUTOR_OWNER_ADDRESS;
+
   let simContext: SimulationContext | undefined;
-  if (env.EXECUTOR_ADDRESS && env.EXECUTOR_OWNER_ADDRESS) {
+  if (contractAddress && callerAddress) {
     simContext = {
-      executorAddress: env.EXECUTOR_ADDRESS as Address,
-      callerAddress: env.EXECUTOR_OWNER_ADDRESS as Address,
+      executorAddress: contractAddress as Address,
+      callerAddress: callerAddress as Address,
       slippageBps: env.MAX_SLIPPAGE_BPS,
     };
     logger.info(
       {
-        executor: simContext.executorAddress,
+        contract: simContext.executorAddress,
         caller: simContext.callerAddress,
         slippageBps: simContext.slippageBps,
       },
@@ -236,7 +240,7 @@ async function main() {
     );
   } else {
     logger.info(
-      'EXECUTOR_ADDRESS/EXECUTOR_OWNER_ADDRESS não setados — pulando simulação on-chain (Fase 3 opcional)',
+      'EXECUTOR_CONTRACT_ADDRESS / EXECUTOR_BOT_ADDRESS não setados — pulando simulação on-chain',
     );
   }
 

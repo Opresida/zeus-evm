@@ -1,0 +1,34 @@
+# Node
+node_modules/
+dist/
+build/
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Lockfiles incorretos (projeto e pnpm-only)
+package-lock.json
+yarn.lock
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/*/dry-run/
+contracts/lib/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Sistema
+Thumbs.db
+
+# Output local de runs do bot
+runs/
+logs/
+*.pid

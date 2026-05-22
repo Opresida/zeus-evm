@@ -11,16 +11,19 @@
  * NÃO submete tx. NÃO precisa de private key. Modo observacional puro.
  */
 
-import { createPublicClient, http, parseUnits, type PublicClient } from 'viem';
+import { createPublicClient, http, parseUnits, type Address, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 
 import { BASE_MAINNET, BASE_TARGET_PAIRS, type TargetPair } from '@zeus-evm/chain-config';
 import {
   findCrossDexArb,
   filterOpportunity,
+  type CrossDexOpportunity,
   type FilterCriteria,
 } from './opportunities';
 import { subscribeToBlocks } from './mempool/blockSubscription';
+import { buildArbitrageCalldata } from './executor/txBuilder';
+import { simulateArbitrage } from './executor/simulator';
 import { loadConfig } from './config';
 import { logger } from './logger';
 
@@ -51,6 +54,67 @@ function buildFilterCriteria(minProfitUsd: number, maxSlippageBps: number): Omit
   };
 }
 
+/** Config opcional pra simulação on-chain após filter pass. */
+interface SimulationContext {
+  executorAddress: Address;
+  callerAddress: Address;
+  slippageBps: number;
+}
+
+/**
+ * Após oportunidade passar nos filtros, encoda calldata e simula via eth_call.
+ * Logs sucesso (com gasUsed) ou revert (com reason decodificada).
+ */
+async function simulateFilteredOpportunity(
+  client: AnyPublicClient,
+  opp: CrossDexOpportunity,
+  blockNumber: bigint,
+  sim: SimulationContext,
+): Promise<void> {
+  try {
+    const calldata = buildArbitrageCalldata({
+      opp,
+      profitReceiver: sim.callerAddress,
+      slippageBps: sim.slippageBps,
+    });
+
+    const result = await simulateArbitrage({
+      client,
+      executorAddress: sim.executorAddress,
+      callerAddress: sim.callerAddress,
+      calldata,
+      blockNumber,
+    });
+
+    if (result.success) {
+      logger.info(
+        {
+          event: 'simulation_success',
+          pair: opp.pair.id,
+          gasUsed: result.gasUsed?.toString(),
+          blockNumber: blockNumber.toString(),
+        },
+        `🟢 SIM OK: ${opp.pair.id} gas=${result.gasUsed}`,
+      );
+    } else {
+      logger.warn(
+        {
+          event: 'simulation_revert',
+          pair: opp.pair.id,
+          revertReason: result.revertReason,
+          blockNumber: blockNumber.toString(),
+        },
+        `🔴 SIM REVERT: ${opp.pair.id} → ${result.revertReason}`,
+      );
+    }
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : err, pair: opp.pair.id },
+      'simulação falhou inesperadamente',
+    );
+  }
+}
+
 /**
  * Scan completo: itera 5 pares, busca arb, aplica filtros, loga.
  */
@@ -58,9 +122,11 @@ async function scanPairs(
   client: AnyPublicClient,
   blockNumber: bigint,
   filterCriteria: Omit<FilterCriteria, 'maxTradeWei'>,
-): Promise<{ scanned: number; detected: number; filtered: number }> {
+  simContext: SimulationContext | undefined,
+): Promise<{ scanned: number; detected: number; filtered: number; simulated: number }> {
   let detected = 0;
   let filtered = 0;
+  let simulated = 0;
 
   for (const pair of BASE_TARGET_PAIRS) {
     const amountInA = getAmountInForPair(pair);
@@ -96,6 +162,11 @@ async function scanPairs(
           },
           `💰 OPORTUNIDADE: ${pair.id} buy@${opp.buyQuote.source} sell@${opp.sellQuote.source} +$${result.netProfitUsd?.toFixed(2)}`,
         );
+
+        if (simContext) {
+          simulated++;
+          await simulateFilteredOpportunity(client, opp, blockNumber, simContext);
+        }
       } else {
         logger.debug(
           {
@@ -113,7 +184,7 @@ async function scanPairs(
     }
   }
 
-  return { scanned: BASE_TARGET_PAIRS.length, detected, filtered };
+  return { scanned: BASE_TARGET_PAIRS.length, detected, filtered, simulated };
 }
 
 async function main() {
@@ -144,12 +215,37 @@ async function main() {
 
   const filterCriteria = buildFilterCriteria(env.MIN_PROFIT_USD, env.MAX_SLIPPAGE_BPS);
 
+  // ─── Simulação on-chain (opcional) ───
+  // Se EXECUTOR_ADDRESS + EXECUTOR_OWNER_ADDRESS estiverem setados, simula via eth_call
+  // após cada oportunidade passar nos filtros. Não submete tx — apenas valida custom errors
+  // e estima gas. Fase 3 = simulação only; submissão real entra na Fase 5+.
+  let simContext: SimulationContext | undefined;
+  if (env.EXECUTOR_ADDRESS && env.EXECUTOR_OWNER_ADDRESS) {
+    simContext = {
+      executorAddress: env.EXECUTOR_ADDRESS as Address,
+      callerAddress: env.EXECUTOR_OWNER_ADDRESS as Address,
+      slippageBps: env.MAX_SLIPPAGE_BPS,
+    };
+    logger.info(
+      {
+        executor: simContext.executorAddress,
+        caller: simContext.callerAddress,
+        slippageBps: simContext.slippageBps,
+      },
+      '🧪 Simulação on-chain ATIVA (eth_call) — não submete tx',
+    );
+  } else {
+    logger.info(
+      'EXECUTOR_ADDRESS/EXECUTOR_OWNER_ADDRESS não setados — pulando simulação on-chain (Fase 3 opcional)',
+    );
+  }
+
   // ─── Scan inicial ───
   logger.info('Executando scan inicial nos 5 pares alvo...');
-  const initial = await scanPairs(publicClient, blockNumber, filterCriteria);
+  const initial = await scanPairs(publicClient, blockNumber, filterCriteria, simContext);
   logger.info(
     { ...initial, blockNumber: blockNumber.toString() },
-    `✅ Scan inicial: ${initial.scanned} pares, ${initial.detected} oportunidades brutas, ${initial.filtered} filtradas`,
+    `✅ Scan inicial: ${initial.scanned} pares, ${initial.detected} brutas, ${initial.filtered} filtradas, ${initial.simulated} simuladas`,
   );
 
   // ─── Subscribe a novos blocos ───
@@ -158,7 +254,7 @@ async function main() {
     setInterval(async () => {
       try {
         const block = await publicClient.getBlockNumber();
-        const stats = await scanPairs(publicClient, block, filterCriteria);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext);
         if (stats.detected > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[poll] scan`);
         }
@@ -170,7 +266,7 @@ async function main() {
     subscribeToBlocks({
       wsUrl: env.BASE_RPC_WS,
       onBlock: async (block) => {
-        const stats = await scanPairs(publicClient, block, filterCriteria);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext);
         if (stats.detected > 0 || stats.filtered > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[block ${block}] scan`);
         }

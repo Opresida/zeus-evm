@@ -8,6 +8,7 @@
 **Chain inicial:** Base (Coinbase L2)
 **Próximas chains:** Arbitrum One, Optimism, BSC (após estratégia validada)
 **Time:** Humberto (product) + Claude (engineering)
+**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (backtest + fork tests positivos) concluídas — **29/29 testes Foundry passando** · contrato verified em Base Sepolia: [`0xe48473...`](https://sepolia.basescan.org/address/0xe48473d75805886ac4162b1304eab6b8f93c5faa)
 
 ---
 
@@ -51,36 +52,44 @@ Não vamos ficar ricos arbitrando ETH/USDC entre Uniswap e Sushi. Vamos atacar n
 ### Setup
 
 ```bash
-# Instalar deps
+# Instalar deps (pnpm-only, npm é bloqueado por preinstall hook)
 pnpm install
 
 # Instalar libs Foundry (1ª vez)
 cd contracts
 forge install foundry-rs/forge-std --no-commit
 forge install OpenZeppelin/openzeppelin-contracts --no-commit
-forge install Uniswap/v2-core --no-commit
-forge install Uniswap/v3-core --no-commit
-forge install Uniswap/v3-periphery --no-commit
-forge install aave/aave-v3-core --no-commit
 cd ..
 
 # Build contratos
 pnpm contracts:build
 
-# Testes
-pnpm contracts:test
+# Testes (unit + fork mainnet)
+BASE_RPC_HTTP=$BASE_RPC_HTTP pnpm contracts:test
 
-# Detector off-chain (modo dev — não submete tx real)
-pnpm detector:dev
+# Typecheck
+pnpm typecheck
+
+# Smoke test detector (valida config + RPC + saldo)
+pnpm --filter @zeus-evm/detector exec tsx src/smoke.ts
+
+# Detector off-chain DRY_RUN (não submete tx)
+pnpm --filter @zeus-evm/detector start
+
+# Backtest histórico (replay de N blocos)
+NUM_BLOCKS=1000 STEP=10 pnpm --filter @zeus-evm/backtest start
 ```
 
 ### Variáveis de ambiente
 
 Copie `.env.example` → `.env` e preencha. Críticas:
-- `BASE_RPC_HTTP` / `BASE_RPC_WS` — Alchemy ou similar
-- `EXECUTOR_PRIVATE_KEY` — chave do bot (recomendo hardware wallet ou Turnkey em prod)
+- `BASE_RPC_HTTP` — **dRPC** recomendado (210M CU/mês free), Alchemy fallback
+- `BASE_RPC_WS` — Alchemy WSS pra subscribe newHeads
+- `EXECUTOR_PRIVATE_KEY` — chave **testnet-only** em dev; multisig + hardware wallet em prod
+- `EXECUTOR_CONTRACT_ADDRESS` — endereço do ZeusExecutor deployado on-chain
+- `EXECUTOR_BOT_ADDRESS` / `EXECUTOR_OWNER_ADDRESS` — EOA do bot + owner do contrato
 - `MAX_TRADE_ETH` / `MIN_PROFIT_USD` — circuit breakers
-- `KILL_SWITCH=false` (true = bot para tudo)
+- `KILL_SWITCH=true` (default fail-safe; só `false` em produção deliberada)
 
 ---
 
@@ -104,44 +113,39 @@ Copie `.env.example` → `.env` e preencha. Críticas:
 
 ```
 zeus-evm/
-├── README.md                  # Este arquivo
-├── CONTEXT.md                 # Regras, padrões, lógica
-├── PROJECT_CONTEXT.md         # Visão consolidada + status
-├── ARCHITECTURE.md            # Fluxos de dados, decisões
-├── TODO.md                    # Pendente detalhado por fase
-├── CLAUDE.md                  # Pacote portátil para IA
-├── CONTRACTS.md               # Spec de smart contracts + audit pipeline
+├── README.md                          # Este arquivo
+├── CONTEXT.md                         # Regras, padrões, voz
+├── PROJECT_CONTEXT.md                 # Visão consolidada + status
+├── ARCHITECTURE.md                    # Fluxos de dados, decisões
+├── TODO.md                            # Pendente detalhado por fase
+├── CLAUDE.md                          # Pacote portátil para IA
+├── CONTRACTS.md                       # Spec smart contracts + audit pipeline
 │
-├── package.json               # workspace root (pnpm-only)
-├── pnpm-workspace.yaml
-├── .env.example
+├── pnpm-workspace.yaml + .env.example + .gitignore
 │
-├── contracts/                 # Foundry project
-│   ├── foundry.toml
-│   ├── remappings.txt
+├── contracts/                         # Foundry project
 │   ├── src/
-│   │   ├── ZeusExecutor.sol   # Hot path: atomic arb + flashloan
-│   │   ├── adapters/          # Adapters por DEX (UniV2, V3, Aerodrome, ...)
-│   │   ├── strategies/        # WalletArb, FlashloanArb, Liquidator
-│   │   └── interfaces/
+│   │   ├── ZeusExecutor.sol           # Hot path: arb + flashloan
+│   │   ├── libraries/                 # UniswapV3Lib, AerodromeLib (inline)
+│   │   └── interfaces/                # IZeusExecutor + Aave interfaces
 │   ├── test/
-│   ├── script/
-│   └── lib/                   # forge install deps
+│   │   ├── ZeusExecutor.t.sol         # 18 unit tests
+│   │   └── fork/                      # 11 fork tests (Base mainnet)
+│   ├── script/Deploy.s.sol            # chainId-based deploy
+│   └── lib/                           # forge install deps
 │
 ├── apps/
-│   ├── detector/              # TS — escuta mempool + dispara executor
-│   └── monitor/               # TS — health factors pra liquidations
+│   ├── detector/                      # TS — main loop + scan + simulate
+│   ├── backtest/                      # TS — replay histórico de blocos
+│   └── monitor/                       # placeholder (Fase 6: liquidations)
 │
 ├── packages/
-│   ├── chain-config/          # RPCs, endereços por chain
-│   ├── dex-adapters/          # TS adapters pra calcular preço off-chain
+│   ├── chain-config/                  # BASE_MAINNET + BASE_SEPOLIA + pairs
+│   ├── dex-adapters/                  # quoteUniswapV3 + quoteAerodrome
+│   ├── strategy/                      # opportunities + executor utils
 │   └── shared-types/
 │
-├── scripts/
-│   ├── deploy.ts              # Foundry deploy do executor
-│   └── simulate.ts            # Backtest contra fork mainnet
-│
-└── docs/refs/                 # MDs externos pra expandir conhecimento da IA
+└── docs/refs/                         # MDs externos pra expandir IA
 ```
 
 ---
@@ -152,15 +156,18 @@ Detalhes em [TODO.md](./TODO.md).
 
 | Fase | Entrega | Status |
 |---|---|---|
-| **0** | Setup inicial (monorepo + Foundry + docs canônicos) | 🟡 Em andamento |
-| **1** | ZeusExecutor.sol completo + DEX adapters (Uniswap V3 + Aerodrome) | ❌ Pendente |
-| **2** | Detector TS: mempool listener + opportunity calc + tx submitter | ❌ Pendente |
-| **3** | Flashloan Aave V3 integration | ❌ Pendente |
-| **4** | Backtest contra fork de Base mainnet (sem custo) | ❌ Pendente |
-| **5** | Deploy testnet (Base Sepolia) + simulação ao vivo 2 semanas | ❌ Pendente |
+| **0** | Setup inicial (monorepo + Foundry + docs canônicos) | ✅ Pronto |
+| **1** | ZeusExecutor.sol + UniV3Lib + AerodromeLib + 18 unit tests | ✅ Pronto |
+| **2** | Detector DRY_RUN: chain-config + dex-adapters + opportunities + WSS | ✅ Pronto |
+| **3** | Flashloan Aave V3 + TxBuilder + Simulator + 5 fork tests | ✅ Pronto |
+| **4a** | Backtest histórico — confirmou: cross-DEX em blue chips sem edge | ✅ Pronto |
+| **4b** | Fork tests positivos (wallet + flashloan arb lucrativa) | ✅ Pronto |
+| **4c** | **Decidir estratégia com edge real** (liquidations recomendada) | 🟡 Decisão |
+| **5a** | Deploy ZeusExecutor em Base Sepolia + verified Basescan | ✅ Pronto |
+| **5b** | 2 semanas observação testnet | ⏳ Aguarda 4c |
 | **6** | Liquidations (Aave V3 + Compound III + Morpho) | ❌ Pendente |
-| **7** | Deploy mainnet com capital pequeno + audit interno | ❌ Pendente |
-| **8** | Audit externo (Certik ou similar) | ❌ Pendente |
+| **7** | Deploy mainnet capital pequeno + 4 semanas observação | ❌ Pendente |
+| **8** | Audit externo (Certik ~$4.2k ou similar) | ❌ Pendente |
 | **9** | Scale: capital aumentado, multi-chain (Arbitrum + Optimism) | ❌ Pendente |
 
 ---

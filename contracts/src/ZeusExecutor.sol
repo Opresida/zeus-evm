@@ -1,84 +1,280 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.27;
 
-/// @title ZeusExecutor — Atomic arbitrage executor on EVM chains
-/// @notice Contrato hot-path que executa arb atomico:
-///         (1) Modalidade Capital Proprio: bot envia tokens, executor faz multi-swap, devolve lucro
-///         (2) Modalidade Flashloan: borrow → multi-swap → repay tudo em 1 tx
-/// @dev STATUS: STUB — implementacao real depende de:
-///      - OpenZeppelin (Ownable, ReentrancyGuard) instalados
-///      - Adapters de DEX (Uniswap V2/V3, Aerodrome, Curve, Balancer)
-///      - Integracao Aave V3 flashloan callback
-///      Ver TODO.md e CONTRACTS.md para o plano completo.
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @dev Cada swap segue este formato — codificado off-chain pelo detector
-struct SwapStep {
-    address router;           // endereco do router/pool do DEX
-    address tokenIn;
-    address tokenOut;
-    uint256 amountIn;         // 0 = usar saldo atual (chain de swaps)
-    uint256 minAmountOut;
-    uint8 dexType;            // 0=UniV2, 1=UniV3, 2=Aerodrome, 3=Curve, 4=Balancer
-    bytes extraData;          // fee tier (UniV3), pool address (Curve), etc.
-}
+import {IZeusExecutor, SwapStep, ArbitrageParams, DexType} from "./interfaces/IZeusExecutor.sol";
+import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
+import {IPool} from "./interfaces/aave/IPool.sol";
+import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
+import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 
-struct ArbitrageParams {
-    SwapStep[] steps;
-    uint256 minProfitWei;     // profit minimo pra tx nao reverter
-    address profitToken;      // token em que o lucro deve estar no final
-    address profitReceiver;   // pra onde enviar o lucro (geralmente owner)
-}
+/// @title ZeusExecutor — Atomic arbitrage executor on EVM
+/// @notice Entry point único pra arbitragens atômicas:
+///         1. Modalidade capital próprio: bot transfere tokens → executor faz multi-swap → devolve lucro
+///         2. Modalidade flashloan: borrow Aave V3 → multi-swap → repay tudo em 1 tx
+/// @dev Princípios de segurança:
+///      - Atomic-only: qualquer falha reverte tudo
+///      - Self-custody com circuit breakers (kill switch + maxTradeWei + minProfit obrigatório)
+///      - Owner = multisig em produção (Safe Wallet)
+///      - Sem proxy upgradeable (bug → deploy novo)
+contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
 
-interface IZeusExecutor {
-    // ──────────────── EVENTS ────────────────
+    /// @notice Aave V3 Pool — imutável após deploy
+    address public immutable AAVE_V3_POOL;
 
-    event ArbitrageExecuted(
-        address indexed initiator,
-        address indexed profitToken,
-        uint256 profit,
-        uint256 swapsCount
-    );
+    /// @notice Limite máximo de amountIn por step (circuit breaker)
+    uint256 public maxTradeWei;
 
-    event FlashloanArbitrageExecuted(
-        address indexed initiator,
-        address indexed flashloanAsset,
-        uint256 flashloanAmount,
-        uint256 flashloanFee,
-        address indexed profitToken,
-        uint256 profit
-    );
+    /// @notice Wallets autorizadas a chamar entry points (além do owner)
+    mapping(address => bool) private _operators;
 
-    event Killed();
-    event Revived();
+    /// @notice Override do Pausable pra UX clara via boolean dedicado
+    bool private _killed;
 
-    // ──────────────── ERRORS ────────────────
+    // ════════ CONSTRUCTOR ════════
 
-    error NotAuthorized();
-    error Killed_();
-    error InsufficientProfit(uint256 actual, uint256 required);
-    error SwapFailed(uint256 stepIndex);
-    error InvalidDexType(uint8 dexType);
-    error FlashloanRepayFailed();
+    constructor(address aaveV3Pool, address initialOwner, uint256 initialMaxTradeWei) Ownable(initialOwner) {
+        if (aaveV3Pool == address(0) || initialOwner == address(0)) revert NotAuthorized();
+        AAVE_V3_POOL = aaveV3Pool;
+        maxTradeWei = initialMaxTradeWei;
+        _killed = true; // fail-safe: começa morto, owner ativa explicitamente
+        emit Killed();
+    }
 
-    // ──────────────── FUNCTIONS ────────────────
+    // ════════ MODIFIERS ════════
 
-    /// @notice Modalidade 1: arbitragem com capital proprio
-    /// @dev Bot envia tokens previamente pro contrato (ou approve transferFrom)
-    function executeArbitrage(ArbitrageParams calldata params) external;
+    modifier onlyOperator() {
+        if (msg.sender != owner() && !_operators[msg.sender]) revert NotAuthorized();
+        _;
+    }
 
-    /// @notice Modalidade 2: arbitragem usando flashloan Aave V3
-    /// @dev Inicia flashloan; Aave chama executeOperation neste contrato pra rodar arb
+    modifier whenAlive() {
+        if (_killed) revert BotKilled();
+        _;
+    }
+
+    // ════════ ARBITRAGE ENTRYPOINTS ════════
+
+    /// @inheritdoc IZeusExecutor
+    function executeArbitrage(ArbitrageParams calldata params)
+        external
+        override
+        onlyOperator
+        whenNotPaused
+        whenAlive
+        nonReentrant
+    {
+        if (params.steps.length == 0) revert EmptySteps();
+
+        // Saldo inicial do profit token (pode ser diferente de zero — operador deixou capital aqui)
+        uint256 balanceBefore = IERC20(params.profitToken).balanceOf(address(this));
+
+        _executeSwaps(params.steps);
+
+        // Lucro = saldo final - saldo inicial
+        uint256 balanceAfter = IERC20(params.profitToken).balanceOf(address(this));
+        if (balanceAfter < balanceBefore + params.minProfitWei) {
+            revert InsufficientProfit(
+                balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0,
+                params.minProfitWei
+            );
+        }
+
+        uint256 profit = balanceAfter - balanceBefore;
+
+        // Transfere apenas o lucro residual (mantém o capital inicial)
+        if (params.profitReceiver != address(this) && profit > 0) {
+            IERC20(params.profitToken).safeTransfer(params.profitReceiver, profit);
+        }
+
+        emit ArbitrageExecuted(msg.sender, params.profitToken, profit, params.steps.length);
+    }
+
+    /// @inheritdoc IZeusExecutor
     function executeFlashloanArbitrage(
+        address flashloanAsset,
+        uint256 flashloanAmount,
+        ArbitrageParams calldata params
+    ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        if (params.steps.length == 0) revert EmptySteps();
+        if (flashloanAmount > maxTradeWei) revert TradeTooLarge(flashloanAmount, maxTradeWei);
+
+        // Encoda params pra passar pro callback executeOperation
+        bytes memory encodedParams = abi.encode(params, msg.sender);
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            flashloanAsset,
+            flashloanAmount,
+            encodedParams,
+            0 // sem referral
+        );
+        // Aave chama executeOperation aqui (callback). Se reverter, toda a tx reverte.
+    }
+
+    /// @inheritdoc IFlashLoanSimpleReceiver
+    /// @notice Callback chamado pelo Aave V3 Pool após emprestar tokens
+    /// @dev Validações:
+    ///      - Só Aave V3 Pool pode chamar
+    ///      - Initiator deve ser este contrato (defesa contra terceiros usando nosso receiver)
+    function executeOperation(
         address asset,
         uint256 amount,
-        ArbitrageParams calldata params
-    ) external;
+        uint256 premium,
+        address initiator,
+        bytes calldata params
+    ) external override returns (bool) {
+        if (msg.sender != AAVE_V3_POOL) revert InvalidCaller();
+        if (initiator != address(this)) revert InvalidCaller();
 
-    /// @notice Kill switch global — owner para o bot instantaneamente
-    function kill() external;
-    function revive() external;
-    function isKilled() external view returns (bool);
+        (ArbitrageParams memory arbParams, address operator) = abi.decode(params, (ArbitrageParams, address));
 
-    /// @notice Resgatar tokens presos no contrato (ex: dust apos arb)
-    function rescueToken(address token, uint256 amount, address to) external;
+        // Estado pré-arb pra calcular lucro
+        uint256 balanceBefore = IERC20(arbParams.profitToken).balanceOf(address(this));
+
+        // Importante: subtraímos o flashloan amount se profitToken == asset emprestado
+        // (porque o balance inclui os tokens que viemos de pedir emprestado)
+        if (arbParams.profitToken == asset) {
+            balanceBefore = balanceBefore > amount ? balanceBefore - amount : 0;
+        }
+
+        // Executa a cadeia de swaps
+        _executeSwaps(arbParams.steps);
+
+        uint256 balanceAfter = IERC20(arbParams.profitToken).balanceOf(address(this));
+
+        // Garantir capacidade de repay (saldo do asset >= amount + premium)
+        uint256 amountOwed = amount + premium;
+        uint256 assetBalance = IERC20(asset).balanceOf(address(this));
+        if (assetBalance < amountOwed) revert FlashloanRepayShortfall(assetBalance, amountOwed);
+
+        // Calcular lucro líquido (já descontando o repay)
+        uint256 profit;
+        if (arbParams.profitToken == asset) {
+            uint256 effectiveBalance = balanceAfter >= amountOwed ? balanceAfter - amountOwed : 0;
+            if (effectiveBalance < balanceBefore + arbParams.minProfitWei) {
+                revert InsufficientProfit(
+                    effectiveBalance > balanceBefore ? effectiveBalance - balanceBefore : 0,
+                    arbParams.minProfitWei
+                );
+            }
+            profit = effectiveBalance - balanceBefore;
+        } else {
+            // profitToken diferente do asset emprestado — repay vem do asset, lucro fica no profitToken
+            if (balanceAfter < balanceBefore + arbParams.minProfitWei) {
+                revert InsufficientProfit(
+                    balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0,
+                    arbParams.minProfitWei
+                );
+            }
+            profit = balanceAfter - balanceBefore;
+        }
+
+        // Transfere lucro residual
+        if (arbParams.profitReceiver != address(this) && profit > 0) {
+            IERC20(arbParams.profitToken).safeTransfer(arbParams.profitReceiver, profit);
+        }
+
+        // Aprove Aave pra puxar repay
+        IERC20(asset).forceApprove(AAVE_V3_POOL, amountOwed);
+
+        emit FlashloanArbitrageExecuted(operator, asset, amount, premium, arbParams.profitToken, profit);
+
+        return true;
+    }
+
+    // ════════ INTERNAL SWAP EXECUTOR ════════
+
+    function _executeSwaps(SwapStep[] memory steps) internal {
+        uint256 len = steps.length;
+        for (uint256 i = 0; i < len;) {
+            // Circuit breaker por step
+            uint256 effectiveAmountIn = steps[i].amountIn == 0
+                ? IERC20(steps[i].tokenIn).balanceOf(address(this))
+                : steps[i].amountIn;
+            if (effectiveAmountIn > maxTradeWei) {
+                revert TradeTooLarge(effectiveAmountIn, maxTradeWei);
+            }
+
+            // Dispatch por DEX type
+            DexType dt = steps[i].dexType;
+            if (dt == DexType.UniswapV3) {
+                UniswapV3Lib.swap(steps[i]);
+            } else if (dt == DexType.Aerodrome) {
+                AerodromeLib.swap(steps[i]);
+            } else {
+                revert InvalidDexType(uint8(dt));
+            }
+
+            unchecked { ++i; }
+        }
+    }
+
+    // ════════ ADMIN ════════
+
+    /// @inheritdoc IZeusExecutor
+    function kill() external override onlyOwner {
+        if (!_killed) {
+            _killed = true;
+            emit Killed();
+        }
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function revive() external override onlyOwner {
+        if (_killed) {
+            _killed = false;
+            emit Revived();
+        }
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function isKilled() external view override returns (bool) {
+        return _killed;
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function setMaxTradeWei(uint256 newMax) external override onlyOwner {
+        emit MaxTradeWeiUpdated(maxTradeWei, newMax);
+        maxTradeWei = newMax;
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function setOperator(address operator, bool allowed) external override onlyOwner {
+        _operators[operator] = allowed;
+        emit OperatorSet(operator, allowed);
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function isOperator(address account) external view override returns (bool) {
+        return _operators[account];
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function rescueToken(address token, uint256 amount, address to) external override onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        IERC20(token).safeTransfer(to, amount);
+        emit TokenRescued(token, amount, to);
+    }
+
+    // ════════ PAUSABLE (extra layer além do kill switch) ════════
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    // ════════ RECEIVE ETH ════════
+
+    /// @notice Permite receber ETH (necessário pra alguns swaps via WETH)
+    receive() external payable {}
 }

@@ -2,7 +2,7 @@
 
 Lista detalhada do que está pronto e do que falta para **pleno funcionamento** (do estado atual até bot rodando em mainnet Base com capital real).
 
-**Última atualização:** 2026-05-22
+**Última atualização:** 2026-05-22 (Fases 0-3 concluídas, Fase 4 parcial, Fase 5a deploy testnet concluído)
 
 > Documento vivo. Marcar `[x]` quando concluir, não remover (histórico preservado).
 
@@ -10,155 +10,151 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 ## ✅ Concluído
 
-### Fase 0 — Setup inicial (2026-05-22)
+### Fase 0 — Setup inicial (2026-05-22) ✅
 
-- [x] Pasta `C:\Users\user\zeus-evm\` criada
-- [x] `git init` na raiz (sem push pro GitHub ainda)
-- [x] Estrutura monorepo: `contracts/`, `apps/{detector,monitor}/`, `packages/{chain-config,dex-adapters,shared-types}/`, `scripts/`, `docs/refs/`
-- [x] `package.json` root com workspace scripts (build, typecheck, contracts:build, contracts:test)
-- [x] `pnpm-workspace.yaml` com catalog de versões (viem, vitest, pino, zod, tsx)
-- [x] `.gitignore` (Node, Foundry, .env, lockfiles incorretos)
-- [x] `.env.example` com 20+ variáveis documentadas (RPC, wallet, estratégia, flashloan, monitoring)
-- [x] `contracts/foundry.toml` (solc 0.8.27, via_ir, optimizer 1M runs, fuzz config)
-- [x] `contracts/remappings.txt` (OpenZeppelin, Uniswap V2/V3, Aave V3, forge-std)
-- [x] Stub `contracts/src/ZeusExecutor.sol` com structs `SwapStep`, `ArbitrageParams`, interface `IZeusExecutor`, eventos, custom errors
-- [x] Stub `contracts/test/ZeusExecutor.t.sol` pronto pra forks
+- [x] Pasta `C:\Users\user\zeus-evm\` + `git init` + repo `github.com/Opresida/zeus-evm`
+- [x] Estrutura monorepo: `contracts/`, `apps/{detector,backtest,monitor}/`, `packages/{chain-config,dex-adapters,strategy,shared-types}/`
+- [x] `package.json` root + `pnpm-workspace.yaml` com catalog (viem, vitest, pino, zod, tsx)
+- [x] `.gitignore` (Node, Foundry, .env, broadcast/, lockfiles incorretos)
+- [x] `.env.example` documentado + `.env` local com chave testnet dedicada
+- [x] `contracts/foundry.toml` (solc 0.8.27, via_ir, optimizer 1M runs, yul, fuzz config)
+- [x] `contracts/remappings.txt` (OpenZeppelin, Uniswap V3, Aave V3 local, forge-std)
 - [x] 7 docs canônicos criados (README, CONTEXT, PROJECT_CONTEXT, ARCHITECTURE, TODO, CONTRACTS, CLAUDE)
+
+### Fase 1 — Smart contracts core (2026-05-22) ✅
+
+- [x] `ZeusExecutor.sol` completo (280 LOCs):
+  - [x] Ownable2Step + ReentrancyGuard + Pausable + SafeERC20 + custom errors
+  - [x] Kill switch fail-safe (constructor inicia _killed=true)
+  - [x] `executeArbitrage(ArbitrageParams)` com validações + circuit breaker maxTradeWei
+  - [x] `executeFlashloanArbitrage(asset, amount, params)` + callback `executeOperation`
+  - [x] `kill()` / `revive()` / `pause()` / `unpause()` / `setOperator()` / `setMaxTradeWei()` / `rescueToken()`
+  - [x] Receive ETH
+- [x] Interfaces: `IZeusExecutor`, `IPool` (Aave), `IFlashLoanSimpleReceiver`
+- [x] Libraries inline (gas-optimized):
+  - [x] `UniswapV3Lib` — SwapRouter02 via `exactInputSingle` (extraData = fee tier)
+  - [x] `AerodromeLib` — Router via `swapExactTokensForTokens` (extraData = stable+factory)
+- [x] **18 unit tests** + fuzzing config (`forge test --fuzz-runs 100000`)
+- [x] **4 fork tests** cross-DEX (UniV3 swap real, multistep, InsufficientProfit revert)
+- [x] **5 fork tests** flashloan (Aave V3 real, callback, InvalidCaller, TradeTooLarge)
+
+### Fase 2 — Detector off-chain DRY_RUN (2026-05-22) ✅
+
+- [x] `apps/detector/src/config.ts` — load `.env` + Zod schema (20+ vars, optional* preprocessors)
+- [x] `apps/detector/src/logger.ts` — pino structured (JSON em prod, pretty em dev)
+- [x] `apps/detector/src/mempool/blockSubscription.ts` — WSS Alchemy + retry + polling fallback
+- [x] `packages/chain-config`:
+  - [x] BASE_MAINNET (Aave/UniV3/Aerodrome/BaseSwap/Compound/Morpho addresses)
+  - [x] BASE_SEPOLIA (Aave V3 + UniV3 — sem Aerodrome em testnet)
+  - [x] BASE_TARGET_PAIRS (5 pares: WETH/USDC, cbETH/WETH, USDC/USDT, WETH/AERO, USDC/DAI)
+- [x] `packages/dex-adapters`:
+  - [x] `quoteUniswapV3` via QuoterV2 (simulateContract)
+  - [x] `quoteAerodrome` via Router.getAmountsOut
+  - [x] **6 vitest tests** contra Base mainnet (gap UniV3↔Aero validado em WETH/USDC)
+- [x] `packages/strategy` (refactored 2026-05-22):
+  - [x] `opportunities/crossDex.ts` — findCrossDexArb (N² combos forward+reverse)
+  - [x] `opportunities/quoteFanout.ts` — parallel quotes across DEXs
+  - [x] `opportunities/filters.ts` — min profit USD, slippage, gas, flashloan fee
+  - [x] `executor/txBuilder.ts` — buildArbitrageCalldata + buildFlashloanCalldata
+  - [x] `executor/simulator.ts` — eth_call + estimateGas + decode custom errors
+  - [x] `executor/abi.ts` — ABI completa ZeusExecutor (funcs, events, errors)
+- [x] `apps/detector/src/index.ts` — orquestração: WSS subscribe → scan 5 pares → filter → simulate (opt-in)
+- [x] `apps/detector/src/smoke.ts` — script de diagnóstico (config + RPC + balance)
+
+### Fase 3 — Flashloan integration (2026-05-22) ✅
+
+- [x] `executeOperation()` callback Aave V3 com validações caller + initiator + profit
+- [x] `executeFlashloanArbitrage()` chamando `IPool.flashLoanSimple`
+- [x] Repay automático Aave + fee 0.05% via forceApprove
+- [x] Fork tests passando contra Base mainnet
+- [x] `simulator.ts` decoda `FlashloanRepayShortfall`, `InsufficientProfit`, `TradeTooLarge`, etc.
+- [x] Integração no detector: simula arb após filter pass (sem submeter)
+
+### Fase 4a — Backtest histórico (parcial, 2026-05-22) ✅
+
+- [x] `apps/backtest/src/index.ts` — replay de N blocos com `findCrossDexArb`
+- [x] Output JSON estruturado em `apps/backtest/runs/`
+- [x] **Resultado: 0 oportunidades em 1000 blocos amostrados (5.5h Base mainnet)**
+- [x] Conclusão: cross-DEX em blue chips Base não tem edge real em 2026 (MEV bots dominam)
+
+### Fase 4b — Fork tests do caminho POSITIVO (2026-05-22) ✅
+
+- [x] `contracts/test/fork/ZeusExecutor.profitArb.t.sol`:
+  - [x] `test_WalletArb_GeneratesProfit_AfterPriceGap` — wallet arb com gap artificial → PASSA
+  - [x] `test_FlashloanArb_GeneratesProfit_AfterPriceGap` — flashloan arb com gap artificial → PASSA
+- [x] **Mecânica validada**: contrato executa arb 2-step (UniV3+Aerodrome), calcula profit, transfere pro receiver, repaga Aave
+- [x] **27→29 testes Foundry passando**
+
+### Fase 5a — Deploy testnet Base Sepolia (2026-05-22) ✅
+
+- [x] `contracts/script/Deploy.s.sol` — script Foundry com chainId-based config (8453 mainnet, 84532 Sepolia)
+- [x] Carteira testnet dedicada criada + fundada via faucet (0.0195 ETH Sepolia)
+- [x] ZeusExecutor deployado em Base Sepolia: **`0xe48473d75805886ac4162b1304eab6b8f93c5faa`**
+- [x] Contrato verified no Basescan: [sepolia.basescan.org/address/0xe48473...](https://sepolia.basescan.org/address/0xe48473d75805886ac4162b1304eab6b8f93c5faa)
+- [x] Estado on-chain validado: isKilled=true (fail-safe), owner=carteira, AAVE_V3_POOL correto Sepolia, maxTradeWei=0.01 ETH
+- [x] Bug evitado: 1º deploy pegou Aave mainnet address do `.env` → script corrigido pra usar chainId como source of truth
 
 ---
 
-## ❌ Pendente para pleno funcionamento
+## ❌ Pendente
 
 > "Pleno funcionamento" = bot rodando em mainnet Base com capital real, executando arbitragens em produção.
 
-### 🟡 Fase 0 — Resto do setup
+### 🟡 Fase 4c — Estratégia com edge real (DECISÃO ABERTA)
 
-- [ ] Stubs do detector TS (`apps/detector/src/index.ts`, `config.ts`, `logger.ts`)
-- [ ] Stubs do monitor TS (`apps/monitor/src/index.ts`)
-- [ ] Package `@zeus-evm/chain-config` com addresses Base mainnet (Aave V3 Pool, Uniswap V3 Factory, Aerodrome, BaseSwap, USDC, WETH)
-- [ ] Package `@zeus-evm/shared-types` com tipos espelhando structs Solidity
-- [ ] Package `@zeus-evm/dex-adapters` (stub)
-- [ ] `pnpm install` na raiz, validar workspaces resolvem
-- [ ] `forge install` das libs OpenZeppelin, Uniswap V3, Aave V3
-- [ ] `forge build` passa
-- [ ] `forge test` passa (placeholder test)
-- [ ] `pnpm typecheck` passa em todos workspaces
+Backtest provou que cross-DEX em blue chips não tem edge. Caminhos discutidos:
 
----
+**Opção A — Liquidations Aave/Compound/Morpho (RECOMENDADA):**
+- [ ] `apps/monitor/src/protocols/aaveV3.ts` — leitura de positions + cálculo HF
+- [ ] `apps/monitor/src/protocols/compoundV3.ts`
+- [ ] `apps/monitor/src/protocols/morpho.ts`
+- [ ] `apps/monitor/src/healthFactor.ts` — engine de cálculo HF
+- [ ] `apps/monitor/src/liquidator.ts` — dispara executeFlashloanArbitrage com liquidationCall no callback
+- [ ] Adicionar `liquidationCall` no fluxo do ZeusExecutor (callback executeOperation)
+- [ ] Fork tests com posições reais de Base mainnet
+- Edge: 5-10% por liquidação, janela 1-3 blocos (não precisa competir em ms)
 
-### 🔴 Fase 1 — Smart contracts core (3-4 dias)
+**Opção B — Pares longtail medium-cap:**
+- [ ] Descoberta automática de pares (factory events scanner)
+- [ ] Ranking por volatilidade/spread histórico
+- [ ] Re-rodar backtest 24h com nova lista
+- Edge: 0.5-2% spread esporádico em pools com menos competição
 
-#### ZeusExecutor.sol completo
-- [ ] Constructor com `owner`, `MAX_TRADE_ETH`, kill switch defaults
-- [ ] `Ownable2Step` + `ReentrancyGuard` + `Pausable`
-- [ ] `executeArbitrage(ArbitrageParams)`:
-  - [ ] Validações (not killed, msg.sender authorized, params válidos)
-  - [ ] Loop sobre SwapStep[] chamando adapters
-  - [ ] Cálculo de profit final
-  - [ ] Validação `profit >= minProfitWei`
-  - [ ] Transfer pra `profitReceiver`
-  - [ ] Emit `ArbitrageExecuted`
-- [ ] `kill()` / `revive()` (só owner)
-- [ ] `rescueToken()` (só owner)
-- [ ] Receive ETH (`receive()` payable)
-- [ ] Testes unitários (90%+ coverage)
-- [ ] Fuzz tests `forge test --fuzz-runs 100000`
+**Opção C — Triangular intra-DEX (UniV3 fee tier arb):**
+- [ ] Detector triangular dentro do mesmo DEX
+- Edge: baixa (mas fácil de implementar)
 
-#### Adapters DEX (start: Uniswap V3 + Aerodrome)
-- [ ] `interfaces/IDexAdapter.sol` — interface comum
-- [ ] `adapters/UniswapV3Adapter.sol`:
-  - [ ] `swap(SwapStep)` chamando `SwapRouter.exactInputSingle`
-  - [ ] Support a fee tiers 0.05%, 0.3%, 1%
-  - [ ] Approve tokens automaticamente
-- [ ] `adapters/AerodromeAdapter.sol`:
-  - [ ] `swap(SwapStep)` pra pools stable + volatile
-  - [ ] Decode `extraData` pra identificar tipo de pool
-- [ ] Testes contra fork de Base mainnet
+### 🔴 Fase 5b — Testnet observação (2 semanas)
 
-#### Strategy WalletArb
-- [ ] `strategies/WalletArbStrategy.sol`:
-  - [ ] Wrapper sobre `executeArbitrage` com defaults pra modo wallet
-- [ ] Tests
-
----
-
-### 🔴 Fase 2 — Detector off-chain (4-5 dias)
-
-#### Config e infra
-- [ ] `apps/detector/src/config.ts` — load `.env` + valida com zod
-- [ ] `apps/detector/src/logger.ts` — pino structured logs
-- [ ] `apps/detector/src/chains.ts` — chain client setup (publicClient + walletClient)
-
-#### Mempool monitoring
-- [ ] Subscribe pending txs via Alchemy WSS
-- [ ] Filtrar txs relevantes (swap em DEXs alvo)
-- [ ] Decoder de calldata pra identificar swap parameters (token in/out, amount)
-
-#### Pricing engine
-- [ ] Read Uniswap V3 pool state (`slot0`, `liquidity`) on-chain
-- [ ] Read Aerodrome pool state
-- [ ] Quoter para simular swap output
-- [ ] Aggregator pra comparar preços entre DEXs
-
-#### Opportunity calculator
-- [ ] `opportunities/crossDex.ts` — detecta arb cross-DEX
-- [ ] `opportunities/triangular.ts` — detecta ciclos intra-Uniswap V3 entre fee tiers
-- [ ] `opportunities/filters.ts` — min profit, max slippage, max gas
-
-#### Tx builder + submitter
-- [ ] `executor/txBuilder.ts` — codifica `ArbitrageParams`
-- [ ] `executor/simulator.ts` — `eth_call` antes de enviar
-- [ ] `executor/submitter.ts` — envia tx, espera receipt, decodifica evento
-
-#### Monitoring
-- [ ] `monitoring/metrics.ts` — coleta success_rate, avg_landed_time_ms, profit
-- [ ] `monitoring/alerts.ts` — Discord webhook em eventos críticos (loss, error, kill)
-
----
-
-### 🔴 Fase 3 — Flashloan integration (2-3 dias)
-
-- [ ] Adicionar `executeOperation()` no ZeusExecutor (callback Aave V3)
-- [ ] `executeFlashloanArbitrage(asset, amount, params)`:
-  - [ ] Chama `IPool(aave).flashLoanSimple(...)`
-  - [ ] Aave call back `executeOperation`
-  - [ ] Garante repay com fee
-- [ ] Tests com fork Base — Aave V3 Pool real
-- [ ] Detector: nova rota `executor/submitFlashloan.ts`
-- [ ] Comparar profitabilidade: wallet-arb vs flashloan-arb pra mesma oportunidade
-
----
-
-### 🔴 Fase 4 — Backtest contra fork (2-3 dias)
-
-- [ ] `scripts/simulate.ts` — replay histórico de blocos contra forks
-- [ ] Coleta dados: 1 mês de blocos Base mainnet
-- [ ] Roda detector com data histórico simulado
-- [ ] Métricas: oportunidades vistas vs capturadas vs lucrativas
-- [ ] Análise: PnL teórico, drawdown, success rate
-- [ ] Decisão: estratégia tem edge? Quais parâmetros tunar?
-
-**Critério de aprovação para próxima fase:**
-- Win rate > 60% out-of-sample
-- Profit médio > custo (gas + flashloan fee) com margem
-- Pelo menos 50 oportunidades capturáveis por dia
-
----
-
-### 🔴 Fase 5 — Testnet Base Sepolia (2 semanas)
-
-- [ ] Deploy `ZeusExecutor` em Sepolia via `forge script DeployExecutor.s.sol --rpc-url $SEPOLIA_RPC --broadcast --verify`
-- [ ] Faucet ETH testnet
 - [ ] Detector apontando pra Sepolia
-- [ ] **2 semanas rodando** (com mempool de mainnet simulado se possível)
-- [ ] Análise diária dos resultados
-- [ ] Iteração nos parâmetros (min profit, max slippage)
-- [ ] Coletar bugs
+- [ ] Owner chama `revive()` no contrato (sai do kill state)
+- [ ] Owner chama `setOperator(bot_address, true)`
+- [ ] Rodar 2 semanas observando comportamento real
+- [ ] Coletar bugs / iterar parâmetros
 
 **Critério pra próxima fase:**
 - Bot rodou 2 semanas sem revert inesperado
-- Métricas estáveis e dentro do esperado pelo backtest
 - Kill switch testado e funcional
+- Strategy escolhida em 4c mostrou oportunidades em testnet
+
+### 🔴 Fase 6 — Liquidations completas (se opção A escolhida)
+
+Detalhado em Fase 4c opção A acima.
+
+### 🔴 Fase 7 — Deploy mainnet capital pequeno (1 mês de observação)
+
+- [ ] Deploy `ZeusExecutor` em Base mainnet
+- [ ] Multisig Safe Wallet como owner
+- [ ] Capital inicial: **0.5 ETH** (~$1.5k)
+- [ ] `MAX_TRADE_ETH=0.1` (cap baixo pra observação)
+- [ ] Tenderly alerts + Discord webhook ativos
+- [ ] Rodar 2-4 semanas observando
+- [ ] Análise semanal: PnL, drawdown, padrões
+
+**Critério pra escalar:**
+- 4 semanas sem perda significativa
+- PnL líquido positivo
+- Sem incidentes operacionais
 
 ---
 
@@ -265,18 +261,19 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 ## 🔄 Em andamento
 
-- [x] Setup inicial e docs canônicos (Fase 0 quase completa)
+- [ ] Decidir estratégia que tem edge real (Fase 4c) — RECOMENDAÇÃO: liquidations
 
 ---
 
 ## ⏸️ Pausado / aguardando decisão do Humberto
 
-- [ ] Decidir quando fazer push pro GitHub (agora vs depois do MVP)
-- [ ] Decidir provider de mempool (Alchemy vs Blocknative vs Reth self-hosted)
-- [ ] Definir multisig provider (Safe Wallet vs alternativa)
+- [x] ~~Decidir quando fazer push pro GitHub~~ → push contínuo desde Fase 1
+- [x] ~~Provider de RPC primário~~ → **dRPC** (210M CU/mês free) + Alchemy fallback
+- [ ] Decidir estratégia de edge: liquidations (recomendada) vs longtail vs triangular
+- [ ] Definir multisig provider (Safe Wallet vs alternativa) — antes de Fase 7
 - [ ] Definir capital inicial concreto pra Fase 7
 - [ ] Decidir se Neon Postgres entra ou só logs por enquanto
-- [ ] Definir audit provider (Certik vs Trail of Bits vs OpenZeppelin)
+- [ ] Definir audit provider (Certik vs Trail of Bits vs OpenZeppelin) — antes de Fase 8
 
 ---
 
@@ -306,4 +303,9 @@ Quando estiver em produção, monitorar:
 
 | Data | Mudança principal |
 |---|---|
-| 2026-05-22 | Setup inicial: monorepo pnpm + Foundry + 7 docs canônicos + stub ZeusExecutor |
+| 2026-05-22 | Setup inicial (Fase 0): monorepo pnpm + Foundry + 7 docs canônicos |
+| 2026-05-22 | Fase 1: ZeusExecutor + UniV3Lib + AerodromeLib + 22 testes passando |
+| 2026-05-22 | Fase 2: Detector DRY_RUN — dex-adapters + opportunities + WSS subscribe |
+| 2026-05-22 | Fase 3: Flashloan Aave V3 + TxBuilder + Simulator + integração detector |
+| 2026-05-22 | Track A: Deploy ZeusExecutor em Base Sepolia (`0xe48473...`) + verified Basescan |
+| 2026-05-22 | Track B: Refactor `packages/strategy` + `apps/backtest` + fork tests profitArb (29/29) |

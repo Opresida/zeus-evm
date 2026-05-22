@@ -18,12 +18,12 @@ import { BASE_MAINNET, BASE_TARGET_PAIRS, type TargetPair } from '@zeus-evm/chai
 import {
   findCrossDexArb,
   filterOpportunity,
+  buildArbitrageCalldata,
+  simulateArbitrage,
   type CrossDexOpportunity,
   type FilterCriteria,
-} from './opportunities';
+} from '@zeus-evm/strategy';
 import { subscribeToBlocks } from './mempool/blockSubscription';
-import { buildArbitrageCalldata } from './executor/txBuilder';
-import { simulateArbitrage } from './executor/simulator';
 import { loadConfig } from './config';
 import { logger } from './logger';
 

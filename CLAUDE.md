@@ -121,17 +121,21 @@ pnpm typecheck
 zeus-evm/
 ├── contracts/              # Foundry: Solidity + tests + scripts
 │   ├── src/ZeusExecutor.sol
-│   ├── src/adapters/
-│   ├── src/strategies/
+│   ├── src/libraries/      # UniswapV3Lib + AerodromeLib (inline adapters)
+│   ├── src/interfaces/     # IZeusExecutor + Aave interfaces
+│   ├── script/Deploy.s.sol # chainId-based deploy (Base mainnet vs Sepolia)
 │   └── test/
+│       ├── ZeusExecutor.t.sol            # 18 unit tests
+│       └── fork/                          # 11 fork tests (cross-DEX + flashloan + profitArb)
 ├── apps/
-│   ├── detector/           # TS — mempool listener + arb executor
-│   └── monitor/            # TS — health factors pra liquidations
+│   ├── detector/           # TS — main loop: WSS → scan → filter → simulate
+│   ├── backtest/           # TS — replay histórico de blocos
+│   └── monitor/            # placeholder (Fase 6: liquidations)
 ├── packages/
-│   ├── chain-config/       # addresses por chain (Base, depois Arb, OP)
-│   ├── dex-adapters/       # TS adapters pra pricing off-chain
+│   ├── chain-config/       # BASE_MAINNET + BASE_SEPOLIA + target-pairs
+│   ├── dex-adapters/       # quoteUniswapV3 + quoteAerodrome (off-chain pricing)
+│   ├── strategy/           # opportunities (crossDex/filters/fanout) + executor (txBuilder/simulator/abi)
 │   └── shared-types/
-├── scripts/                # deploy.ts, simulate.ts
 └── docs/refs/              # MDs externos pra expandir conhecimento da IA
 ```
 
@@ -140,27 +144,41 @@ zeus-evm/
 ## 🗺️ Estado atual (snapshot 2026-05-22)
 
 ### ✅ Pronto
-- Fase 0: setup inicial (monorepo + Foundry + docs canônicos + stubs)
+- **Fase 0**: Monorepo pnpm + Foundry + 7 docs canônicos + repo GitHub
+- **Fase 1**: ZeusExecutor.sol (280 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
+- **Fase 2**: Detector DRY_RUN funcional + dex-adapters + opportunities + WSS subscribe
+- **Fase 3**: Flashloan Aave V3 + TxBuilder + Simulator + 5 fork tests flashloan
+- **Fase 4a**: Backtest 1000 blocos — **0 oportunidades cross-DEX em blue chips** (MEV bots dominam)
+- **Fase 4b**: Fork tests positivos (wallet+flashloan arb lucrativa com gap artificial)
+- **Track A (Fase 5a)**: ZeusExecutor deployado em Base Sepolia `0xe48473d75805886ac4162b1304eab6b8f93c5faa` + verified Basescan
+- **Track B**: Refactor `packages/strategy` (lógica reusável) + `apps/backtest`
+- **Total**: 29/29 Foundry tests · 6/6 vitest · 5/5 typecheck workspaces
 
-### ❌ Pendente pra pleno funcionamento
-- **Fase 1:** ZeusExecutor.sol completo + adapters UniV3 e Aerodrome (3-4 dias)
-- **Fase 2:** Detector TS off-chain (4-5 dias)
-- **Fase 3:** Flashloan Aave V3 (2-3 dias)
-- **Fase 4:** Backtest fork mainnet (2-3 dias)
-- **Fase 5:** Testnet Base Sepolia 2 semanas
-- **Fase 6:** Liquidations (1 semana)
-- **Fase 7:** Deploy mainnet capital pequeno + 4 semanas observação
-- **Fase 8:** Audit externo Certik (1-2 semanas)
-- **Fase 9:** Scale + multi-chain
+### 🟡 Em andamento (Fase 4c)
+**Decidir estratégia com edge real.** Opções:
+- **A. Liquidations Aave/Compound/Morpho** (recomendada — edge 5-10% por liquidação)
+- B. Pares longtail medium-cap
+- C. Triangular intra-DEX
+
+### ❌ Pendente
+- **Fase 5b**: 2 semanas observação testnet (depois de 4c)
+- **Fase 6**: Liquidations (se A escolhida)
+- **Fase 7**: Mainnet capital pequeno + 4 semanas observação
+- **Fase 8**: Audit externo Certik (~$4.2k)
+- **Fase 9**: Scale + multi-chain
 
 **Detalhes em [TODO.md](./TODO.md).**
 
+### 🔑 Decisões já tomadas
+- Provider RPC: **dRPC** primário + Alchemy fallback
+- Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
+- Contrato testnet verified: `0xe48473d75805886ac4162b1304eab6b8f93c5faa`
+
 ### ⏸️ Aguardando decisão do Humberto
-- Quando fazer push GitHub
-- Provider mempool: Alchemy / Blocknative / Reth self-hosted
-- Multisig provider
-- Capital inicial concreto
-- Audit provider
+- **Estratégia com edge** (Fase 4c) ← bloqueador principal
+- Multisig provider — antes de Fase 7
+- Capital inicial concreto — antes de Fase 7
+- Audit provider — antes de Fase 8
 
 ---
 

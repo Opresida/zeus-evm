@@ -83,54 +83,62 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ### ✅ Concluído (2026-05-22)
 
-**Fase 0 — Setup**
-- Repo `zeus-evm` criado em `C:\Users\user\zeus-evm` (local, sem push GitHub ainda)
-- Monorepo pnpm com workspaces (`apps/`, `packages/`, `contracts/`)
-- Foundry inicializado com `foundry.toml` (solc 0.8.27, via_ir, optimizer 1M runs)
-- Stub do contrato `ZeusExecutor.sol` com structs `SwapStep`, `ArbitrageParams`, interface `IZeusExecutor`, custom errors, eventos
-- Stub de teste `ZeusExecutor.t.sol` pronto pra forks
-- 7 docs canônicos criados: README, CONTEXT, PROJECT_CONTEXT, ARCHITECTURE, TODO, CLAUDE, CONTRACTS
-- `.env.example` com 20+ variáveis documentadas
-- `.gitignore` configurado pra Node + Foundry
+**Fases 0 → 3 + Track A (deploy Sepolia) + Track B (backtest + fork tests positivos)**
 
-### 🟡 Em andamento
-- Setup completo do detector TS e chain-config
+- **Fase 0** — Monorepo pnpm + Foundry + 7 docs canônicos + repo GitHub
+- **Fase 1** — `ZeusExecutor.sol` (280 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
+- **Fase 2** — Detector DRY_RUN funcional: chain-config (Base + Sepolia), dex-adapters (UniV3+Aerodrome), opportunities, WSS subscribe
+- **Fase 3** — Flashloan Aave V3 + TxBuilder + Simulator (eth_call) + 5 fork tests flashloan
+- **Track A** — ZeusExecutor deployado em Base Sepolia: [`0xe48473...`](https://sepolia.basescan.org/address/0xe48473d75805886ac4162b1304eab6b8f93c5faa), verified
+- **Track B** — Refactor `packages/strategy` + `apps/backtest` + fork tests positivos (wallet + flashloan arb lucrativa)
+- **Total**: **29/29 testes Foundry passando** · 6/6 vitest · 5/5 typecheck workspaces · push contínuo no GitHub
+
+### 🔍 Descoberta importante (Fase 4a)
+
+Backtest de 1000 blocos amostrados (~5.5h Base mainnet) com os 5 pares blue-chip da config: **0 oportunidades cross-DEX detectadas**. Confirma que Base mainnet em 2026 é hyper-competitivo pra arb em pares populares (MEV bots dominam). **Cross-DEX nesses pares não tem edge sistemática.**
+
+### 🎯 Em andamento
+
+- Decidir estratégia que tem edge real (Fase 4c) — opções discutidas: liquidations (recomendada), longtail medium-cap, triangular
 
 ### ❌ Pendente
 Lista priorizada em [TODO.md](./TODO.md). Próximas grandes etapas:
 
-| Fase | Entrega | Estimativa |
+| Fase | Entrega | Status |
 |---|---|---|
-| 1 | ZeusExecutor.sol completo + adapters Uniswap V3 + Aerodrome | 3-4 dias |
-| 2 | Detector TS (mempool listener + opportunity calc) | 4-5 dias |
-| 3 | Flashloan Aave V3 integration | 2-3 dias |
-| 4 | Backtest com fork Base mainnet | 2-3 dias |
-| 5 | Deploy Base Sepolia + 2 semanas simulação | 2 semanas |
-| 6 | Liquidations | 1 semana |
-| 7 | Deploy mainnet capital pequeno + 2-4 semanas observação | 1 mês corrido |
-| 8 | Audit externo (Certik ou similar) | 1-2 semanas |
-| 9 | Scale (capital + multi-chain) | indefinido |
+| 0-3 | Setup + contratos + detector + flashloan | ✅ Pronto |
+| 4a | Backtest histórico | ✅ Pronto (0 opp em blue chips) |
+| 4b | Fork tests positivos (wallet+flashloan) | ✅ Pronto (29/29) |
+| 4c | **Decidir estratégia com edge real** | 🟡 Decisão aberta |
+| 5a | Deploy testnet Sepolia | ✅ Pronto |
+| 5b | 2 semanas observação testnet | ⏳ Aguardando 4c |
+| 6 | Liquidations | ⏳ Aguardando 4c |
+| 7 | Deploy mainnet capital pequeno + 4 semanas | ❌ |
+| 8 | Audit externo Certik (~$4.2k) | ❌ |
+| 9 | Scale (capital + multi-chain) | ❌ |
 
 ---
 
 ## 🔑 Decisões já tomadas
 
 - ✅ Chain inicial: **Base**
-- ✅ Estratégias prioritárias: **Cross-DEX medium-cap + Triangular intra-DEX + Liquidations**
-- ✅ Repo separado em `github.com/Opresida/zeus-evm` (push quando MVP estiver pronto)
+- ✅ Estratégias planejadas: Cross-DEX (validado: sem edge em blue chips), Triangular, **Liquidations** (próximo foco)
+- ✅ Repo: `github.com/Opresida/zeus-evm` (push contínuo desde Fase 1)
 - ✅ Capital inicial: **decidir depois** (código abstrai)
 - ✅ Stack: TypeScript + viem + Foundry
-- ✅ Flashloan provider: Aave V3 (padrão), Balancer como secundário
+- ✅ Flashloan provider: Aave V3 (validado em fork mainnet, mecânica 100%)
 - ✅ Custódia: self-custody com circuit breakers no contrato
-- ✅ Owner do contrato será multisig (Safe Wallet em Base)
+- ✅ Owner do contrato será multisig (Safe Wallet em Base) em prod
+- ✅ Provider RPC: **dRPC** (210M CU/mês free) primário + Alchemy fallback
+- ✅ Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
+- ✅ Contrato testnet: `0xe48473d75805886ac4162b1304eab6b8f93c5faa` (Base Sepolia, verified)
 
 ## 🤔 Decisões abertas
 
-- ❓ Multisig provider: Safe Wallet (padrão) vs alternativa
-- ❓ Mempool monitoring: Alchemy Subscriptions vs Blocknative vs Reth self-hosted
+- ❓ **Estratégia com edge real** (Fase 4c): liquidations (recomendada) / longtail / triangular
+- ❓ Multisig provider: Safe Wallet (padrão) vs alternativa — antes de Fase 7
 - ❓ Como armazenar histórico de trades: Neon Postgres futuro ou só logs?
-- ❓ Quando fazer push pra GitHub (push agora vs esperar MVP)
-- ❓ Audit externo: Certik (R$ 25k) vs Trail of Bits (R$ 60k+) vs OpenZeppelin Defender
+- ❓ Audit externo: Certik (~$4.2k) vs Spearbit (~$10k) vs Trail of Bits ($15k+) — antes de Fase 8
 
 ---
 

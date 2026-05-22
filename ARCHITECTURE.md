@@ -62,118 +62,88 @@ zeus-evm/
 ├── 📄 .env.example
 │
 ├── contracts/                  # ═══ FOUNDRY PROJECT ═══
-│   ├── foundry.toml
+│   ├── foundry.toml            # solc 0.8.27 + via_ir + 1M runs + yul
 │   ├── remappings.txt
 │   ├── src/
-│   │   ├── ZeusExecutor.sol    # Hot path principal
-│   │   ├── adapters/
-│   │   │   ├── UniswapV2Adapter.sol
-│   │   │   ├── UniswapV3Adapter.sol
-│   │   │   ├── AerodromeAdapter.sol
-│   │   │   ├── CurveAdapter.sol
-│   │   │   └── BalancerAdapter.sol
-│   │   ├── strategies/
-│   │   │   ├── WalletArbStrategy.sol
-│   │   │   ├── FlashloanArbStrategy.sol
-│   │   │   └── LiquidatorStrategy.sol
+│   │   ├── ZeusExecutor.sol            # Hot path principal (280 LOCs)
+│   │   ├── libraries/
+│   │   │   ├── UniswapV3Lib.sol        # inline adapter SwapRouter02
+│   │   │   └── AerodromeLib.sol        # inline adapter Aerodrome Router
 │   │   └── interfaces/
-│   │       ├── IZeusExecutor.sol
-│   │       ├── IDexAdapter.sol
-│   │       └── IAaveFlashloanReceiver.sol
+│   │       ├── IZeusExecutor.sol       # SwapStep, ArbitrageParams, errors
+│   │       └── aave/
+│   │           ├── IPool.sol           # Aave V3 Pool interface
+│   │           └── IFlashLoanSimpleReceiver.sol
 │   ├── test/
-│   │   ├── ZeusExecutor.t.sol
-│   │   ├── adapters/
-│   │   ├── strategies/
-│   │   └── fork/               # testes com fork Base mainnet
+│   │   ├── ZeusExecutor.t.sol          # 18 unit tests
+│   │   └── fork/                       # fork tests Base mainnet (9 tests)
+│   │       ├── ZeusExecutor.fork.t.sol         # cross-DEX swaps reais (4)
+│   │       ├── ZeusExecutor.flashloan.t.sol    # Aave V3 flashloan (5)
+│   │       └── ZeusExecutor.profitArb.t.sol    # arb LUCRATIVO com gap artificial (2)
 │   ├── script/
-│   │   ├── DeployExecutor.s.sol
-│   │   └── UpgradeExecutor.s.sol
-│   └── lib/                    # forge install deps (gitignored)
+│   │   └── Deploy.s.sol                # chainId-based config (8453 mainnet, 84532 Sepolia)
+│   └── lib/                            # forge install deps (gitignored)
 │       ├── forge-std/
-│       ├── openzeppelin-contracts/
-│       ├── v2-core/
-│       ├── v3-core/
-│       ├── v3-periphery/
-│       └── aave-v3-core/
+│       └── openzeppelin-contracts/
 │
 ├── apps/
 │   │
-│   ├── detector/               # ═══ DETECTOR OFF-CHAIN ═══
+│   ├── detector/               # ═══ DETECTOR OFF-CHAIN (orquestração) ═══
 │   │   ├── package.json        # @zeus-evm/detector
-│   │   ├── tsconfig.json
-│   │   ├── src/
-│   │   │   ├── index.ts        # entry point
-│   │   │   ├── config.ts       # le .env + valida com zod
-│   │   │   ├── chains.ts       # config por chain (Base, depois Arb, OP)
-│   │   │   ├── mempool/
-│   │   │   │   ├── alchemy.ts  # mempool subscription via Alchemy
-│   │   │   │   └── decoder.ts  # decode pending txs
-│   │   │   ├── pricing/
-│   │   │   │   ├── uniswapV3.ts# read tick & price on-chain
-│   │   │   │   ├── aerodrome.ts
-│   │   │   │   └── aggregator.ts # comparacao entre fontes
-│   │   │   ├── opportunities/
-│   │   │   │   ├── crossDex.ts # detector cross-DEX
-│   │   │   │   ├── triangular.ts # detector intra-DEX
-│   │   │   │   └── filters.ts  # min profit, max slippage, ...
-│   │   │   ├── executor/
-│   │   │   │   ├── txBuilder.ts# constroi calldata do ZeusExecutor
-│   │   │   │   ├── submitter.ts# envia tx (ou bundle Flashbots)
-│   │   │   │   └── simulator.ts# eth_call antes de enviar
-│   │   │   ├── monitoring/
-│   │   │   │   ├── metrics.ts  # success_rate, avg_landed_time, profit
-│   │   │   │   └── alerts.ts   # Discord webhook
-│   │   │   └── logger.ts       # pino structured logs
-│   │   └── tests/
+│   │   └── src/
+│   │       ├── index.ts        # main loop: WSS subscribe → scan → filter → simulate
+│   │       ├── smoke.ts        # script de diagnóstico (config + RPC + balance)
+│   │       ├── config.ts       # Zod schema + load .env do monorepo root
+│   │       ├── logger.ts       # pino structured (JSON em prod)
+│   │       └── mempool/
+│   │           └── blockSubscription.ts  # WSS Alchemy + retry + polling fallback
 │   │
-│   └── monitor/                # ═══ LIQUIDATIONS MONITOR ═══
-│       ├── package.json        # @zeus-evm/monitor
-│       ├── tsconfig.json
-│       └── src/
-│           ├── index.ts
-│           ├── protocols/
-│           │   ├── aaveV3.ts
-│           │   ├── compoundV3.ts
-│           │   └── morpho.ts
-│           ├── healthFactor.ts # calcula HF on-chain
-│           └── liquidator.ts   # dispara liquidation no ZeusExecutor
+│   ├── backtest/               # ═══ REPLAY HISTÓRICO ═══
+│   │   ├── package.json        # @zeus-evm/backtest
+│   │   ├── src/index.ts        # replay N blocos com findCrossDexArb (paralelo)
+│   │   └── runs/               # outputs JSON (gitignored)
+│   │
+│   └── monitor/                # ═══ LIQUIDATIONS MONITOR (stub) ═══
+│       └── (placeholder pra Fase 6)
 │
 ├── packages/
 │   │
 │   ├── chain-config/           # ═══ CONFIGURACOES POR CHAIN ═══
 │   │   ├── package.json        # @zeus-evm/chain-config
-│   │   ├── src/
-│   │   │   ├── base.ts         # addresses Base (Aave, Uniswap, Aerodrome)
-│   │   │   ├── arbitrum.ts     # futuro
-│   │   │   ├── optimism.ts     # futuro
-│   │   │   ├── types.ts        # ChainConfig type
-│   │   │   └── index.ts
-│   │   └── tests/
+│   │   └── src/
+│   │       ├── base.ts                 # BASE_MAINNET (Aave/UniV3/Aerodrome/...)
+│   │       ├── base-sepolia.ts         # BASE_SEPOLIA (sem Aerodrome em testnet)
+│   │       ├── target-pairs.ts         # 5 pares: WETH/USDC, cbETH/WETH, ...
+│   │       ├── types.ts                # ChainConfig type
+│   │       └── index.ts                # CHAINS registry
 │   │
-│   ├── dex-adapters/           # ═══ ADAPTERS TS PRA OFF-CHAIN PRICING ═══
+│   ├── dex-adapters/           # ═══ ADAPTERS TS (OFF-CHAIN PRICING) ═══
 │   │   ├── package.json        # @zeus-evm/dex-adapters
 │   │   ├── src/
-│   │   │   ├── uniswapV2.ts    # getAmountOut, reserves
-│   │   │   ├── uniswapV3.ts    # quoter, tick math
-│   │   │   ├── aerodrome.ts    # stable + volatile pools
-│   │   │   ├── curve.ts
-│   │   │   ├── balancer.ts
+│   │   │   ├── uniswapV3.ts            # quoteUniswapV3 via QuoterV2
+│   │   │   ├── aerodrome.ts            # quoteAerodrome via Router.getAmountsOut
+│   │   │   ├── types.ts                # Quote, DexType, QuoteResult
 │   │   │   └── index.ts
-│   │   └── tests/
+│   │   └── tests/                      # 6 vitest tests contra Base mainnet
+│   │
+│   ├── strategy/               # ═══ LÓGICA DE DETECÇÃO + EXECUÇÃO ═══
+│   │   ├── package.json        # @zeus-evm/strategy
+│   │   └── src/
+│   │       ├── opportunities/
+│   │       │   ├── crossDex.ts         # findCrossDexArb (N² combos)
+│   │       │   ├── quoteFanout.ts      # parallel quotes across DEXs
+│   │       │   └── filters.ts          # min profit, slippage, gas, flashloan fee
+│   │       ├── executor/
+│   │       │   ├── txBuilder.ts        # buildArbitrageCalldata + buildFlashloanCalldata
+│   │       │   ├── simulator.ts        # eth_call + estimateGas + decode errors
+│   │       │   └── abi.ts              # ABI completa ZeusExecutor
+│   │       └── index.ts                # re-exports
 │   │
 │   └── shared-types/           # ═══ TIPOS COMPARTILHADOS ═══
 │       ├── package.json        # @zeus-evm/shared-types
-│       ├── src/
-│       │   ├── swap.ts         # SwapStep, ArbitrageParams (mirror Solidity)
-│       │   ├── opportunity.ts  # Opportunity, OpportunityType
-│       │   ├── pool.ts         # Pool, PoolType
-│       │   └── index.ts
-│       └── tests/
-│
-├── scripts/                    # ═══ SCRIPTS DEVOPS ═══
-│   ├── deploy.ts               # deploy contracts (chama Foundry script)
-│   ├── simulate.ts             # backtest off-chain contra fork
-│   └── seed-addresses.ts       # popula chain-config a partir de docs
+│       └── src/
+│           ├── swap.ts                 # SwapStep, ArbitrageParams (mirror Solidity)
+│           └── index.ts
 │
 └── docs/refs/                  # ═══ MATERIAL EXTERNO PRA IA ═══
     # Humberto coloca aqui MDs com referencias:

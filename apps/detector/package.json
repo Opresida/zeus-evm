@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@zeus-evm/chain-config": "workspace:*",
+    "@zeus-evm/dex-adapters": "workspace:*",
     "@zeus-evm/shared-types": "workspace:*",
     "dotenv": "catalog:",
     "pino": "catalog:",

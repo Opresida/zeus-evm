@@ -1,5 +1,7 @@
 export type { ChainConfig } from './types';
 export { BASE_MAINNET } from './base';
+export { BASE_TARGET_PAIRS, findPairById } from './target-pairs';
+export type { TargetPair } from './target-pairs';
 
 import { BASE_MAINNET } from './base';
 import type { ChainConfig } from './types';

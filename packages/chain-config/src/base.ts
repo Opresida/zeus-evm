@@ -28,6 +28,7 @@ export const BASE_MAINNET: ChainConfig = {
     cbETH: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22',
     DAI:   '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
     USDT:  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+    AERO:  '0x940181a94A35A4569E4529A3CDfB74e38FD98631', // Aerodrome governance token
   },
 
   // ─── Aave V3 ───

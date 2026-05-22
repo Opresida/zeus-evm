@@ -1,25 +1,43 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+// ESM: deriva __dirname manualmente
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Carrega .env da raiz do monorepo (3 níveis acima: apps/detector/src/)
+loadDotenv({ path: resolve(__dirname, '../../../.env') });
+// Fallback: tenta cwd também (se rodar de outro lugar)
+loadDotenv();
 
 /**
  * Schema de configuração validado via zod.
  * Lê de process.env e falha early se algo crítico estiver faltando.
  */
 
+/** Trata string vazia como undefined (zod aceita undefined com .optional()) */
+const optionalString = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
+const optionalUrl = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional());
+const optionalAddress = () =>
+  z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional());
+const optionalPrivateKey = () =>
+  z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional());
+
 const envSchema = z.object({
   // RPC
   BASE_RPC_HTTP: z.string().url(),
-  BASE_RPC_WS: z.string().url().optional(),
-  BASE_RPC_FALLBACK: z.string().url().optional(),
+  BASE_RPC_WS: optionalUrl(),
+  BASE_RPC_FALLBACK: optionalUrl(),
 
   // Mempool
-  ALCHEMY_API_KEY: z.string().optional(),
-  BLOCKNATIVE_API_KEY: z.string().optional(),
+  ALCHEMY_API_KEY: optionalString(),
+  BLOCKNATIVE_API_KEY: optionalString(),
 
   // Wallet
-  EXECUTOR_PRIVATE_KEY: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
-  EXECUTOR_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
-  EXECUTOR_OWNER_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  EXECUTOR_PRIVATE_KEY: optionalPrivateKey(),
+  EXECUTOR_ADDRESS: optionalAddress(),
+  EXECUTOR_OWNER_ADDRESS: optionalAddress(),
 
   // Estratégia
   MAX_TRADE_ETH: z.coerce.number().positive().default(0.1),
@@ -29,15 +47,15 @@ const envSchema = z.object({
 
   // Flashloan
   FLASHLOAN_PROVIDER: z.enum(['aave-v3', 'balancer', 'uniswap-v3']).default('aave-v3'),
-  AAVE_V3_POOL: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
+  AAVE_V3_POOL: optionalAddress(),
 
   // Liquidations
   ENABLE_LIQUIDATIONS: z.coerce.boolean().default(false),
 
   // Monitoring
-  DISCORD_WEBHOOK_URL: z.string().url().optional(),
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_CHAT_ID: z.string().optional(),
+  DISCORD_WEBHOOK_URL: optionalUrl(),
+  TELEGRAM_BOT_TOKEN: optionalString(),
+  TELEGRAM_CHAT_ID: optionalString(),
 
   // Logs
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),

@@ -83,27 +83,36 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ### ✅ Concluído (2026-05-22)
 
-**Fases 0 → 3 + Track A (deploy Sepolia) + Track B (backtest + fork tests positivos)**
+**Fases 0 → 3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + Trilha 1 part 1 (Liquidações)**
 
 - **Fase 0** — Monorepo pnpm + Foundry + 7 docs canônicos + repo GitHub
-- **Fase 1** — `ZeusExecutor.sol` (280 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
-- **Fase 2** — Detector DRY_RUN funcional: chain-config (Base + Sepolia), dex-adapters (UniV3+Aerodrome), opportunities, WSS subscribe
-- **Fase 3** — Flashloan Aave V3 + TxBuilder + Simulator (eth_call) + 5 fork tests flashloan
-- **Track A** — ZeusExecutor deployado em Base Sepolia: [`0xe48473...`](https://sepolia.basescan.org/address/0xe48473d75805886ac4162b1304eab6b8f93c5faa), verified
-- **Track B** — Refactor `packages/strategy` + `apps/backtest` + fork tests positivos (wallet + flashloan arb lucrativa)
-- **Total**: **29/29 testes Foundry passando** · 6/6 vitest · 5/5 typecheck workspaces · push contínuo no GitHub
+- **Fase 1** — `ZeusExecutor.sol` (390 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
+- **Fase 2** — Detector DRY_RUN funcional: chain-config (Base + Sepolia), dex-adapters, opportunities, WSS subscribe
+- **Fase 3** — Flashloan Aave V3 + TxBuilder + Simulator (eth_call) + 5 fork tests
+- **Track A** — ZeusExecutor v1 deployado em Base Sepolia (verified)
+- **Track B (cross-DEX)** — Backtests provaram: cross-DEX em Base 2026 não tem edge. Vira radar passivo. 2 fork tests positivos validando mecânica.
+- **Trilha 1 part 1 (Liquidações)** — `executeLiquidation()` + apps/monitor + 4 fork tests. Position 10 WETH + $12k debt → crash 40% WETH → **liquidação capturou $8.643 profit em 1 tx** ($0.15 de gas em mainnet).
+- **ZeusExecutor v2 redeployado** em Base Sepolia: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428), verified
+- **Total**: **33/33 testes Foundry passando** · 6/6 vitest · 6/6 typecheck workspaces · push contínuo no GitHub
 
 ### 🔍 Descoberta importante (Fase 4a)
 
 Backtest de 1000 blocos amostrados (~5.5h Base mainnet) com os 5 pares blue-chip da config: **0 oportunidades cross-DEX detectadas**. Confirma que Base mainnet em 2026 é hyper-competitivo pra arb em pares populares (MEV bots dominam). **Cross-DEX nesses pares não tem edge sistemática.**
 
-### 🎯 Em andamento (Fase 4c — decidido 2026-05-23)
+### 🎯 Em andamento (Trilha 1 part 2 — observação Sepolia)
 
-**Mix A+B em duas trilhas independentes:**
-- **Trilha 1 (Liquidações Aave V3)** — motor de edge previsível, 5-10% por liquidação
-- **Trilha 2 (Radar Longtail/Medium-cap)** — captura spreads esporádicos em pools com menos competição
+**Trilha 1 (Liquidações Aave V3)** — mecânica completa validada em fork mainnet:
+- ✅ Smart contract `executeLiquidation()` deployado em Sepolia
+- ✅ `apps/monitor/` pronto: subgraph discovery + on-chain HF check + liquidator planner
+- ✅ 4/4 fork tests com posições reais Aave V3
 
-**Princípio:** construir e validar cada trilha **isoladamente em fork mainnet** antes de rodarem juntas. Sem cross-contamination de risco.
+**Próximo (Fase 5b):**
+- [ ] Revive contrato em Sepolia (sair do kill state)
+- [ ] Rodar monitor em DRY_RUN observando positions reais por 2 semanas
+- [ ] Validar discovery via subgraph (precisa THEGRAPH_API_KEY)
+- [ ] Plugar submissão real quando HF < 1.0 detectado (Fase 7 mainnet)
+
+**Trilha 2 (cross-DEX):** confirmado sem edge → radar passivo apenas.
 
 **Estratégias futuras mapeadas (Fase 9+):**
 - Pools RWA + LSTs (bots institucionais ignoram, spreads grandes)
@@ -140,7 +149,7 @@ Lista priorizada em [TODO.md](./TODO.md). Próximas grandes etapas:
 - ✅ Owner do contrato será multisig (Safe Wallet em Base) em prod
 - ✅ Provider RPC: **dRPC** (210M CU/mês free) primário + Alchemy fallback
 - ✅ Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
-- ✅ Contrato testnet: `0xe48473d75805886ac4162b1304eab6b8f93c5faa` (Base Sepolia, verified)
+- ✅ Contrato testnet v2: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (Base Sepolia, verified, com executeLiquidation)
 
 ## 🤔 Decisões abertas
 

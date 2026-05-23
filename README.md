@@ -8,7 +8,7 @@
 **Chain inicial:** Base (Coinbase L2)
 **Próximas chains:** Arbitrum One, Optimism, BSC (após estratégia validada)
 **Time:** Humberto (product) + Claude (engineering)
-**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (backtest + fork tests positivos) concluídas — **29/29 testes Foundry passando** · contrato verified em Base Sepolia: [`0xe48473...`](https://sepolia.basescan.org/address/0xe48473d75805886ac4162b1304eab6b8f93c5faa)
+**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + **Trilha 1 part 1 (Liquidações Aave V3 — $8.643 profit em fork test)** — **33/33 testes Foundry passando** · contrato v2 verified em Base Sepolia: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428)
 
 ---
 
@@ -135,9 +135,9 @@ zeus-evm/
 │   └── lib/                           # forge install deps
 │
 ├── apps/
-│   ├── detector/                      # TS — main loop + scan + simulate
-│   ├── backtest/                      # TS — replay histórico de blocos
-│   └── monitor/                       # placeholder (Fase 6: liquidations)
+│   ├── detector/                      # TS — cross-DEX scanner DRY_RUN (radar passivo)
+│   ├── backtest/                      # TS — replay histórico + discover-pairs
+│   └── monitor/                       # TS — liquidator: discovery subgraph + HF on-chain (Trilha 1)
 │
 ├── packages/
 │   ├── chain-config/                  # BASE_MAINNET + BASE_SEPOLIA + pairs
@@ -162,10 +162,12 @@ Detalhes em [TODO.md](./TODO.md).
 | **3** | Flashloan Aave V3 + TxBuilder + Simulator + 5 fork tests | ✅ Pronto |
 | **4a** | Backtest histórico — confirmou: cross-DEX em blue chips sem edge | ✅ Pronto |
 | **4b** | Fork tests positivos (wallet + flashloan arb lucrativa) | ✅ Pronto |
-| **4c** | **Decidir estratégia com edge real** (liquidations recomendada) | 🟡 Decisão |
-| **5a** | Deploy ZeusExecutor em Base Sepolia + verified Basescan | ✅ Pronto |
-| **5b** | 2 semanas observação testnet | ⏳ Aguarda 4c |
-| **6** | Liquidations (Aave V3 + Compound III + Morpho) | ❌ Pendente |
+| **4c** | Decisão estratégia: Mix A+B em 2 trilhas | ✅ Decidido 2026-05-23 |
+| **4c-T2** | Trilha 2: cross-DEX longtail (AERO/VIRTUAL) — sem edge confirmado | ✅ Radar passivo |
+| **4c-T1** | **Trilha 1 part 1**: executeLiquidation + apps/monitor + 4 fork tests Aave V3 | ✅ Pronto ($8.643 profit em test) |
+| **5a** | Deploy ZeusExecutor v2 em Base Sepolia + verified | ✅ Pronto |
+| **5b** | 2 semanas observação testnet (revive + monitor DRY_RUN) | ⏳ Próximo |
+| **6.5** | Expansão Compound III + Morpho | ❌ Após Aave V3 lucrar |
 | **7** | Deploy mainnet capital pequeno + 4 semanas observação | ❌ Pendente |
 | **8** | Audit externo (Certik ~$4.2k ou similar) | ❌ Pendente |
 | **9** | Scale: capital aumentado, multi-chain (Arbitrum + Optimism) | ❌ Pendente |

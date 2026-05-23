@@ -145,22 +145,24 @@ zeus-evm/
 
 ### ✅ Pronto
 - **Fase 0**: Monorepo pnpm + Foundry + 7 docs canônicos + repo GitHub
-- **Fase 1**: ZeusExecutor.sol (280 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
+- **Fase 1**: ZeusExecutor.sol (~390 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
 - **Fase 2**: Detector DRY_RUN funcional + dex-adapters + opportunities + WSS subscribe
 - **Fase 3**: Flashloan Aave V3 + TxBuilder + Simulator + 5 fork tests flashloan
-- **Fase 4a**: Backtest 1000 blocos — **0 oportunidades cross-DEX em blue chips** (MEV bots dominam)
+- **Fase 4a**: Backtest 1000 blocos blue-chip — 0 opp (cross-DEX = dead-end em Base 2026)
 - **Fase 4b**: Fork tests positivos (wallet+flashloan arb lucrativa com gap artificial)
-- **Track A (Fase 5a)**: ZeusExecutor deployado em Base Sepolia `0xe48473d75805886ac4162b1304eab6b8f93c5faa` + verified Basescan
-- **Track B**: Refactor `packages/strategy` (lógica reusável) + `apps/backtest`
-- **Total**: 29/29 Foundry tests · 6/6 vitest · 5/5 typecheck workspaces
+- **Fase 4c-T2**: Backtest 1000 blocos longtail (AERO/VIRTUAL) — 0 opp também → Trilha 2 vira radar passivo
+- **Trilha 1 part 1 (Liquidações)**: `executeLiquidation()` + apps/monitor + 4 fork tests. Position 10 WETH + $12k debt + crash 40% → **$8.643 profit em 1 tx** ($0.15 gas).
+- **Fase 5a**: ZeusExecutor v2 deployado em Base Sepolia `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` + verified
+- **Total**: 33/33 Foundry tests · 6/6 vitest · 6/6 typecheck workspaces
 
-### 🟡 Em andamento (Fase 4c — decidido 2026-05-23)
-**Mix A+B em duas trilhas independentes:**
-- **Trilha 1**: Liquidações Aave V3 (motor previsível, 5-10% por liquidação)
-- **Trilha 2**: Radar Longtail/Medium-cap (upside esporádico em pools com menos MEV)
-- Princípio: validar isoladamente em fork antes de rodarem juntas
+### 🟡 Em andamento (Trilha 1 part 2 — observação Sepolia)
+- ✅ Trilha 1 part 1: contrato + monitor + fork tests prontos
+- [ ] **Próximo**: revive contrato Sepolia + rodar monitor DRY_RUN observando positions reais 2 semanas
+- [ ] Conta TheGraph (free) + API key pra ativar subgraph discovery
+- [ ] Plug-in da submissão real de tx quando HF < 1.0 (Fase 7 = mainnet capital pequeno)
 
 **Estratégias futuras (Fase 9+):**
+- Compound III + Morpho (Fase 6.5 — após Aave V3 lucrar consistente)
 - RWA + LSTs (bots institucionais ignoram)
 - Backrunning de baleias (dislocation pós-trade)
 - Arbitragem ve(3,3) intra-Aerodrome (stable vs volatile pool)
@@ -177,7 +179,7 @@ zeus-evm/
 ### 🔑 Decisões já tomadas
 - Provider RPC: **dRPC** primário + Alchemy fallback
 - Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
-- Contrato testnet verified: `0xe48473d75805886ac4162b1304eab6b8f93c5faa`
+- Contrato testnet v2 verified: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (com executeLiquidation)
 
 ### ⏸️ Aguardando decisão do Humberto
 - **Estratégia com edge** (Fase 4c) ← bloqueador principal

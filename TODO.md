@@ -106,18 +106,55 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 **Princípio de blindagem:** construir e validar cada trilha **isoladamente em fork mainnet** antes de rodarem juntas em produção. Sem cross-contamination de risco.
 
-#### Trilha 1 — Motor de Liquidações (Aave V3)
+#### Trilha 1 — Motor de Liquidações Aave V3 (FOCO ATUAL — decisões confirmadas 2026-05-23)
 
-- [ ] `apps/monitor/src/protocols/aaveV3.ts` — leitura de positions ativas + cálculo HF
-- [ ] `apps/monitor/src/healthFactor.ts` — engine HF (calcular off-chain pra evitar gás)
-- [ ] `apps/monitor/src/liquidator.ts` — dispara execução quando HF < 1.0
-- [ ] Adicionar `executeLiquidation()` no ZeusExecutor:
-  - Recebe (user, collateralAsset, debtAsset, debtToCover, useFlashloan)
-  - Se useFlashloan: pega flashloan do debtAsset, chama `liquidationCall`, recebe colateral + bonus, swap colateral→debtAsset pra repay, mantém profit
-  - Se !useFlashloan: usa saldo próprio do contrato
-- [ ] Fork tests com posições reais de Base mainnet (achar HF < 1.05 via subgraph/scan)
-- [ ] Documentar protocolos suportados (start: Aave V3, depois Compound III, depois Morpho)
+**Decisões consolidadas:**
+1. **Protocolo:** Aave V3 only (Compound III + Morpho ficam pra fase de expansão — ver abaixo)
+2. **Descoberta de positions:** Subgraph (The Graph) — opção A do plano original
+3. **Execução:** 100% flashloan (capital próprio = $0)
+4. **Infra:** caminho gradual em `docs/INFRA_EVOLUTION.md` — começamos no Estágio 0
+
+**Tarefas técnicas:**
+
+- [ ] Pesquisar Aave V3 Base Subgraph URL + schema (query users + HF)
+- [ ] `apps/monitor/` (novo workspace pnpm):
+  - [ ] `package.json` + `tsconfig.json`
+  - [ ] `src/index.ts` — main loop: polling positions + WSS new blocks trigger
+  - [ ] `src/protocols/aaveV3.ts` — leitura de positions via subgraph + cálculo HF
+  - [ ] `src/healthFactor.ts` — engine HF off-chain (evita gás)
+  - [ ] `src/liquidator.ts` — dispara execução quando HF < 1.0
+  - [ ] `src/config.ts` — load env (similar ao detector)
+  - [ ] `src/logger.ts` — pino structured
+- [ ] Adicionar `executeLiquidation()` no ZeusExecutor.sol:
+  - Recebe (user, collateralAsset, debtAsset, debtToCover, liquidationSwaps[])
+  - Pega flashloan do debtAsset via Aave
+  - No callback executeOperation:
+    - Aave.liquidationCall(user, collateralAsset, debtAsset, debtToCover, false)
+    - Swap colateral → debtAsset via DEXs (UniV3/Aerodrome)
+    - Repay flashloan + 0.05% fee
+    - Mantém profit residual em debtAsset
+  - Emit LiquidationExecuted event
+- [ ] Adicionar IPool.liquidationCall ao IPool.sol interface
+- [ ] Fork tests com posições reais de Base mainnet (descobrir HF < 1.05 via subgraph)
+- [ ] Redeploy ZeusExecutor em Base Sepolia com nova função
 - Edge: 5-10% liquidation bonus, janela 1-3 blocos, não precisa competir em ms
+
+---
+
+### 🟡 Fase 6.5 — Expansão de protocolos (Trilha 1 v2, após Aave V3 validado)
+
+Pendente após Trilha 1 estar lucrando consistente em Aave V3.
+
+- [ ] **Compound III** (Comet) em Base
+  - [ ] `apps/monitor/src/protocols/compoundV3.ts`
+  - [ ] Adaptar `executeLiquidation()` ou criar `executeLiquidationCompound()` no ZeusExecutor
+  - [ ] Compound usa `absorb()` em vez de `liquidationCall` — interface diferente
+- [ ] **Morpho** em Base
+  - [ ] `apps/monitor/src/protocols/morpho.ts`
+  - [ ] Morpho tem Morpho Blue (markets isolados) + MetaMorpho (vaults)
+  - [ ] Liquidação via `liquidate()` na MarketParams específica
+- [ ] **Unificar** detector liquidator pra rotear automaticamente entre Aave/Compound/Morpho conforme HF
+- [ ] Decidir prioridade quando mesma position é liquidável em múltiplos protocolos
 
 #### Trilha 2 — Radar Longtail/Medium-cap (CONCLUÍDA 2026-05-23 — sem edge)
 
@@ -374,3 +411,4 @@ Quando estiver em produção, monitorar:
 | 2026-05-22 | Track B: Refactor `packages/strategy` + `apps/backtest` + fork tests profitArb (29/29) |
 | 2026-05-23 | Decisão Fase 4c: **Mix A+B em duas trilhas** (Liquidações + Longtail) + adicionadas 3 estratégias futuras (RWA/LST, Backrunning baleias, Aerodrome ve(3,3)) |
 | 2026-05-23 | Trilha 2 concluída: discover-pairs + 3 pares longtail (AERO/USDC, AERO/WETH, VIRTUAL/WETH) + `docs/NO_EDGE_TOKENS.md`. **Backtest: 0/1000 oportunidades — cross-DEX em Base 2026 é dead-end confirmado**. Trilha 2 vira radar passivo, foco vai pra Trilha 1 (Liquidations). |
+| 2026-05-23 | Trilha 1 iniciada. Decisões: Aave V3 only (Compound III + Morpho como Fase 6.5), Subgraph pra descoberta de positions, 100% flashloan. Criado `docs/INFRA_EVOLUTION.md` mapeando 5 estágios de infra (Estágio 0 hoje → Estágio 4 longo prazo). |

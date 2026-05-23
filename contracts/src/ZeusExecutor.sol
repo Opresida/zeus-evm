@@ -7,7 +7,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IZeusExecutor, SwapStep, ArbitrageParams, DexType} from "./interfaces/IZeusExecutor.sol";
+import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
 import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
 import {IPool} from "./interfaces/aave/IPool.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
@@ -105,8 +105,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         if (params.steps.length == 0) revert EmptySteps();
         if (flashloanAmount > maxTradeWei) revert TradeTooLarge(flashloanAmount, maxTradeWei);
 
-        // Encoda params pra passar pro callback executeOperation
-        bytes memory encodedParams = abi.encode(params, msg.sender);
+        // Encoda discriminator + arb params + operator pra passar pro callback executeOperation
+        bytes memory encodedParams = abi.encode(OperationType.Arbitrage, abi.encode(params, msg.sender));
 
         IPool(AAVE_V3_POOL).flashLoanSimple(
             address(this),
@@ -118,11 +118,36 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         // Aave chama executeOperation aqui (callback). Se reverter, toda a tx reverte.
     }
 
+    /// @inheritdoc IZeusExecutor
+    function executeLiquidation(LiquidationParams calldata params)
+        external
+        override
+        onlyOperator
+        whenNotPaused
+        whenAlive
+        nonReentrant
+    {
+        if (params.debtToCover > maxTradeWei) revert TradeTooLarge(params.debtToCover, maxTradeWei);
+
+        // Encoda discriminator + liquidation params + operator
+        bytes memory encodedParams = abi.encode(OperationType.Liquidation, abi.encode(params, msg.sender));
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            params.debtAsset,
+            params.debtToCover,
+            encodedParams,
+            0
+        );
+        // Aave chama executeOperation aqui — _handleLiquidation roda lá dentro
+    }
+
     /// @inheritdoc IFlashLoanSimpleReceiver
     /// @notice Callback chamado pelo Aave V3 Pool após emprestar tokens
     /// @dev Validações:
     ///      - Só Aave V3 Pool pode chamar
     ///      - Initiator deve ser este contrato (defesa contra terceiros usando nosso receiver)
+    ///      - Dispatch por OperationType (Arbitrage vs Liquidation)
     function executeOperation(
         address asset,
         uint256 amount,
@@ -133,28 +158,45 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         if (msg.sender != AAVE_V3_POOL) revert InvalidCaller();
         if (initiator != address(this)) revert InvalidCaller();
 
-        (ArbitrageParams memory arbParams, address operator) = abi.decode(params, (ArbitrageParams, address));
+        (OperationType opType, bytes memory inner) = abi.decode(params, (OperationType, bytes));
+
+        if (opType == OperationType.Arbitrage) {
+            _handleArbitrageOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.Liquidation) {
+            _handleLiquidationOperation(asset, amount, premium, inner);
+        } else {
+            revert InvalidCaller(); // OperationType desconhecido
+        }
+
+        // Approve Aave pra puxar repay (válido pra ambos os fluxos)
+        IERC20(asset).forceApprove(AAVE_V3_POOL, amount + premium);
+
+        return true;
+    }
+
+    function _handleArbitrageOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (ArbitrageParams memory arbParams, address operator) = abi.decode(inner, (ArbitrageParams, address));
 
         // Estado pré-arb pra calcular lucro
         uint256 balanceBefore = IERC20(arbParams.profitToken).balanceOf(address(this));
 
         // Importante: subtraímos o flashloan amount se profitToken == asset emprestado
-        // (porque o balance inclui os tokens que viemos de pedir emprestado)
         if (arbParams.profitToken == asset) {
             balanceBefore = balanceBefore > amount ? balanceBefore - amount : 0;
         }
 
-        // Executa a cadeia de swaps
         _executeSwaps(arbParams.steps);
 
         uint256 balanceAfter = IERC20(arbParams.profitToken).balanceOf(address(this));
-
-        // Garantir capacidade de repay (saldo do asset >= amount + premium)
         uint256 amountOwed = amount + premium;
         uint256 assetBalance = IERC20(asset).balanceOf(address(this));
         if (assetBalance < amountOwed) revert FlashloanRepayShortfall(assetBalance, amountOwed);
 
-        // Calcular lucro líquido (já descontando o repay)
         uint256 profit;
         if (arbParams.profitToken == asset) {
             uint256 effectiveBalance = balanceAfter >= amountOwed ? balanceAfter - amountOwed : 0;
@@ -166,7 +208,6 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             }
             profit = effectiveBalance - balanceBefore;
         } else {
-            // profitToken diferente do asset emprestado — repay vem do asset, lucro fica no profitToken
             if (balanceAfter < balanceBefore + arbParams.minProfitWei) {
                 revert InsufficientProfit(
                     balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0,
@@ -176,17 +217,71 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             profit = balanceAfter - balanceBefore;
         }
 
-        // Transfere lucro residual
         if (arbParams.profitReceiver != address(this) && profit > 0) {
             IERC20(arbParams.profitToken).safeTransfer(arbParams.profitReceiver, profit);
         }
 
-        // Aprove Aave pra puxar repay
-        IERC20(asset).forceApprove(AAVE_V3_POOL, amountOwed);
-
         emit FlashloanArbitrageExecuted(operator, asset, amount, premium, arbParams.profitToken, profit);
+    }
 
-        return true;
+    function _handleLiquidationOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (LiquidationParams memory liqParams, address operator) = abi.decode(inner, (LiquidationParams, address));
+
+        // asset emprestado deve bater com debtAsset (sanity check)
+        if (asset != liqParams.debtAsset) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(liqParams.collateralAsset).balanceOf(address(this));
+
+        // 1. Aprovar Aave pra puxar o debtAsset que vai ser quitado
+        IERC20(liqParams.debtAsset).forceApprove(AAVE_V3_POOL, liqParams.debtToCover);
+
+        // 2. Chamar liquidationCall — Aave puxa debtAsset e devolve collateralAsset + bonus
+        IPool(AAVE_V3_POOL).liquidationCall(
+            liqParams.collateralAsset,
+            liqParams.debtAsset,
+            liqParams.user,
+            liqParams.debtToCover,
+            false // receiveAToken=false: recebemos colateral cru, não aToken
+        );
+
+        uint256 collateralReceived = IERC20(liqParams.collateralAsset).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1); // liquidação falhou silenciosamente
+
+        // 3. Swap collateral → debtAsset (usando swapSteps fornecidos)
+        if (liqParams.swapSteps.length > 0) {
+            _executeSwaps(liqParams.swapSteps);
+        }
+
+        // 4. Validar capacidade de repay (saldo de debtAsset >= flashloan + premium)
+        uint256 amountOwed = amount + premium;
+        uint256 debtAssetBalance = IERC20(liqParams.debtAsset).balanceOf(address(this));
+        if (debtAssetBalance < amountOwed) revert FlashloanRepayShortfall(debtAssetBalance, amountOwed);
+
+        // 5. Calcular profit líquido em debtAsset (após repay)
+        uint256 profit = debtAssetBalance - amountOwed;
+        if (profit < liqParams.minProfitWei) {
+            revert InsufficientProfit(profit, liqParams.minProfitWei);
+        }
+
+        // 6. Transferir profit pro receiver
+        if (liqParams.profitReceiver != address(this) && profit > 0) {
+            IERC20(liqParams.debtAsset).safeTransfer(liqParams.profitReceiver, profit);
+        }
+
+        emit LiquidationExecuted(
+            operator,
+            liqParams.user,
+            liqParams.collateralAsset,
+            liqParams.debtAsset,
+            liqParams.debtToCover,
+            collateralReceived,
+            profit
+        );
     }
 
     // ════════ INTERNAL SWAP EXECUTOR ════════

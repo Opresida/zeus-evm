@@ -70,6 +70,40 @@ export const ZEUS_EXECUTOR_ABI = [
     ],
     outputs: [],
   },
+  // ─── executeLiquidation (modalidade liquidação Aave V3 + flashloan) ───
+  {
+    type: 'function',
+    name: 'executeLiquidation',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'user' },
+          { type: 'address', name: 'collateralAsset' },
+          { type: 'address', name: 'debtAsset' },
+          { type: 'uint256', name: 'debtToCover' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
   // ─── Eventos (pra decode de logs futuros) ───
   {
     type: 'event',
@@ -90,6 +124,19 @@ export const ZEUS_EXECUTOR_ABI = [
       { type: 'uint256', name: 'flashloanAmount', indexed: false },
       { type: 'uint256', name: 'flashloanFee', indexed: false },
       { type: 'address', name: 'profitToken', indexed: true },
+      { type: 'uint256', name: 'profit', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'LiquidationExecuted',
+    inputs: [
+      { type: 'address', name: 'initiator', indexed: true },
+      { type: 'address', name: 'user', indexed: true },
+      { type: 'address', name: 'collateralAsset', indexed: true },
+      { type: 'address', name: 'debtAsset', indexed: false },
+      { type: 'uint256', name: 'debtCovered', indexed: false },
+      { type: 'uint256', name: 'collateralReceived', indexed: false },
       { type: 'uint256', name: 'profit', indexed: false },
     ],
   },

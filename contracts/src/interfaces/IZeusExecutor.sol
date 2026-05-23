@@ -30,6 +30,24 @@ struct ArbitrageParams {
     address profitReceiver;  // pra onde enviar o lucro residual
 }
 
+/// @notice Parâmetros de uma operação de liquidação Aave V3
+/// @dev Fluxo: flashloan(debtAsset) → liquidationCall → recebe colateral+bonus → swap colateral→debtAsset → repay
+struct LiquidationParams {
+    address user;                // dono da posição liquidável
+    address collateralAsset;     // asset que receberemos como bonus
+    address debtAsset;           // asset cuja dívida estamos quitando (= flashloan asset)
+    uint256 debtToCover;         // quantia da dívida a cobrir (= flashloan amount). Aave permite até 50% da dívida total.
+    SwapStep[] swapSteps;        // swaps pra converter colateral → debtAsset (pra repay flashloan + manter profit)
+    uint256 minProfitWei;        // profit mínimo em debtAsset (após repay) ou tx reverte
+    address profitReceiver;      // pra onde enviar o profit residual em debtAsset
+}
+
+/// @notice Discriminator pro callback executeOperation diferenciar arb vs liquidation
+enum OperationType {
+    Arbitrage,   // 0 — flashloan pra arb cross-DEX
+    Liquidation  // 1 — flashloan pra liquidação Aave V3
+}
+
 /// @title IZeusExecutor — interface pública do contrato executor
 interface IZeusExecutor {
     // ════════ EVENTS ════════
@@ -47,6 +65,16 @@ interface IZeusExecutor {
         uint256 flashloanAmount,
         uint256 flashloanFee,
         address indexed profitToken,
+        uint256 profit
+    );
+
+    event LiquidationExecuted(
+        address indexed initiator,
+        address indexed user,
+        address indexed collateralAsset,
+        address debtAsset,
+        uint256 debtCovered,
+        uint256 collateralReceived,
         uint256 profit
     );
 
@@ -81,6 +109,16 @@ interface IZeusExecutor {
         uint256 flashloanAmount,
         ArbitrageParams calldata params
     ) external;
+
+    /// @notice Modalidade 3: liquidação Aave V3 financiada por flashloan
+    /// @dev Fluxo atômico:
+    ///   1. flashloan(debtAsset, debtToCover) do Aave
+    ///   2. callback executeOperation:
+    ///      a. Aave.liquidationCall(...) → recebe collateral + bonus
+    ///      b. swap collateral → debtAsset via swapSteps (UniV3/Aerodrome)
+    ///      c. repay flashloan + fee 0.05%
+    ///      d. profit residual em debtAsset vai pro profitReceiver
+    function executeLiquidation(LiquidationParams calldata params) external;
 
     // ════════ ADMIN (owner only) ════════
 

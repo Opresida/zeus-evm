@@ -33,4 +33,21 @@ interface IPool {
         uint256 debtToCover,
         bool receiveAToken
     ) external;
+
+    /// @notice Retorna dados agregados da position de um user
+    /// @dev Usado pelo monitor off-chain pra HF check real-time
+    /// @return totalCollateralBase Total collateral em base currency (USD com 8 decimais)
+    /// @return totalDebtBase Total debt em base currency
+    /// @return availableBorrowsBase Quanto ainda pode emprestar
+    /// @return currentLiquidationThreshold Threshold ponderado da position (1e4 = 100%)
+    /// @return ltv Loan-to-Value (1e4 = 100%)
+    /// @return healthFactor 1e18 = HF 1.0; < 1e18 = liquidável
+    function getUserAccountData(address user) external view returns (
+        uint256 totalCollateralBase,
+        uint256 totalDebtBase,
+        uint256 availableBorrowsBase,
+        uint256 currentLiquidationThreshold,
+        uint256 ltv,
+        uint256 healthFactor
+    );
 }

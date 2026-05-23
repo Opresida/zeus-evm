@@ -78,25 +78,64 @@ export async function getUserAccountData(
 }
 
 /**
- * Busca account data pra MUITOS users em paralelo (com controle de concorrência).
- * Default: 10 chamadas concorrentes (não sobrecarrega RPC).
+ * Busca account data pra MUITOS users em UMA única RPC call via Multicall3.
+ *
+ * Multicall3 (0xcA11bde05977b3631167028862bE2a173976CA11) é pre-deploy
+ * em todas EVM chains. Viem usa por padrão se chain config tiver `multicall3`.
+ *
+ * Estratégia:
+ *   - Batch size 100 (default viem) — 1 RPC retorna 100 user data
+ *   - `allowFailure: true` — usuários que falharem retornam null (não derrubam batch)
+ *   - 1000 users = 10 calls Multicall3 (vs 1000 calls individuais, 100x mais eficiente)
  */
 export async function getUserAccountDataBatch(
   client: AnyClient,
   poolAddress: Address,
   users: Address[],
-  concurrency: number = 10,
+  batchSize: number = 100,
 ): Promise<UserAccountData[]> {
+  if (users.length === 0) return [];
+
+  const contracts = users.map((user) => ({
+    address: poolAddress,
+    abi: POOL_ABI,
+    functionName: 'getUserAccountData' as const,
+    args: [user] as const,
+  }));
+
+  const multicallResults = await client.multicall({
+    contracts,
+    batchSize,
+    allowFailure: true,
+  });
+
+  // Muitos users do subgraph são "fantasmas" (positions fechadas mas registro permanece).
+  // Multicall3 retorna revert pra esses — `allowFailure: true` engloba sem quebrar batch.
   const results: UserAccountData[] = [];
-  for (let i = 0; i < users.length; i += concurrency) {
-    const batch = users.slice(i, i + concurrency);
-    const batchResults = await Promise.all(
-      batch.map((u) => getUserAccountData(client, poolAddress, u).catch((err) => ({ user: u, error: err }))),
-    );
-    for (const r of batchResults) {
-      if ('healthFactor' in r) results.push(r);
-    }
+  for (let i = 0; i < multicallResults.length; i++) {
+    const r = multicallResults[i]!;
+    if (r.status !== 'success' || !r.result) continue;
+
+    const [
+      totalCollateralBase,
+      totalDebtBase,
+      availableBorrowsBase,
+      currentLiquidationThreshold,
+      ltv,
+      healthFactor,
+    ] = r.result as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
+
+    results.push({
+      user: users[i]!,
+      totalCollateralBase,
+      totalDebtBase,
+      availableBorrowsBase,
+      currentLiquidationThreshold,
+      ltv,
+      healthFactor,
+    });
   }
+
   return results;
 }
 

@@ -50,7 +50,7 @@ async function discoveryLoop(
     const candidates = await fetchAllAaveV3Candidates({
       apiKey: env.THEGRAPH_API_KEY,
       subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
-      maxUsers: 1000,
+      maxUsers: 1000, // top 1000 já cobre os ~120 borrowers ativos reais; resto são fantasmas
     });
 
     logger.info({ count: candidates.length }, `📋 ${candidates.length} candidatos com borrowedReservesCount > 0`);

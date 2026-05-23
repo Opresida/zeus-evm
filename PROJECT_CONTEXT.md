@@ -97,9 +97,18 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 Backtest de 1000 blocos amostrados (~5.5h Base mainnet) com os 5 pares blue-chip da config: **0 oportunidades cross-DEX detectadas**. Confirma que Base mainnet em 2026 é hyper-competitivo pra arb em pares populares (MEV bots dominam). **Cross-DEX nesses pares não tem edge sistemática.**
 
-### 🎯 Em andamento
+### 🎯 Em andamento (Fase 4c — decidido 2026-05-23)
 
-- Decidir estratégia que tem edge real (Fase 4c) — opções discutidas: liquidations (recomendada), longtail medium-cap, triangular
+**Mix A+B em duas trilhas independentes:**
+- **Trilha 1 (Liquidações Aave V3)** — motor de edge previsível, 5-10% por liquidação
+- **Trilha 2 (Radar Longtail/Medium-cap)** — captura spreads esporádicos em pools com menos competição
+
+**Princípio:** construir e validar cada trilha **isoladamente em fork mainnet** antes de rodarem juntas. Sem cross-contamination de risco.
+
+**Estratégias futuras mapeadas (Fase 9+):**
+- Pools RWA + LSTs (bots institucionais ignoram, spreads grandes)
+- Backrunning de baleias (dislocation pós-trade, jogo de RPC latency)
+- Arbitragem ve(3,3) intra-Aerodrome (stable vs volatile pool do mesmo par)
 
 ### ❌ Pendente
 Lista priorizada em [TODO.md](./TODO.md). Próximas grandes etapas:

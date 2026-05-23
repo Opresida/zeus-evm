@@ -154,11 +154,16 @@ zeus-evm/
 - **Track B**: Refactor `packages/strategy` (lógica reusável) + `apps/backtest`
 - **Total**: 29/29 Foundry tests · 6/6 vitest · 5/5 typecheck workspaces
 
-### 🟡 Em andamento (Fase 4c)
-**Decidir estratégia com edge real.** Opções:
-- **A. Liquidations Aave/Compound/Morpho** (recomendada — edge 5-10% por liquidação)
-- B. Pares longtail medium-cap
-- C. Triangular intra-DEX
+### 🟡 Em andamento (Fase 4c — decidido 2026-05-23)
+**Mix A+B em duas trilhas independentes:**
+- **Trilha 1**: Liquidações Aave V3 (motor previsível, 5-10% por liquidação)
+- **Trilha 2**: Radar Longtail/Medium-cap (upside esporádico em pools com menos MEV)
+- Princípio: validar isoladamente em fork antes de rodarem juntas
+
+**Estratégias futuras (Fase 9+):**
+- RWA + LSTs (bots institucionais ignoram)
+- Backrunning de baleias (dislocation pós-trade)
+- Arbitragem ve(3,3) intra-Aerodrome (stable vs volatile pool)
 
 ### ❌ Pendente
 - **Fase 5b**: 2 semanas observação testnet (depois de 4c)

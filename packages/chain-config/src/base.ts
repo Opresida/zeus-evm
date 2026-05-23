@@ -29,6 +29,7 @@ export const BASE_MAINNET: ChainConfig = {
     DAI:   '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
     USDT:  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
     AERO:  '0x940181a94A35A4569E4529A3CDfB74e38FD98631', // Aerodrome governance token
+    VIRTUAL: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b', // Virtuals Protocol (AI agents)
   },
 
   // ─── Aave V3 ───

@@ -119,17 +119,32 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 - [ ] Documentar protocolos suportados (start: Aave V3, depois Compound III, depois Morpho)
 - Edge: 5-10% liquidation bonus, janela 1-3 blocos, não precisa competir em ms
 
-#### Trilha 2 — Radar Longtail/Medium-cap
+#### Trilha 2 — Radar Longtail/Medium-cap (CONCLUÍDA 2026-05-23 — sem edge)
 
-- [ ] Reescrever `packages/chain-config/src/target-pairs.ts`:
-  - Remover blue chips (WETH/USDC, cbETH/WETH, USDC/USDT, USDC/DAI)
-  - Adicionar medium-cap Base: DEGEN, BRETT, MOG, HIGHER, AIXBT, MAMO, VIRTUAL, etc
-  - Adicionar RWAs conhecidos na Base (a definir lista após pesquisa)
-- [ ] Re-rodar backtest 1000 blocos com nova lista — esperar > 0 oportunidades
-- [ ] Ajustar `findCrossDexArb` se necessário (slippage maior, size menor pra pools rasos)
-- [ ] Adicionar filtro de TVL mínimo do pool (evitar honeypots)
-- [ ] Detector continua DRY_RUN — só simular, não submeter ainda
-- Edge: 0.5-2% spread esporádico, frequência baixa mas decente
+- [x] Criar `apps/backtest/src/discover-pairs.ts` (descoberta automática pools UniV3+Aerodrome)
+- [x] Discovery validou 5 pares viáveis (≥$50k TVL ambos DEXs): AERO/USDC, AERO/WETH, VIRTUAL/WETH, cbETH/WETH, wstETH/WETH
+- [x] Excluídos LSTs (cbETH, wstETH) — documentados em `docs/NO_EDGE_TOKENS.md`
+- [x] Reescrita `target-pairs.ts` com 3 pares estrelas (AERO/USDC, AERO/WETH, VIRTUAL/WETH)
+- [x] Backtest 1000 blocos amostrados (~5,5h Base mainnet) com nova lista
+- [x] **Resultado: 0 oportunidades cross-DEX detectadas**
+- [x] **Conclusão: cross-DEX em Base 2026 não tem edge real, nem em blue chips nem em medium-cap. MEV bots cobrem TUDO em <100ms.**
+
+**Decisão (2026-05-23):** Trilha 2 vira **radar passivo** — detector DRY_RUN continua escaneando os 3 pares, mas SEM expectativa de profit significativo. Energia principal foca em Trilha 1 (Liquidations).
+
+#### Estado das estratégias de arbitragem cross-DEX em Base 2026 (aprendizado consolidado)
+
+❌ **NÃO funcionam:**
+- Cross-DEX em pares blue-chip (WETH/USDC, cbETH/WETH, USDC/USDT, USDC/DAI, WETH/AERO original)
+- Cross-DEX em medium-cap com pools fragmentados (AERO/USDC, AERO/WETH, VIRTUAL/WETH)
+- LSTs (cbETH/WETH, wstETH/WETH) — pegged, bots LST-arb dominam
+- Memecoins (DEGEN, BRETT, TOSHI) — liquidez concentrada em UniV3 apenas, sem cross-DEX possível
+
+✅ **Funcionam mecanicamente (validados em fork):**
+- Wallet arb 2-step (UniV3 → Aerodrome) — engrenagem perfeita, edge inexistente
+- Flashloan arb via Aave V3 — engrenagem perfeita, edge inexistente
+
+✅ **Esperamos que funcionem (próximo):**
+- Liquidações Aave V3 (Trilha 1) — janela 1-3 blocos, edge 5-10% por liquidação
 
 #### Fase de integração (depois das 2 trilhas validadas isoladamente)
 
@@ -306,8 +321,8 @@ Detalhado em Fase 4c opção A acima.
 
 ## 🔄 Em andamento
 
-- [ ] **Trilha 1 (Liquidações)** — construir apps/monitor + executeLiquidation no contrato
-- [ ] **Trilha 2 (Radar Longtail)** — reescrever target-pairs com medium-cap Base + RWAs
+- [ ] **Trilha 1 (Liquidações)** — construir apps/monitor + executeLiquidation no contrato (FOCO PRINCIPAL agora)
+- [x] ~~Trilha 2 (Radar Longtail)~~ — concluída 2026-05-23, sem edge, vira radar passivo
 
 ---
 
@@ -358,3 +373,4 @@ Quando estiver em produção, monitorar:
 | 2026-05-22 | Track A: Deploy ZeusExecutor em Base Sepolia (`0xe48473...`) + verified Basescan |
 | 2026-05-22 | Track B: Refactor `packages/strategy` + `apps/backtest` + fork tests profitArb (29/29) |
 | 2026-05-23 | Decisão Fase 4c: **Mix A+B em duas trilhas** (Liquidações + Longtail) + adicionadas 3 estratégias futuras (RWA/LST, Backrunning baleias, Aerodrome ve(3,3)) |
+| 2026-05-23 | Trilha 2 concluída: discover-pairs + 3 pares longtail (AERO/USDC, AERO/WETH, VIRTUAL/WETH) + `docs/NO_EDGE_TOKENS.md`. **Backtest: 0/1000 oportunidades — cross-DEX em Base 2026 é dead-end confirmado**. Trilha 2 vira radar passivo, foco vai pra Trilha 1 (Liquidations). |

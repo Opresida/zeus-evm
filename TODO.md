@@ -141,20 +141,77 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 ---
 
-### 🟡 Fase 6.5 — Expansão de protocolos (Trilha 1 v2, após Aave V3 validado)
+### 🟡 Fase 6.5 — Plano de Expansão (4 sprints, decidido 2026-05-23)
 
-Pendente após Trilha 1 estar lucrando consistente em Aave V3.
+**Contexto:** Aave V3 Base sozinho tem apenas ~123 borrowers ativos reais — insuficiente pra meta de $1/min. Plano de 4 sprints expande pra ~7.000+ borrowers monitorados (57x mais oportunidades).
 
-- [ ] **Compound III** (Comet) em Base
+---
+
+#### Sprint 1 (~1 semana) — Maior alavanca rápida na Base ⭐ COMEÇAR AQUI
+
+- [ ] **Seamless Protocol** (fork Aave V3, reusa 95% do código!)
+  - [ ] Pesquisar endereços Seamless Pool em Base + Sepolia
+  - [ ] `apps/monitor/src/protocols/seamless.ts` — quase cópia de aaveV3.ts
+  - [ ] Adicionar ao discoveryLoop em paralelo com Aave V3
+  - [ ] Testar fork test reusando interface IPool
+  - Estimativa: 2 dias
+- [ ] **Reduzir MIN_DEBT_USD pra $20** (config .env)
+  - Base tem gas baixo (~$0.10/tx), captura liquidations menores ainda lucrativas
+  - Mudança trivial, captura ~3x mais oportunidades
+  - Estimativa: 5 min
+- [ ] Resultado esperado: 250-350 borrowers cobertos em Base (3x mais que hoje)
+
+#### Sprint 2 (~1 semana) — Multi-chain primário
+
+- [ ] **Arbitrum One** (Aave V3, ~3-5k borrowers estimados)
+  - [ ] `packages/chain-config/src/arbitrum.ts` (endereços Aave + UniV3)
+  - [ ] Adaptar monitor pra rodar 1 instância por chain (env CHAIN_ID)
+  - [ ] Validar liquidation fork test em Arbitrum mainnet
+  - [ ] Deploy ZeusExecutor em Arbitrum (mesmo código)
+  - Estimativa: 2-3 dias
+- [ ] **Optimism** (Aave V3, ~1.5-3k borrowers)
+  - [ ] `packages/chain-config/src/optimism.ts`
+  - [ ] Deploy ZeusExecutor em Optimism
+  - Estimativa: 1-2 dias
+- [ ] Resultado esperado: ~5.000+ borrowers cobertos (40x mais)
+
+⚠️ Caveat: chains maiores têm mais competição de liquidation bots. Profit por liquidação menor mas frequência muito maior.
+
+#### Sprint 3 (~2 semanas) — Protocolos extras
+
+- [ ] **Compound III** (Comet) em Base + Arbitrum
   - [ ] `apps/monitor/src/protocols/compoundV3.ts`
-  - [ ] Adaptar `executeLiquidation()` ou criar `executeLiquidationCompound()` no ZeusExecutor
   - [ ] Compound usa `absorb()` em vez de `liquidationCall` — interface diferente
-- [ ] **Morpho** em Base
+  - [ ] Adicionar `executeLiquidationCompound()` no ZeusExecutor (ou unificar)
+  - Estimativa: 4 dias
+- [ ] **Morpho Blue** em Base
   - [ ] `apps/monitor/src/protocols/morpho.ts`
-  - [ ] Morpho tem Morpho Blue (markets isolados) + MetaMorpho (vaults)
+  - [ ] Markets isolados (mais complexo que Aave/Compound)
   - [ ] Liquidação via `liquidate()` na MarketParams específica
-- [ ] **Unificar** detector liquidator pra rotear automaticamente entre Aave/Compound/Morpho conforme HF
+  - Estimativa: 5 dias
+- [ ] **Moonwell** (fork Compound) em Base
+  - [ ] `apps/monitor/src/protocols/moonwell.ts`
+  - Estimativa: 2 dias
+- [ ] Resultado esperado: ~7.000+ borrowers cobertos
+
+#### Sprint 4 (futuro, após Estágio 2 infra ~$300-600/mês)
+
+- [ ] **Mempool watching** em Base + Arbitrum
+  - [ ] Alchemy Mempool Subscriptions ($199/mês) ou Blocknative ($499/mês)
+  - [ ] Listener pra pending transactions
+  - [ ] Decoder de calldata: detectar swaps massivos
+  - [ ] Calculator de impacto: prever HF crash em users afetados
+  - [ ] Submitter prioritário: tx pra próximo bloco
+  - Edge: capturar liquidações ANTES de aparecer no polling normal
+  - Vantagem competitiva real
+
+---
+
+#### Unificação final (após Sprint 3)
+
+- [ ] Unificar detector liquidator pra rotear automaticamente entre Aave/Compound/Morpho/Seamless/Moonwell conforme HF
 - [ ] Decidir prioridade quando mesma position é liquidável em múltiplos protocolos
+- [ ] Estatísticas: profit por protocolo/chain pra otimização dinâmica
 
 #### Trilha 2 — Radar Longtail/Medium-cap (CONCLUÍDA 2026-05-23 — sem edge)
 
@@ -413,3 +470,5 @@ Quando estiver em produção, monitorar:
 | 2026-05-23 | Trilha 2 concluída: discover-pairs + 3 pares longtail (AERO/USDC, AERO/WETH, VIRTUAL/WETH) + `docs/NO_EDGE_TOKENS.md`. **Backtest: 0/1000 oportunidades — cross-DEX em Base 2026 é dead-end confirmado**. Trilha 2 vira radar passivo, foco vai pra Trilha 1 (Liquidations). |
 | 2026-05-23 | Trilha 1 iniciada. Decisões: Aave V3 only (Compound III + Morpho como Fase 6.5), Subgraph pra descoberta de positions, 100% flashloan. Criado `docs/INFRA_EVOLUTION.md` mapeando 5 estágios de infra (Estágio 0 hoje → Estágio 4 longo prazo). |
 | 2026-05-23 | **Trilha 1 part 1 ENTREGUE**: executeLiquidation() + apps/monitor completo + 4 fork tests Aave V3 PASSANDO. Total testes: 33/33. ZeusExecutor v2 redeployado em Sepolia: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (verified). Teste principal: position artificial 10 WETH + $12k debt → crash 40% WETH → liquidação capturou $8.643 profit em 1 tx. |
+| 2026-05-23 | **Multicall3 implementado** no healthFactor.ts — HF check de 20s → 3s (6.7x mais rápido). Validado contra Base mainnet: 123 borrowers ativos reais detectados (resto são "fantasmas" do subgraph). |
+| 2026-05-23 | **Plano de Expansão decidido** (Fase 6.5 detalhada em 4 sprints): Sprint 1 (Seamless + reduzir MIN_DEBT) → Sprint 2 (Arbitrum + Optimism) → Sprint 3 (Compound III + Morpho + Moonwell) → Sprint 4 (Mempool watching). Objetivo: passar de 123 → 7.000+ borrowers monitorados em ~4 semanas. Próxima sessão: começa Sprint 1 segunda 2026-05-25. |

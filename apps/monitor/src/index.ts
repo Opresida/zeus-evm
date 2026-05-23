@@ -17,7 +17,7 @@ import { BASE_MAINNET } from '@zeus-evm/chain-config';
 
 import { loadConfig } from './config';
 import { logger } from './logger';
-import { fetchAllAaveV3Positions } from './protocols/aaveV3';
+import { fetchAllAaveV3Candidates } from './protocols/aaveV3';
 import {
   getUserAccountDataBatch,
   filterAtRisk,
@@ -46,20 +46,19 @@ async function discoveryLoop(
   }
 
   try {
-    logger.info('🔍 Discovery: buscando positions ativas no Aave V3 Base via subgraph...');
-    const positions = await fetchAllAaveV3Positions({
+    logger.info('🔍 Discovery: buscando candidatos Aave V3 Base via subgraph (borrowedReservesCount > 0)...');
+    const candidates = await fetchAllAaveV3Candidates({
       apiKey: env.THEGRAPH_API_KEY,
       subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
-      minDebtUsd: env.MIN_DEBT_USD,
-      maxUsers: 1000, // primeiro batch — expandir se precisar
+      maxUsers: 1000,
     });
 
-    logger.info({ count: positions.length }, `📋 ${positions.length} positions com debt ≥ $${env.MIN_DEBT_USD}`);
+    logger.info({ count: candidates.length }, `📋 ${candidates.length} candidatos com borrowedReservesCount > 0`);
 
-    if (positions.length === 0) return;
+    if (candidates.length === 0) return;
 
-    // On-chain HF check pras positions descobertas
-    const users = positions.map((p) => p.user);
+    // On-chain HF check — também traz debt/collateral EXATOS em USD (1e8 base)
+    const users = candidates.map((c) => c.user);
     const accountDataList = await getUserAccountDataBatch(
       client,
       BASE_MAINNET.aave.pool,
@@ -67,14 +66,20 @@ async function discoveryLoop(
       10,
     );
 
-    const atRisk = filterAtRisk(accountDataList, env.HF_AT_RISK_THRESHOLD);
+    // Filtrar dust: positions com debt < MIN_DEBT_USD não valem o gas mesmo se liquidáveis
+    const minDebtBase = BigInt(Math.floor(env.MIN_DEBT_USD * 1e8));
+    const withRealDebt = accountDataList.filter((u) => u.totalDebtBase >= minDebtBase);
+
+    const atRisk = filterAtRisk(withRealDebt, env.HF_AT_RISK_THRESHOLD);
     logger.info(
       {
+        candidates: candidates.length,
         scanned: accountDataList.length,
+        withDebt: withRealDebt.length,
         atRisk: atRisk.length,
         threshold: env.HF_AT_RISK_THRESHOLD,
       },
-      `🎯 ${atRisk.length} positions em risco (HF < ${env.HF_AT_RISK_THRESHOLD})`,
+      `🎯 ${withRealDebt.length} com debt ≥ $${env.MIN_DEBT_USD} (de ${accountDataList.length}); ${atRisk.length} em risco (HF < ${env.HF_AT_RISK_THRESHOLD})`,
     );
 
     // Atualiza cache state

@@ -36,6 +36,32 @@ Pular etapa = perda de capital.
 ### 6. Mensurar antes de afirmar
 Mesmo princípio do Chronos: **toda estratégia precisa de baseline mensurada**. "Achei que ia dar" não é argumento — só win rate out-of-sample ≥ X% justifica deploy.
 
+### 7. FLASHLOAN-ONLY até primeiro lucro (definido 2026-05-26)
+
+**Toda estratégia avaliada pro ZEUS EVM deve passar nesse filtro:**
+1. ✅ Funciona 100% via flashloan atômico?
+2. ✅ Profit capturado em UMA única tx?
+3. ✅ Capital próprio necessário = $0 (só gas)?
+
+Se qualquer resposta for NÃO → **rejeitar ou adiar pra Fase pós-lucro**.
+
+**Aprovadas** (atendem o filtro):
+- Liquidations Aave / Compound III / Morpho Blue / Seamless / Moonwell
+- JIT Liquidity em UniV3
+- LRT depeg arb (cbETH, wstETH, weETH, rsETH, ezETH)
+- Vault liquidations (Yearn V3, MetaMorpho, Beefy)
+- Maker/GHO flash mint arb (quando disponível em Base)
+
+**Rejeitadas** (exigem capital próprio):
+- Interest Rate Arb (position persistente)
+- HF Rebalancing as service (produto B2C, não atomic)
+- Yield farming positions (capital locked)
+- Sandwich attacks (+ risco regulatório CFTC)
+
+**Pipeline de reinvestimento** (quando ZEUS gerar primeiro lucro mainnet):
+- 55% reinvestido no bot (infra premium, audit, novos protocolos)
+- 45% separado como capital próprio pra outras estratégias do ecossistema ZEUS (Solana, outros projetos, market making, etc)
+
 ---
 
 ## 🧠 Lógica de negócio

@@ -20,10 +20,15 @@ invariant = { runs = 1_000, depth = 50 }
 
 [rpc_endpoints]
 base = "${BASE_RPC_HTTP}"
-base_sepolia = "https://sepolia.base.org"
+base_sepolia = "${BASE_SEPOLIA_RPC_HTTP}"
+arbitrum_sepolia = "${ARBITRUM_SEPOLIA_RPC_HTTP}"
+optimism_sepolia = "${OPTIMISM_SEPOLIA_RPC_HTTP}"
 
+# Etherscan v2 unificou chains numa só API key — BASESCAN_API_KEY é usado pra todas.
 [etherscan]
 base = { key = "${BASESCAN_API_KEY}", chain = 8453 }
 base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532 }
+arbitrum_sepolia = { key = "${BASESCAN_API_KEY}", chain = 421614 }
+optimism_sepolia = { key = "${BASESCAN_API_KEY}", chain = 11155420 }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

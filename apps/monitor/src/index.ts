@@ -16,6 +16,7 @@ import { loadConfig } from './config';
 import { logger } from './logger';
 import { getChainContext, type ChainContext } from './chainContext';
 import { fetchAllAaveV3Candidates } from './protocols/aaveV3';
+import { scanCompoundLiquidatable } from './protocols/compoundV3';
 import {
   getUserAccountDataBatch,
   filterAtRisk,
@@ -158,6 +159,61 @@ async function hfCheckLoop(
   }
 }
 
+/**
+ * Compound III discovery + check em paralelo ao Aave.
+ * Scan eventos `Withdraw` recentes + isLiquidatable() via Multicall3.
+ */
+async function compoundDiscoveryLoop(ctx: ChainContext): Promise<void> {
+  const compound = ctx.chainConfig.compoundV3;
+  if (!compound) {
+    return; // chain sem Compound III configurado
+  }
+
+  const markets: { name: string; address: Address }[] = [];
+  if (compound.cUSDCv3 && compound.cUSDCv3 !== '0x0000000000000000000000000000000000000000') {
+    markets.push({ name: 'cUSDCv3', address: compound.cUSDCv3 as Address });
+  }
+  if (compound.cWETHv3 && compound.cWETHv3 !== '0x0000000000000000000000000000000000000000') {
+    markets.push({ name: 'cWETHv3', address: compound.cWETHv3 as Address });
+  }
+
+  if (markets.length === 0) return;
+
+  for (const market of markets) {
+    try {
+      const { totalBorrowers, liquidatable } = await scanCompoundLiquidatable({
+        client: ctx.client,
+        comet: market.address,
+        blockLookback: 100_000, // ~28h Base / ~5.5h Arb (block times diferentes)
+      });
+
+      logger.info(
+        {
+          chain: ctx.chainConfig.name,
+          market: market.name,
+          comet: market.address,
+          activeBorrowers: totalBorrowers,
+          liquidatable: liquidatable.length,
+        },
+        `📊 [${ctx.chainConfig.shortName}/${market.name}] ${totalBorrowers} borrowers ativos · ${liquidatable.length} liquidáveis`,
+      );
+
+      // Loga primeiros 3 liquidáveis (se houver)
+      for (const liq of liquidatable.slice(0, 3)) {
+        logger.warn(
+          { chain: ctx.chainConfig.name, market: market.name, borrower: liq.borrower },
+          `🔥 LIQUIDÁVEL Compound: ${liq.borrower.slice(0, 10)}... em ${market.name}`,
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : err, market: market.name },
+        `Compound discovery falhou pra ${market.name}`,
+      );
+    }
+  }
+}
+
 async function main() {
   const env = loadConfig();
   const ctx = getChainContext(env);
@@ -185,13 +241,20 @@ async function main() {
     positionsInRisk: new Map(),
   };
 
-  // ─── Discovery inicial ───
+  // ─── Discovery inicial (Aave V3 + Compound III) ───
   await discoveryLoop(env, ctx, state);
+  await compoundDiscoveryLoop(ctx);
 
   // ─── Loops periódicos ───
   setInterval(() => {
     discoveryLoop(env, ctx, state).catch((err) =>
       logger.error({ err }, 'discoveryLoop iteration failed'),
+    );
+  }, DISCOVERY_INTERVAL_MS);
+
+  setInterval(() => {
+    compoundDiscoveryLoop(ctx).catch((err) =>
+      logger.error({ err }, 'compoundDiscoveryLoop iteration failed'),
     );
   }, DISCOVERY_INTERVAL_MS);
 

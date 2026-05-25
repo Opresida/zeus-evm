@@ -46,5 +46,12 @@ export const OPTIMISM_MAINNET: ChainConfig = {
     feeTiers: [100, 500, 3000, 10000] as const,
   },
 
+  // ─── Compound III (Comet) ───
+  compoundV3: {
+    cUSDCv3: '0x2e44e174f7D53F0212823acC11C01A11d58c5bCB', // baseToken=USDC native Optimism
+    // cWETHv3 + cUSDTv3 podem existir mas não confirmados — adicionar quando necessário
+    cWETHv3: '0x0000000000000000000000000000000000000000', // TBD
+  },
+
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
 };

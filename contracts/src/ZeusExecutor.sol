@@ -7,9 +7,10 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
+import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, CompoundLiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
 import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
 import {IPool} from "./interfaces/aave/IPool.sol";
+import {IComet} from "./interfaces/compound/IComet.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 
@@ -142,6 +143,33 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         // Aave chama executeOperation aqui — _handleLiquidation roda lá dentro
     }
 
+    /// @inheritdoc IZeusExecutor
+    function executeCompoundLiquidation(CompoundLiquidationParams calldata params)
+        external
+        override
+        onlyOperator
+        whenNotPaused
+        whenAlive
+        nonReentrant
+    {
+        if (params.baseAmount > maxTradeWei) revert TradeTooLarge(params.baseAmount, maxTradeWei);
+        if (params.comet == address(0) || params.borrower == address(0)) revert NotAuthorized();
+
+        // baseToken do Comet = asset que vamos pegar emprestado no Aave (mesmo asset)
+        address baseAsset = IComet(params.comet).baseToken();
+
+        bytes memory encodedParams = abi.encode(OperationType.CompoundLiquidation, abi.encode(params, msg.sender));
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            baseAsset,
+            params.baseAmount,
+            encodedParams,
+            0
+        );
+        // Callback executa _handleCompoundLiquidationOperation
+    }
+
     /// @inheritdoc IFlashLoanSimpleReceiver
     /// @notice Callback chamado pelo Aave V3 Pool após emprestar tokens
     /// @dev Validações:
@@ -164,6 +192,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _handleArbitrageOperation(asset, amount, premium, inner);
         } else if (opType == OperationType.Liquidation) {
             _handleLiquidationOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.CompoundLiquidation) {
+            _handleCompoundLiquidationOperation(asset, amount, premium, inner);
         } else {
             revert InvalidCaller(); // OperationType desconhecido
         }
@@ -279,6 +309,69 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             liqParams.collateralAsset,
             liqParams.debtAsset,
             liqParams.debtToCover,
+            collateralReceived,
+            profit
+        );
+    }
+
+    /// @dev Liquidação Compound III (Comet) — 2-step: absorb + buyCollateral
+    function _handleCompoundLiquidationOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (CompoundLiquidationParams memory cp, address operator) = abi.decode(inner, (CompoundLiquidationParams, address));
+
+        // asset emprestado deve bater com baseToken do Comet
+        if (asset != IComet(cp.comet).baseToken()) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(cp.collateralAsset).balanceOf(address(this));
+
+        // 1. Absorb position underwater — protocolo absorve a dívida do borrower
+        address[] memory accounts = new address[](1);
+        accounts[0] = cp.borrower;
+        IComet(cp.comet).absorb(address(this), accounts);
+
+        // 2. Aprovar Comet pra puxar base token na compra de collateral
+        IERC20(asset).forceApprove(cp.comet, cp.baseAmount);
+
+        // 3. Comprar collateral com desconto
+        IComet(cp.comet).buyCollateral(
+            cp.collateralAsset,
+            cp.minCollateralReceived,
+            cp.baseAmount,
+            address(this)
+        );
+
+        uint256 collateralReceived = IERC20(cp.collateralAsset).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1);
+
+        // 4. Swap collateral → base token via DEX (UniV3/Aerodrome)
+        if (cp.swapSteps.length > 0) {
+            _executeSwaps(cp.swapSteps);
+        }
+
+        // 5. Validar capacidade de repay
+        uint256 amountOwed = amount + premium;
+        uint256 baseBalance = IERC20(asset).balanceOf(address(this));
+        if (baseBalance < amountOwed) revert FlashloanRepayShortfall(baseBalance, amountOwed);
+
+        // 6. Profit líquido em base token (após repay)
+        uint256 profit = baseBalance - amountOwed;
+        if (profit < cp.minProfitWei) revert InsufficientProfit(profit, cp.minProfitWei);
+
+        // 7. Transferir profit pro receiver
+        if (cp.profitReceiver != address(this) && profit > 0) {
+            IERC20(asset).safeTransfer(cp.profitReceiver, profit);
+        }
+
+        emit CompoundLiquidationExecuted(
+            operator,
+            cp.comet,
+            cp.borrower,
+            cp.collateralAsset,
+            cp.baseAmount,
             collateralReceived,
             profit
         );

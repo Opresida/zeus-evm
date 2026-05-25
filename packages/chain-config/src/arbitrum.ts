@@ -48,5 +48,12 @@ export const ARBITRUM_MAINNET: ChainConfig = {
 
   // Sushiswap V2 / Camelot V2 podem ser adicionados depois se quisermos cross-DEX
 
+  // ─── Compound III (Comet) ───
+  compoundV3: {
+    cUSDCv3: '0x9c4ec768c28520B50860ea7a15bd7213a9fF58bf', // baseToken=USDC native
+    cWETHv3: '0x6f7D514bbD4aFf3BcD1140B7344b32f063dEe486', // baseToken=WETH
+    // cUSDC.ev3 = 0xA5EDBDD9646f8dFF606d7448e414884C7d905dCA (bridged USDC, menos relevante)
+  },
+
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
 };

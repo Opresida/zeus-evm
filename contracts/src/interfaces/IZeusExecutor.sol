@@ -42,10 +42,24 @@ struct LiquidationParams {
     address profitReceiver;      // pra onde enviar o profit residual em debtAsset
 }
 
-/// @notice Discriminator pro callback executeOperation diferenciar arb vs liquidation
+/// @notice Discriminator pro callback executeOperation diferenciar tipo de operação
 enum OperationType {
-    Arbitrage,   // 0 — flashloan pra arb cross-DEX
-    Liquidation  // 1 — flashloan pra liquidação Aave V3
+    Arbitrage,           // 0 — flashloan pra arb cross-DEX
+    Liquidation,         // 1 — flashloan pra liquidação Aave V3
+    CompoundLiquidation  // 2 — flashloan pra liquidação Compound III (absorb + buyCollateral)
+}
+
+/// @notice Parâmetros de uma liquidação Compound III (Comet)
+/// @dev Fluxo: flashloan(baseToken) → absorb(borrower) → buyCollateral(...) → swap → repay
+struct CompoundLiquidationParams {
+    address comet;                // endereço do Comet (cUSDCv3, cWETHv3, etc)
+    address borrower;             // dono da position underwater
+    address collateralAsset;      // qual collateral comprar do protocolo
+    uint256 baseAmount;           // quanto do base token usar pra buyCollateral (= flashloan amount)
+    uint256 minCollateralReceived; // slippage protection no buyCollateral
+    SwapStep[] swapSteps;         // swaps pra converter collateral → base token (pra repay)
+    uint256 minProfitWei;         // profit mínimo em base token após repay
+    address profitReceiver;       // pra onde enviar o profit
 }
 
 /// @title IZeusExecutor — interface pública do contrato executor
@@ -74,6 +88,16 @@ interface IZeusExecutor {
         address indexed collateralAsset,
         address debtAsset,
         uint256 debtCovered,
+        uint256 collateralReceived,
+        uint256 profit
+    );
+
+    event CompoundLiquidationExecuted(
+        address indexed initiator,
+        address indexed comet,
+        address indexed borrower,
+        address collateralAsset,
+        uint256 baseAmount,
         uint256 collateralReceived,
         uint256 profit
     );
@@ -119,6 +143,17 @@ interface IZeusExecutor {
     ///      c. repay flashloan + fee 0.05%
     ///      d. profit residual em debtAsset vai pro profitReceiver
     function executeLiquidation(LiquidationParams calldata params) external;
+
+    /// @notice Modalidade 4: liquidação Compound III (Comet) financiada por flashloan Aave V3
+    /// @dev Fluxo atômico:
+    ///   1. flashloan(baseToken, baseAmount) do Aave V3
+    ///   2. callback executeOperation:
+    ///      a. Comet.absorb(self, [borrower]) — protocolo absorve a position
+    ///      b. Comet.buyCollateral(asset, ..., baseAmount, self) — compra collateral com desconto
+    ///      c. swap collateral → baseToken via swapSteps
+    ///      d. repay flashloan Aave + fee 0.05%
+    ///      e. profit residual em baseToken vai pro profitReceiver
+    function executeCompoundLiquidation(CompoundLiquidationParams calldata params) external;
 
     // ════════ ADMIN (owner only) ════════
 

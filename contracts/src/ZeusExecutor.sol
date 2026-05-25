@@ -30,8 +30,16 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
     /// @notice Aave V3 Pool — imutável após deploy
     address public immutable AAVE_V3_POOL;
 
-    /// @notice Limite máximo de amountIn por step (circuit breaker)
+    /// @notice Limite máximo de amountIn (fallback global em wei) — usado quando token-specific
+    /// override não estiver configurado. Mantido pra compat com semântica antiga.
+    /// @dev ⚠️ Este valor é "wei" no sentido genérico (smallest unit). Pra tokens não-18-decimais
+    /// (USDC/USDT/WBTC), configure override via `setMaxTradePerToken` — fallback aplicado a
+    /// tokens não cadastrados pode estar muito alto ou muito baixo (H-02).
     uint256 public maxTradeWei;
+
+    /// @notice Cap específico por token (em wei do token). Se 0, usa fallback `maxTradeWei`.
+    /// Resolve H-02: cap por token elimina mistura entre 6/8/18 decimais.
+    mapping(address => uint256) private _maxTradePerToken;
 
     /// @notice Wallets autorizadas a chamar entry points (além do owner)
     mapping(address => bool) private _operators;
@@ -105,7 +113,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         ArbitrageParams calldata params
     ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
         if (params.steps.length == 0) revert EmptySteps();
-        if (flashloanAmount > maxTradeWei) revert TradeTooLarge(flashloanAmount, maxTradeWei);
+        uint256 cap = getMaxTradeFor(flashloanAsset);
+        if (flashloanAmount > cap) revert TradeTooLarge(flashloanAmount, cap);
 
         // Encoda discriminator + arb params + operator pra passar pro callback executeOperation
         bytes memory encodedParams = abi.encode(OperationType.Arbitrage, abi.encode(params, msg.sender));
@@ -129,10 +138,18 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         whenAlive
         nonReentrant
     {
-        if (params.debtToCover > maxTradeWei) revert TradeTooLarge(params.debtToCover, maxTradeWei);
+        uint256 cap = getMaxTradeFor(params.debtAsset);
+        if (params.debtToCover > cap) revert TradeTooLarge(params.debtToCover, cap);
 
-        // Encoda discriminator + liquidation params + operator
-        bytes memory encodedParams = abi.encode(OperationType.Liquidation, abi.encode(params, msg.sender));
+        // Snapshot pre-flashloan do debtAsset (M-01 fix): impede que saldo pre-existente
+        // do contrato vaze pro profit pago ao profitReceiver.
+        uint256 debtBalanceBefore = IERC20(params.debtAsset).balanceOf(address(this));
+
+        // Encoda discriminator + liquidation params + operator + balanceBefore
+        bytes memory encodedParams = abi.encode(
+            OperationType.Liquidation,
+            abi.encode(params, msg.sender, debtBalanceBefore)
+        );
 
         IPool(AAVE_V3_POOL).flashLoanSimple(
             address(this),
@@ -153,13 +170,21 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         whenAlive
         nonReentrant
     {
-        if (params.baseAmount > maxTradeWei) revert TradeTooLarge(params.baseAmount, maxTradeWei);
         if (params.comet == address(0) || params.borrower == address(0)) revert NotAuthorized();
 
         // baseToken do Comet = asset que vamos pegar emprestado no Aave (mesmo asset)
         address baseAsset = IComet(params.comet).baseToken();
 
-        bytes memory encodedParams = abi.encode(OperationType.CompoundLiquidation, abi.encode(params, msg.sender));
+        uint256 cap = getMaxTradeFor(baseAsset);
+        if (params.baseAmount > cap) revert TradeTooLarge(params.baseAmount, cap);
+
+        // Snapshot pre-flashloan do baseAsset (M-01 fix)
+        uint256 baseBalanceBefore = IERC20(baseAsset).balanceOf(address(this));
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.CompoundLiquidation,
+            abi.encode(params, msg.sender, baseBalanceBefore)
+        );
 
         IPool(AAVE_V3_POOL).flashLoanSimple(
             address(this),
@@ -182,24 +207,25 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
     {
         if (params.morpho == address(0) || params.borrower == address(0)) revert NotAuthorized();
         if (params.loanToken == address(0) || params.collateralToken == address(0)) revert NotAuthorized();
+        // M-02 fix: flashloanAmount é EXPLÍCITO em wei do loanToken (computado off-chain via
+        // simulação eth_call). Não confunde mais com seizedAssets (collateralToken wei).
+        if (params.flashloanAmount == 0) revert EmptySteps();
 
-        // Estimar quanto loanToken precisamos pegar emprestado:
-        // - Se repaidShares: precisa converter pra assets. Pra simplicidade, deixamos o caller setar
-        //   um buffer no `seizedAssets` mode OU calcular off-chain.
-        // - Estratégia adotada: flashloan exato baseado em seizedAssets (off-chain calcula loanAmount = seized * oraclePrice * ltv)
-        //   OU usar repaidShares e estimar via subgraph.
-        //   Aqui assumimos que o caller passou loanAmount já calculado via `seizedAssets` (assets a serem repaid).
-        //   Pra MVP: pegamos seizedAssets como sinal e Morpho retorna assets reais.
-        //   Como aproximação, flashloan = seizedAssets (será refinado em produção via simulação eth_call).
-        uint256 flashAmount = params.seizedAssets > 0 ? params.seizedAssets : params.repaidShares;
-        if (flashAmount > maxTradeWei) revert TradeTooLarge(flashAmount, maxTradeWei);
+        uint256 cap = getMaxTradeFor(params.loanToken);
+        if (params.flashloanAmount > cap) revert TradeTooLarge(params.flashloanAmount, cap);
 
-        bytes memory encodedParams = abi.encode(OperationType.MorphoLiquidation, abi.encode(params, msg.sender));
+        // Snapshot pre-flashloan do loanToken (M-01 fix)
+        uint256 loanBalanceBefore = IERC20(params.loanToken).balanceOf(address(this));
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.MorphoLiquidation,
+            abi.encode(params, msg.sender, loanBalanceBefore)
+        );
 
         IPool(AAVE_V3_POOL).flashLoanSimple(
             address(this),
             params.loanToken,
-            flashAmount,
+            params.flashloanAmount,
             encodedParams,
             0
         );
@@ -298,7 +324,10 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         uint256 premium,
         bytes memory inner
     ) internal {
-        (LiquidationParams memory liqParams, address operator) = abi.decode(inner, (LiquidationParams, address));
+        // M-01 fix: decode inclui `debtBalanceBefore` (snapshot pre-flashloan) pra
+        // evitar que saldo pre-existente vaze pro profit.
+        (LiquidationParams memory liqParams, address operator, uint256 debtBalanceBefore) =
+            abi.decode(inner, (LiquidationParams, address, uint256));
 
         // asset emprestado deve bater com debtAsset (sanity check)
         if (asset != liqParams.debtAsset) revert InvalidCaller();
@@ -325,13 +354,17 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _executeSwaps(liqParams.swapSteps);
         }
 
-        // 4. Validar capacidade de repay (saldo de debtAsset >= flashloan + premium)
+        // 4. Validar capacidade de repay considerando saldo pre-existente
+        // (M-01): exige amountOwed em NOVOS fundos (swap output) — pre-existing fica protegido.
         uint256 amountOwed = amount + premium;
         uint256 debtAssetBalance = IERC20(liqParams.debtAsset).balanceOf(address(this));
-        if (debtAssetBalance < amountOwed) revert FlashloanRepayShortfall(debtAssetBalance, amountOwed);
+        uint256 minRequiredBalance = amountOwed + debtBalanceBefore;
+        if (debtAssetBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(debtAssetBalance, minRequiredBalance);
+        }
 
-        // 5. Calcular profit líquido em debtAsset (após repay)
-        uint256 profit = debtAssetBalance - amountOwed;
+        // 5. Profit líquido = (saldo final) − (repay flashloan) − (saldo pre-existente)
+        uint256 profit = debtAssetBalance - amountOwed - debtBalanceBefore;
         if (profit < liqParams.minProfitWei) {
             revert InsufficientProfit(profit, liqParams.minProfitWei);
         }
@@ -359,7 +392,9 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         uint256 premium,
         bytes memory inner
     ) internal {
-        (CompoundLiquidationParams memory cp, address operator) = abi.decode(inner, (CompoundLiquidationParams, address));
+        // M-01 fix: decode inclui `baseBalanceBefore`
+        (CompoundLiquidationParams memory cp, address operator, uint256 baseBalanceBefore) =
+            abi.decode(inner, (CompoundLiquidationParams, address, uint256));
 
         // asset emprestado deve bater com baseToken do Comet
         if (asset != IComet(cp.comet).baseToken()) revert InvalidCaller();
@@ -390,13 +425,16 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _executeSwaps(cp.swapSteps);
         }
 
-        // 5. Validar capacidade de repay
+        // 5. Validar capacidade de repay considerando saldo pre-existente (M-01)
         uint256 amountOwed = amount + premium;
         uint256 baseBalance = IERC20(asset).balanceOf(address(this));
-        if (baseBalance < amountOwed) revert FlashloanRepayShortfall(baseBalance, amountOwed);
+        uint256 minRequiredBalance = amountOwed + baseBalanceBefore;
+        if (baseBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(baseBalance, minRequiredBalance);
+        }
 
-        // 6. Profit líquido em base token (após repay)
-        uint256 profit = baseBalance - amountOwed;
+        // 6. Profit líquido = saldo final − repay − pre-existente
+        uint256 profit = baseBalance - amountOwed - baseBalanceBefore;
         if (profit < cp.minProfitWei) revert InsufficientProfit(profit, cp.minProfitWei);
 
         // 7. Transferir profit pro receiver
@@ -422,15 +460,18 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         uint256 premium,
         bytes memory inner
     ) internal {
-        (MorphoLiquidationParams memory mp, address operator) = abi.decode(inner, (MorphoLiquidationParams, address));
+        // M-01 fix: decode inclui `loanBalanceBefore`
+        (MorphoLiquidationParams memory mp, address operator, uint256 loanBalanceBefore) =
+            abi.decode(inner, (MorphoLiquidationParams, address, uint256));
 
         // asset emprestado deve bater com loanToken (sanity check)
         if (asset != mp.loanToken) revert InvalidCaller();
 
         uint256 collateralBefore = IERC20(mp.collateralToken).balanceOf(address(this));
 
-        // 1. Aprovar Morpho pra puxar loanToken (Morpho puxa via callback ou direto, segurança)
-        IERC20(mp.loanToken).forceApprove(mp.morpho, type(uint256).max);
+        // 1. H-01 fix: approval BOUNDED ao valor exato do flashloan (não mais infinito).
+        // Morpho pulla até `assetsRepaid` (computado por Morpho) — limitado pelo flashloan amount.
+        IERC20(mp.loanToken).forceApprove(mp.morpho, amount);
 
         // 2. Chamar Morpho.liquidate
         MarketParams memory marketParams = MarketParams({
@@ -449,6 +490,11 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             "" // sem callback custom
         );
 
+        // H-01 fix: RESET approval pra 0 pra eliminar persistência post-tx caso `mp.morpho`
+        // seja malicioso. Sem isso, malicious morpho contract com `liquidate()` que não consome
+        // toda a approval poderia fazer transferFrom posteriormente.
+        IERC20(mp.loanToken).forceApprove(mp.morpho, 0);
+
         uint256 collateralReceived = IERC20(mp.collateralToken).balanceOf(address(this)) - collateralBefore;
         if (collateralReceived == 0) revert InsufficientProfit(0, 1);
 
@@ -457,13 +503,16 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _executeSwaps(mp.swapSteps);
         }
 
-        // 4. Validar capacidade de repay
+        // 4. Validar capacidade de repay considerando saldo pre-existente (M-01)
         uint256 amountOwed = amount + premium;
         uint256 loanBalance = IERC20(mp.loanToken).balanceOf(address(this));
-        if (loanBalance < amountOwed) revert FlashloanRepayShortfall(loanBalance, amountOwed);
+        uint256 minRequiredBalance = amountOwed + loanBalanceBefore;
+        if (loanBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(loanBalance, minRequiredBalance);
+        }
 
-        // 5. Profit líquido em loanToken (após repay)
-        uint256 profit = loanBalance - amountOwed;
+        // 5. Profit líquido = saldo final − repay − pre-existente
+        uint256 profit = loanBalance - amountOwed - loanBalanceBefore;
         if (profit < mp.minProfitWei) revert InsufficientProfit(profit, mp.minProfitWei);
 
         // 6. Transferir profit pro receiver
@@ -487,12 +536,13 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
     function _executeSwaps(SwapStep[] memory steps) internal {
         uint256 len = steps.length;
         for (uint256 i = 0; i < len;) {
-            // Circuit breaker por step
+            // Circuit breaker por step — cap específico do tokenIn (H-02 fix).
             uint256 effectiveAmountIn = steps[i].amountIn == 0
                 ? IERC20(steps[i].tokenIn).balanceOf(address(this))
                 : steps[i].amountIn;
-            if (effectiveAmountIn > maxTradeWei) {
-                revert TradeTooLarge(effectiveAmountIn, maxTradeWei);
+            uint256 cap = getMaxTradeFor(steps[i].tokenIn);
+            if (effectiveAmountIn > cap) {
+                revert TradeTooLarge(effectiveAmountIn, cap);
             }
 
             // Dispatch por DEX type
@@ -536,6 +586,19 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
     function setMaxTradeWei(uint256 newMax) external override onlyOwner {
         emit MaxTradeWeiUpdated(maxTradeWei, newMax);
         maxTradeWei = newMax;
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function setMaxTradePerToken(address token, uint256 newMax) external override onlyOwner {
+        if (token == address(0)) revert NotAuthorized();
+        emit MaxTradePerTokenUpdated(token, _maxTradePerToken[token], newMax);
+        _maxTradePerToken[token] = newMax;
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function getMaxTradeFor(address token) public view override returns (uint256) {
+        uint256 override_ = _maxTradePerToken[token];
+        return override_ != 0 ? override_ : maxTradeWei;
     }
 
     /// @inheritdoc IZeusExecutor

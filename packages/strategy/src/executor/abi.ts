@@ -158,6 +158,8 @@ export const ZEUS_EXECUTOR_ABI = [
           { type: 'address', name: 'borrower' },
           { type: 'uint256', name: 'seizedAssets' },
           { type: 'uint256', name: 'repaidShares' },
+          // M-02 fix (2026-05-25): flashloanAmount explícito em wei do loanToken
+          { type: 'uint256', name: 'flashloanAmount' },
           {
             type: 'tuple[]',
             name: 'swapSteps',
@@ -177,6 +179,49 @@ export const ZEUS_EXECUTOR_ABI = [
       },
     ],
     outputs: [],
+  },
+  // ─── Admin: setMaxTradePerToken (H-02 fix, per-token cap) ───
+  {
+    type: 'function',
+    name: 'setMaxTradePerToken',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { type: 'address', name: 'token' },
+      { type: 'uint256', name: 'newMax' },
+    ],
+    outputs: [],
+  },
+  // ─── View: getMaxTradeFor (resolve cap aplicável a um token) ───
+  {
+    type: 'function',
+    name: 'getMaxTradeFor',
+    stateMutability: 'view',
+    inputs: [{ type: 'address', name: 'token' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  // ─── View: maxTradeWei (fallback global) ───
+  {
+    type: 'function',
+    name: 'maxTradeWei',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  // ─── View: isKilled ───
+  {
+    type: 'function',
+    name: 'isKilled',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
+  },
+  // ─── View: isOperator ───
+  {
+    type: 'function',
+    name: 'isOperator',
+    stateMutability: 'view',
+    inputs: [{ type: 'address', name: 'account' }],
+    outputs: [{ type: 'bool' }],
   },
   // ─── Eventos (pra decode de logs futuros) ───
   {
@@ -238,6 +283,16 @@ export const ZEUS_EXECUTOR_ABI = [
       { type: 'uint256', name: 'assetsLiquidated', indexed: false },
       { type: 'uint256', name: 'collateralReceived', indexed: false },
       { type: 'uint256', name: 'profit', indexed: false },
+    ],
+  },
+  // H-02 fix event
+  {
+    type: 'event',
+    name: 'MaxTradePerTokenUpdated',
+    inputs: [
+      { type: 'address', name: 'token', indexed: true },
+      { type: 'uint256', name: 'oldValue', indexed: false },
+      { type: 'uint256', name: 'newValue', indexed: false },
     ],
   },
   // ─── Custom errors (pra decode de revert reasons) ───

@@ -63,6 +63,10 @@ struct MorphoLiquidationParams {
     address borrower;                // dono da position underwater
     uint256 seizedAssets;            // quantidade de colateral a seizar (deixe 0 se usar repaidShares)
     uint256 repaidShares;            // quantidade de shares de dívida (deixe 0 se usar seizedAssets)
+    /// @notice Quantia EXATA em loanToken (wei) a ser flashloaned. Computada off-chain via simulação
+    /// `eth_call` em `Morpho.liquidate` pra obter `assetsRepaid` exato. Não confundir com `seizedAssets`
+    /// (que é em wei do collateralToken). Resolve mistura semântica do MVP anterior.
+    uint256 flashloanAmount;
     SwapStep[] swapSteps;            // swaps pra converter colateral → loanToken pra repay flashloan
     uint256 minProfitWei;            // profit mínimo em loanToken após repay
     address profitReceiver;          // pra onde enviar o profit
@@ -134,6 +138,8 @@ interface IZeusExecutor {
     event Killed();
     event Revived();
     event MaxTradeWeiUpdated(uint256 oldValue, uint256 newValue);
+    /// @notice Emitido quando owner ajusta cap específico pra um token (H-02 fix)
+    event MaxTradePerTokenUpdated(address indexed token, uint256 oldValue, uint256 newValue);
     event OperatorSet(address indexed operator, bool allowed);
     event TokenRescued(address indexed token, uint256 amount, address indexed to);
 
@@ -202,6 +208,12 @@ interface IZeusExecutor {
 
     function setMaxTradeWei(uint256 newMax) external;
     function maxTradeWei() external view returns (uint256);
+
+    /// @notice Define cap específico pra um token. Se 0, usa fallback `maxTradeWei` global.
+    /// @dev Fix H-02: cap por token resolve mistura de decimals entre ETH/WETH/USDC/USDT/WBTC.
+    function setMaxTradePerToken(address token, uint256 newMax) external;
+    /// @notice Retorna o cap aplicável a `token`: override específico se setado, senão fallback global.
+    function getMaxTradeFor(address token) external view returns (uint256);
 
     function setOperator(address operator, bool allowed) external;
     function isOperator(address account) external view returns (bool);

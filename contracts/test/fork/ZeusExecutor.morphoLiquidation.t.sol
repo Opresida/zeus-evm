@@ -68,6 +68,9 @@ contract ZeusExecutorMorphoLiquidationForkTest is Test {
             borrower: victim,
             seizedAssets: seized,
             repaidShares: 0,
+            // M-02 fix: flashloanAmount agora é explícito. Mantemos = seized pra preservar
+            // semântica original dos testes (que assumiam flashloan ≈ seized).
+            flashloanAmount: seized,
             swapSteps: empty,
             minProfitWei: 1,
             profitReceiver: profitReceiver

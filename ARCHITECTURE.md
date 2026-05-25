@@ -13,33 +13,74 @@ ZEUS EVM é um **monorepo pnpm** com 3 camadas:
 3. **`packages/`** — Bibliotecas compartilhadas entre apps
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                    ZEUS EVM (monorepo)                          │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                    ZEUS EVM (monorepo) — snapshot 2026-05-25       │
+└────────────────────────────────────────────────────────────────────┘
         │                       │                       │
         ▼                       ▼                       ▼
-┌─────────────────┐  ┌────────────────────┐  ┌──────────────────┐
-│   contracts/    │  │       apps/        │  │    packages/     │
-│   (Solidity)    │  │    (TypeScript)    │  │   (shared TS)    │
-│                 │  │                    │  │                  │
-│ ZeusExecutor    │  │ detector           │  │ chain-config     │
-│ + adapters DEX  │  │ monitor            │  │ dex-adapters     │
-│ + flashloan     │  │                    │  │ shared-types     │
-│ + liquidator    │  │                    │  │                  │
-└─────────────────┘  └────────────────────┘  └──────────────────┘
+┌─────────────────┐  ┌────────────────────┐  ┌──────────────────────┐
+│   contracts/    │  │       apps/        │  │    packages/         │
+│   (Solidity)    │  │    (TypeScript)    │  │   (shared TS)        │
+│                 │  │                    │  │                      │
+│ ZeusExecutor v6 │  │ detector (radar)   │  │ chain-config         │
+│  + 5 execute*   │  │ backtest           │  │ dex-adapters         │
+│    funcs:       │  │ monitor (DRY_RUN)  │  │ strategy             │
+│  - Arbitrage    │  │ liquidator (3      │  │ aave-discovery NOVO  │
+│  - Flashloan    │  │   modos: dryrun /  │  │ shared-types         │
+│  - LiqAave      │  │   testnet /        │  │                      │
+│  - LiqCompound  │  │   mainnet)         │  │                      │
+│  - LiqMorpho    │  │                    │  │                      │
+└─────────────────┘  └────────────────────┘  └──────────────────────┘
         │                       │                       │
-        └───────── interagem via viem + ABI ────────────┘
+        └────────── interagem via viem + ABI ───────────┘
                             │
                             ▼
-                   ┌─────────────────┐
-                   │  Base mainnet   │
-                   │  (Coinbase L2)  │
-                   │                 │
-                   │ Aave V3, Uniswap│
-                   │ V3, Aerodrome,  │
-                   │ BaseSwap...     │
-                   └─────────────────┘
+              ┌──────────────────────────────┐
+              │  Mainnet chains (após Fase7) │
+              │                              │
+              │  Base (Coinbase L2)          │
+              │  Arbitrum One                │
+              │  Optimism                    │
+              │  Avalanche (planejado)       │
+              │                              │
+              │  Protocolos:                 │
+              │   Aave V3 · Compound III ·   │
+              │   Morpho Blue                │
+              │  DEXs: UniV3 · Aerodrome     │
+              └──────────────────────────────┘
 ```
+
+### Pipeline do `apps/liquidator` (Sprint 1 + 2)
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ 1. DISCOVERY │ ──→ │ 2. CALCULATOR│ ──→ │ 3. SIMULATOR │ ──→ │ 4. DISPATCH  │
+└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
+  subgraph              binary search        eth_call             3 modos:
+  + Multicall3          10+5 samples         valida revert        dryrun (log)
+  HF batch              + UniV3 QuoterV2     + decoda erro        testnet (sub)
+  resolve par           + slippage check     + estima gas         mainnet (sub)
+  (Aave) /              + cache TTL 60s
+  event scan
+  (Compound)
+                                                                      │
+                                                                      ▼
+                                                              ┌──────────────┐
+                                                              │ 5. EVENT     │
+                                                              │   DECODER    │
+                                                              │              │
+                                                              │ profit REAL  │
+                                                              │ vs ESTIMADO  │
+                                                              │ → calibração │
+                                                              └──────────────┘
+```
+
+**Gates de segurança (3 fusíveis):**
+1. Discovery → reject se par não resolve
+2. Calculator → reject se profit estimado < `MIN_LIQUIDATION_PROFIT_USD`
+3. Simulator → reject se eth_call reverte (decoda custom error)
+
+Nada chega ao dispatch sem os 3 verdes.
 
 ---
 
@@ -62,29 +103,37 @@ zeus-evm/
 ├── 📄 .env.example
 │
 ├── contracts/                  # ═══ FOUNDRY PROJECT ═══
-│   ├── foundry.toml            # solc 0.8.27 + via_ir + 1M runs + yul
+│   ├── foundry.toml            # solc 0.8.27 + via_ir + 1M runs + yul + 4 chains aliases
 │   ├── remappings.txt
 │   ├── src/
-│   │   ├── ZeusExecutor.sol            # Hot path principal (280 LOCs)
+│   │   ├── ZeusExecutor.sol            # Hot path principal (~590 LOCs) — 5 funções execute*:
+│   │   │                               #   executeArbitrage, executeFlashloanArbitrage,
+│   │   │                               #   executeLiquidation (Aave V3),
+│   │   │                               #   executeCompoundLiquidation (Comet),
+│   │   │                               #   executeMorphoLiquidation (Morpho Blue)
 │   │   ├── libraries/
 │   │   │   ├── UniswapV3Lib.sol        # inline adapter SwapRouter02
 │   │   │   └── AerodromeLib.sol        # inline adapter Aerodrome Router
 │   │   └── interfaces/
-│   │       ├── IZeusExecutor.sol       # SwapStep, ArbitrageParams, errors
-│   │       └── aave/
-│   │           ├── IPool.sol           # Aave V3 Pool interface
-│   │           └── IFlashLoanSimpleReceiver.sol
+│   │       ├── IZeusExecutor.sol       # SwapStep, ArbitrageParams, LiquidationParams,
+│   │       │                           # CompoundLiquidationParams, MorphoLiquidationParams,
+│   │       │                           # OperationType enum, errors customizados
+│   │       ├── aave/                   # IPool, IFlashLoanSimpleReceiver
+│   │       ├── compound/IComet.sol     # absorb, buyCollateral, isLiquidatable, quoteCollateral
+│   │       └── morpho/IMorpho.sol      # liquidate, position, idToMarketParams, MarketParams
 │   ├── test/
-│   │   ├── ZeusExecutor.t.sol          # 18 unit tests
-│   │   └── fork/                       # fork tests Base mainnet (9 tests)
-│   │       ├── ZeusExecutor.fork.t.sol         # cross-DEX swaps reais (4)
-│   │       ├── ZeusExecutor.flashloan.t.sol    # Aave V3 flashloan (5)
-│   │       └── ZeusExecutor.profitArb.t.sol    # arb LUCRATIVO com gap artificial (2)
+│   │   ├── ZeusExecutor.t.sol            # 18 unit tests (constructor, kill switch, access)
+│   │   ├── ZeusExecutor.fixes.t.sol      # 11 testes adversariais (Audit Pass 2 fixes)
+│   │   └── fork/                         # fork tests Base mainnet (24 tests)
+│   │       ├── ZeusExecutor.fork.t.sol           # cross-DEX swaps reais
+│   │       ├── ZeusExecutor.flashloan.t.sol      # Aave V3 flashloan
+│   │       ├── ZeusExecutor.profitArb.t.sol      # arb LUCRATIVO com gap artificial
+│   │       ├── ZeusExecutor.liquidation.t.sol    # Aave V3 liquidation ($8.643 profit)
+│   │       ├── ZeusExecutor.compoundLiquidation.t.sol  # Compound III liquidation
+│   │       └── ZeusExecutor.morphoLiquidation.t.sol    # Morpho Blue liquidation
 │   ├── script/
-│   │   └── Deploy.s.sol                # chainId-based config (8453 mainnet, 84532 Sepolia)
+│   │   └── Deploy.s.sol                # chainId-based: 6 chains suportadas (Base/Arb/OP × mainnet+sepolia)
 │   └── lib/                            # forge install deps (gitignored)
-│       ├── forge-std/
-│       └── openzeppelin-contracts/
 │
 ├── apps/
 │   │
@@ -103,41 +152,74 @@ zeus-evm/
 │   │   ├── src/index.ts        # replay N blocos com findCrossDexArb (paralelo)
 │   │   └── runs/               # outputs JSON (gitignored)
 │   │
-│   └── monitor/                # ═══ LIQUIDATIONS MONITOR (stub) ═══
-│       └── (placeholder pra Fase 6)
+│   ├── monitor/                # ═══ DRY_RUN MONITOR (3 protocolos) ═══
+│   │   ├── package.json        # @zeus-evm/monitor
+│   │   └── src/
+│   │       ├── index.ts                  # discovery loops Aave + Compound + Morpho
+│   │       ├── chainContext.ts            # resolve por CHAIN_ID
+│   │       ├── healthFactor.ts            # HF check via Multicall3
+│   │       └── protocols/
+│   │           ├── aaveV3.ts              # subgraph candidates
+│   │           ├── compoundV3.ts          # event scan chunked (free tier safe)
+│   │           └── morpho.ts              # subgraph Messari-format (schema-fixed 2026-05-25)
+│   │
+│   └── liquidator/             # ═══ LIQUIDATOR (Sprint 1 + 2 entregue) ═══
+│       ├── package.json        # @zeus-evm/liquidator
+│       └── src/
+│           ├── index.ts                  # boot + discoveryTick + processOpportunity
+│           ├── config.ts                  # 3 modos: dryrun | testnet | mainnet + thresholds
+│           ├── chainContext.ts            # client + wallet opcional
+│           ├── pipeline.ts                # runAavePipeline + runCompoundPipeline
+│           ├── dispatcher.ts              # 3 gates + waitForReceipt + event decoder
+│           ├── eventDecoder.ts            # decode 5 eventos *Executed + delta real-vs-esperado
+│           ├── priceUtils.ts              # wei→"$12.45" humano + USD estimate
+│           ├── slippageCache.ts           # cache TTL 60s pra UniV3 quotes
+│           └── protocols/
+│               ├── aave/                  # calculator (binary search) + simulator + builder
+│               └── compound/              # ABI + cometCache + discovery + calc + sim + builder
 │
 ├── packages/
 │   │
 │   ├── chain-config/           # ═══ CONFIGURACOES POR CHAIN ═══
 │   │   ├── package.json        # @zeus-evm/chain-config
 │   │   └── src/
-│   │       ├── base.ts                 # BASE_MAINNET (Aave/UniV3/Aerodrome/...)
-│   │       ├── base-sepolia.ts         # BASE_SEPOLIA (sem Aerodrome em testnet)
-│   │       ├── target-pairs.ts         # 5 pares: WETH/USDC, cbETH/WETH, ...
-│   │       ├── types.ts                # ChainConfig type
-│   │       └── index.ts                # CHAINS registry
+│   │       ├── base.ts / arbitrum.ts / optimism.ts   # mainnet configs
+│   │       ├── base-sepolia.ts / arbitrum-sepolia.ts / optimism-sepolia.ts
+│   │       ├── target-pairs.ts             # 5 pares: WETH/USDC, cbETH/WETH, ...
+│   │       ├── types.ts                    # ChainConfig type
+│   │       └── index.ts                    # CHAINS registry
 │   │
 │   ├── dex-adapters/           # ═══ ADAPTERS TS (OFF-CHAIN PRICING) ═══
 │   │   ├── package.json        # @zeus-evm/dex-adapters
 │   │   ├── src/
-│   │   │   ├── uniswapV3.ts            # quoteUniswapV3 via QuoterV2
-│   │   │   ├── aerodrome.ts            # quoteAerodrome via Router.getAmountsOut
-│   │   │   ├── types.ts                # Quote, DexType, QuoteResult
+│   │   │   ├── uniswapV3.ts                # quoteUniswapV3 via QuoterV2
+│   │   │   ├── aerodrome.ts                # quoteAerodrome via Router.getAmountsOut
+│   │   │   ├── types.ts                    # Quote, DexType, QuoteResult
 │   │   │   └── index.ts
-│   │   └── tests/                      # 6 vitest tests contra Base mainnet
+│   │   └── tests/                          # 6 vitest tests contra Base mainnet
 │   │
 │   ├── strategy/               # ═══ LÓGICA DE DETECÇÃO + EXECUÇÃO ═══
 │   │   ├── package.json        # @zeus-evm/strategy
 │   │   └── src/
 │   │       ├── opportunities/
-│   │       │   ├── crossDex.ts         # findCrossDexArb (N² combos)
-│   │       │   ├── quoteFanout.ts      # parallel quotes across DEXs
-│   │       │   └── filters.ts          # min profit, slippage, gas, flashloan fee
+│   │       │   ├── crossDex.ts             # findCrossDexArb (radar passivo)
+│   │       │   ├── quoteFanout.ts          # parallel quotes across DEXs
+│   │       │   └── filters.ts              # min profit, slippage, gas, flashloan fee
 │   │       ├── executor/
-│   │       │   ├── txBuilder.ts        # buildArbitrageCalldata + buildFlashloanCalldata
-│   │       │   ├── simulator.ts        # eth_call + estimateGas + decode errors
-│   │       │   └── abi.ts              # ABI completa ZeusExecutor
-│   │       └── index.ts                # re-exports
+│   │       │   ├── txBuilder.ts            # buildArbitrageCalldata + buildFlashloanCalldata
+│   │       │   ├── simulator.ts            # eth_call + estimateGas + decode errors
+│   │       │   └── abi.ts                  # ABI completa ZeusExecutor (Aave + Compound + Morpho)
+│   │       └── index.ts                    # re-exports
+│   │
+│   ├── aave-discovery/         # ═══ SHARED DISCOVERY PACKAGE (NOVO 2026-05-25) ═══
+│   │   ├── package.json        # @zeus-evm/aave-discovery
+│   │   └── src/
+│   │       ├── abi.ts                      # ABIs Pool/PoolDataProvider/AddressesProvider
+│   │       ├── logger.ts                   # LoggerLike interface pino-compatible
+│   │       ├── types.ts                    # AaveCandidate + AaveLiquidatablePosition
+│   │       ├── reserves.ts                 # buildAaveReservesCache (1x boot)
+│   │       ├── discovery.ts                # pipeline subgraph→Multicall3→par dominante
+│   │       └── index.ts                    # re-exports
 │   │
 │   └── shared-types/           # ═══ TIPOS COMPARTILHADOS ═══
 │       ├── package.json        # @zeus-evm/shared-types

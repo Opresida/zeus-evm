@@ -79,85 +79,90 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 📊 Status atual
+## 📊 Status atual (snapshot 2026-05-25)
 
-### ✅ Concluído (2026-05-22)
+### ✅ Concluído
 
-**Fases 0 → 3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + Trilha 1 part 1 (Liquidações)**
+**Fases 0-5a + Trilha 1 + Sprint 1 + Sprint 2 + Security Audit Pass 1+2 + Liquidator MVP**
 
-- **Fase 0** — Monorepo pnpm + Foundry + 7 docs canônicos + repo GitHub
-- **Fase 1** — `ZeusExecutor.sol` (390 LOCs) + UniV3Lib + AerodromeLib + 18 unit tests
-- **Fase 2** — Detector DRY_RUN funcional: chain-config (Base + Sepolia), dex-adapters, opportunities, WSS subscribe
-- **Fase 3** — Flashloan Aave V3 + TxBuilder + Simulator (eth_call) + 5 fork tests
-- **Track A** — ZeusExecutor v1 deployado em Base Sepolia (verified)
-- **Track B (cross-DEX)** — Backtests provaram: cross-DEX em Base 2026 não tem edge. Vira radar passivo. 2 fork tests positivos validando mecânica.
-- **Trilha 1 part 1 (Liquidações)** — `executeLiquidation()` + apps/monitor + 4 fork tests. Position 10 WETH + $12k debt → crash 40% WETH → **liquidação capturou $8.643 profit em 1 tx** ($0.15 de gas em mainnet).
-- **ZeusExecutor v2 redeployado** em Base Sepolia: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428), verified
-- **Sprint 1 REVISADO (Multi-chain Aave V3)** — Arbitrum + Optimism Sepolia: [`0xd7e8fde4...`](https://sepolia.arbiscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3) (mesmo endereço em ambas via CREATE2). Monitor refatorado multi-chain. **DRY_RUN validado: Arbitrum=293 borrowers + 10 em risco, Optimism=63 borrowers + 1 em risco** = 72x mais cobertura que Base sozinho.
-- **Total**: **33/33 testes Foundry passando** · 6/6 vitest · 6/6 typecheck workspaces · push contínuo no GitHub
+- **Fases 0-3** — Monorepo + ZeusExecutor + Detector DRY_RUN + Flashloan Aave V3 (ver TODO.md histórico)
+- **Track A+B** — Deploy testnet + cross-DEX validado sem edge (declarado dead-end)
+- **Trilha 1 (Liquidações Aave V3)** — executeLiquidation() + 4 fork tests · **$8.643 profit em fork test mainnet**
+- **Sprint 1 (Aave V3 multi-chain)** — 3 chains testnet (Base/Arb/OP Sepolia) armed via revive+setOperator
+- **Sprint 3 Morpho (parcial)** — schema-fix do subgraph (Messari-format), 200 positions ativas reais detectadas em Base mainnet · contrato `executeMorphoLiquidation` pronto
+- **Redeploy v6 evolutivo** (2026-05-25) — 3 chains testnet com Aave + Compound + Morpho:
+  - Base Sepolia: [`0xe38298B4...`](https://sepolia.basescan.org/address/0xe38298B4d242d0D1C45696a96c4C588926Cf1139)
+  - Arbitrum Sepolia: [`0xe48473D7...`](https://sepolia.arbiscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
+  - Optimism Sepolia: [`0xe48473D7...`](https://sepolia-optimism.etherscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
+- **Security Audit Pass 1 + Pass 2** (2026-05-25) — `ZeusExecutor.sol` revisado sob lente AppSec (Jim Manico) + vuln assessment (Omar Santos). Identificados **2 HIGH + 4 MEDIUM**. Todos **CORRIGIDOS**: H-01 approval Morpho bounded+reset, H-02 maxTradePerToken map, M-01 pre-existing balance snapshot, M-02 flashloanAmount explícito Morpho. 11 testes adversariais novos
+- **Liquidator MVP** (`apps/liquidator/` — 2026-05-25):
+  - Sprint 1 Aave V3 pipeline completo (calculator binary search + simulator + builder + dispatcher 3 modos)
+  - Sprint 2 Compound III pipeline (5+8 collaterals cacheados Base mainnet, event scan chunked, quoteCollateral on-chain)
+  - Discovery automática Aave V3: subgraph → Multicall3 HF → resolve par dominante (live: 29 at-risk Base mainnet)
+  - Event decoder pós-tx + log humanizado `💰 $12.45 (gas $0.32, líquido $12.13)` + calibração delta real-vs-esperado
+  - Slippage cache TTL 60s
+  - 3 modos operacionais: `dryrun` / `testnet` / `mainnet`
+- **Shared package `@zeus-evm/aave-discovery`** — reusável entre apps (logger injetável, ABIs canônicas, reserves cache, discovery completa)
+- **Total**: **53/53 testes Foundry** · 6/6 vitest · **9/9 typecheck workspaces** (incluindo packages/aave-discovery + apps/liquidator)
 
-### 🔍 Descoberta importante (Fase 4a)
+### 🔍 Aprendizados consolidados
 
-Backtest de 1000 blocos amostrados (~5.5h Base mainnet) com os 5 pares blue-chip da config: **0 oportunidades cross-DEX detectadas**. Confirma que Base mainnet em 2026 é hyper-competitivo pra arb em pares populares (MEV bots dominam). **Cross-DEX nesses pares não tem edge sistemática.**
+- **Cross-DEX em Base 2026 não tem edge** (backtest 0/1000 blocos) — radar passivo apenas
+- **Long tail $5-100 de liquidações = nicho viável** — bots top ignoram (infra cara não cobre)
+- **Princípio "validar antes de escalar"** continua sendo bússola — testnet 2 sem → mainnet capital pequeno → audit → scale
 
-### 🎯 Em andamento (Trilha 1 part 2 — observação Sepolia)
+### 🎯 Em andamento
 
-**Trilha 1 (Liquidações Aave V3)** — mecânica completa validada em fork mainnet:
-- ✅ Smart contract `executeLiquidation()` deployado em Sepolia
-- ✅ `apps/monitor/` pronto: subgraph discovery + on-chain HF check + liquidator planner
-- ✅ 4/4 fork tests com posições reais Aave V3
+**Sprint 3 Morpho pipeline TS** — discovery (com IRM enrichment on-chain) + calculator + builder + simulator pra `executeMorphoLiquidation`. Estimativa ~2 dias próxima sessão.
 
-**Próximo (Fase 5b):**
-- [ ] Revive contrato em Sepolia (sair do kill state)
-- [ ] Rodar monitor em DRY_RUN observando positions reais por 2 semanas
-- [ ] Validar discovery via subgraph (precisa THEGRAPH_API_KEY)
-- [ ] Plugar submissão real quando HF < 1.0 detectado (Fase 7 mainnet)
+**2 semanas DRY_RUN mainnet** — assim que Sprint 3 estiver pronto, rodar monitor + liquidator em Base mainnet em modo `dryrun` pra calibração de thresholds + slippage.
 
-**Trilha 2 (cross-DEX):** confirmado sem edge → radar passivo apenas.
+### 📅 Roadmap futuro (decisões consolidadas 2026-05-25)
 
-**Estratégias futuras mapeadas (Fase 9+):**
-- Pools RWA + LSTs (bots institucionais ignoram, spreads grandes)
-- Backrunning de baleias (dislocation pós-trade, jogo de RPC latency)
-- Arbitragem ve(3,3) intra-Aerodrome (stable vs volatile pool do mesmo par)
+**Tese de 3 motores descorrelacionados:**
+- Motor #1 Liquidations (atual): ganha em CRASH
+- Motor #2 JIT Liquidity (Sprint 4): ganha em VOLUME
+- Motor #3 Backrun dislocation (Sprint 5): ganha em VOLATILIDADE
 
-### ❌ Pendente
-Lista priorizada em [TODO.md](./TODO.md). Próximas grandes etapas:
-
-| Fase | Entrega | Status |
+| Fase / Sprint | Entrega | Status |
 |---|---|---|
-| 0-3 | Setup + contratos + detector + flashloan | ✅ Pronto |
-| 4a | Backtest histórico | ✅ Pronto (0 opp em blue chips) |
-| 4b | Fork tests positivos (wallet+flashloan) | ✅ Pronto (29/29) |
-| 4c | **Decidir estratégia com edge real** | 🟡 Decisão aberta |
-| 5a | Deploy testnet Sepolia | ✅ Pronto |
-| 5b | 2 semanas observação testnet | ⏳ Aguardando 4c |
-| 6 | Liquidations | ⏳ Aguardando 4c |
-| 7 | Deploy mainnet capital pequeno + 4 semanas | ❌ |
-| 8 | Audit externo Certik (~$4.2k) | ❌ |
-| 9 | Scale (capital + multi-chain) | ❌ |
+| Sprint 3 Morpho pipeline TS | Cobertura completa nos 3 protocolos | 🟡 Em andamento |
+| Fase 5b — 2 semanas DRY_RUN mainnet | Calibração com dados reais | ⏳ Após Sprint 3 |
+| Fase 7 — Mainnet capital pequeno | Deploy executor Base mainnet + cap $1500 | ❌ Após 5b |
+| Sprint 4 — JIT Liquidity | Motor #2, requer Alchemy Mempool ($199/mês) | ❌ Após receita real |
+| Sprint 5 — Backrun dislocation | Motor #3, reusa mempool | ❌ Após Sprint 4 |
+| Avalanche expansion | Aave V3 only, +500-800 borrowers | ❌ Após Morpho |
+| Polygon expansion | Aave V3 only, MAS mercado saturado | ❌ Baixa prioridade |
+| Fase 8 — Audit externo | Trail of Bits / Spearbit quando capital > $50k | ❌ Pós-receita |
 
 ---
 
 ## 🔑 Decisões já tomadas
 
-- ✅ Chain inicial: **Base**
-- ✅ Estratégias planejadas: Cross-DEX (validado: sem edge em blue chips), Triangular, **Liquidations** (próximo foco)
-- ✅ Repo: `github.com/Opresida/zeus-evm` (push contínuo desde Fase 1)
-- ✅ Capital inicial: **decidir depois** (código abstrai)
-- ✅ Stack: TypeScript + viem + Foundry
-- ✅ Flashloan provider: Aave V3 (validado em fork mainnet, mecânica 100%)
-- ✅ Custódia: self-custody com circuit breakers no contrato
-- ✅ Owner do contrato será multisig (Safe Wallet em Base) em prod
-- ✅ Provider RPC: **dRPC** (210M CU/mês free) primário + Alchemy fallback
-- ✅ Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
-- ✅ Contrato testnet v2: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (Base Sepolia, verified, com executeLiquidation)
+- ✅ Chain inicial: **Base** (próximas: Avalanche → Polygon)
+- ✅ Estratégia atual: **Liquidations** em 3 protocolos (Aave V3 + Compound III + Morpho Blue)
+- ✅ Estratégias futuras: **3 motores descorrelacionados** (Liquidations + JIT Liquidity + Backrun dislocation)
+- ✅ Princípio inviolável: **FLASHLOAN-ONLY** até primeiro lucro real ([[project-zeus-evm-capital-principle]])
+- ✅ Cross-DEX: dead-end confirmado em Base 2026 (radar passivo)
+- ✅ Repo: `github.com/Opresida/zeus-evm`
+- ✅ Stack: TypeScript + viem + Foundry (Solidity 0.8.27 + via_ir + 1M optimizer runs)
+- ✅ Flashloan provider: Aave V3 universal (0.05% fee)
+- ✅ Owner em prod: multisig Safe Wallet
+- ✅ Provider RPC dev: dRPC free tier; prod: Alchemy Growth ($49/mês)
+- ✅ Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4`
+- ✅ Contratos testnet v6 (Aave + Compound + Morpho): ver tabela em "Concluído" acima
+- ✅ Audit externo recomendado: Trail of Bits / Spearbit (NÃO Certik) — quando capital > $50k
+- ✅ Audit interno (Pass 1 + Pass 2) substitui Certik provisoriamente (decisão Humberto 2026-05-25)
 
 ## 🤔 Decisões abertas
 
-- ❓ **Estratégia com edge real** (Fase 4c): liquidations (recomendada) / longtail / triangular
-- ❓ Multisig provider: Safe Wallet (padrão) vs alternativa — antes de Fase 7
-- ❓ Como armazenar histórico de trades: Neon Postgres futuro ou só logs?
-- ❓ Audit externo: Certik (~$4.2k) vs Spearbit (~$10k) vs Trail of Bits ($15k+) — antes de Fase 8
+- ❓ Multisig provider concreto: Safe Wallet (padrão) vs alternativa — antes de Fase 7
+- ❓ Histórico de trades: Neon Postgres futuro ou logs persistidos em Fly.io?
+- ❓ Sequencer Base — quando justificar mempool premium ($199-499/mês) — gatilho: receita > $1k/mês
+
+## ⚠️ Checklist obrigatório pré-mainnet
+
+Ver seção dedicada no [TODO.md](./TODO.md). 22 itens em 5 categorias (thresholds / circuit breakers / operacional / infra / audit). Nada dispatcheado em mainnet sem checklist verde.
 
 ---
 

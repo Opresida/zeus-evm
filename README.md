@@ -6,12 +6,12 @@
 </p>
 
 **Chain inicial:** Base (Coinbase L2)
-**Próximas chains:** Arbitrum One, Optimism, BSC (após estratégia validada)
+**Próximas chains:** Avalanche (após validação), Polygon (avaliar), BSC (longo prazo)
 **Time:** Humberto (product) + Claude (engineering)
-**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + Trilha 1 part 1 (Liquidações Aave V3 — $8.643 profit em fork test) + **Sprint 1 REVISADO (multi-chain Arbitrum + Optimism) — 361 borrowers cobertos, 11 já em risco** — **33/33 testes Foundry passando** · contratos verified em 3 testnets:
-- Base Sepolia v2: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428)
-- Arbitrum Sepolia v1: [`0xd7e8fde4...`](https://sepolia.arbiscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3)
-- Optimism Sepolia v1: [`0xd7e8fde4...`](https://sepolia-optimism.etherscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3)
+**Status (snapshot 2026-05-25):** **3 protocolos integrados** (Aave V3 + Compound III + Morpho Blue) · **Sprint 1 + Sprint 2 do liquidator entregues** · **Security Audit Pass 2 com 4 fixes aplicados** · **53/53 testes Foundry** · **9/9 typecheck workspaces** · contratos v6 verified em 3 testnets:
+- Base Sepolia v6: [`0xe38298B4...`](https://sepolia.basescan.org/address/0xe38298B4d242d0D1C45696a96c4C588926Cf1139)
+- Arbitrum Sepolia v6: [`0xe48473D7...`](https://sepolia.arbiscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
+- Optimism Sepolia v6: [`0xe48473D7...`](https://sepolia-optimism.etherscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
 
 ---
 
@@ -23,10 +23,14 @@ Bot de arbitragem on-chain em EVM, com **duas modalidades operacionais coexistin
 
 2. **Modalidade Flashloan (flashloan-arb)** — borrow via Aave V3 → multi-swap → repay tudo em **1 tx atômica**. Capital ilimitado (até liquidez do lender). Tx reverte se profit < custo.
 
-**Três estratégias em paralelo dentro desse codebase:**
-- **Cross-DEX arb** em pares medium-cap (foco principal)
-- **Triangular intra-DEX** explorando ineficiências em pools com fee tiers (Uniswap V3 0.05/0.3/1%)
-- **Liquidations** em Aave V3 / Compound III / Morpho (usa flashloan pra capturar bonus 5-10%)
+**Estratégia atual: Liquidations em 3 protocolos** (Aave V3 / Compound III / Morpho Blue) via flashloan, capturando bonus de 5-10%.
+
+**Estratégias futuras (planejadas como 3 motores descorrelacionados):**
+- **Motor #1 — Liquidations** (atual): ganha em crashes
+- **Motor #2 — JIT Liquidity UniV3** (Sprint 4): ganha em alto volume DEX
+- **Motor #3 — Backrun dislocation** (Sprint 5): ganha em volatilidade súbita
+
+**Cross-DEX arbitrage** foi testada (1000 blocos backtest Base mainnet) e **declarada dead-end** — MEV bots top dominam em <100ms. Mantida como radar passivo.
 
 ---
 
@@ -140,12 +144,15 @@ zeus-evm/
 ├── apps/
 │   ├── detector/                      # TS — cross-DEX scanner DRY_RUN (radar passivo)
 │   ├── backtest/                      # TS — replay histórico + discover-pairs
-│   └── monitor/                       # TS — liquidator: discovery subgraph + HF on-chain (Trilha 1)
+│   ├── monitor/                       # TS — DRY_RUN: discovery 3 protocolos (read-only)
+│   └── liquidator/                    # TS — pipeline dispatch: calc → sim → build → dispatch (3 modos)
+│       └── src/protocols/{aave,compound}/  # pipelines protocol-specific
 │
 ├── packages/
-│   ├── chain-config/                  # BASE_MAINNET + BASE_SEPOLIA + pairs
+│   ├── chain-config/                  # BASE + BASE_SEPOLIA + ARBITRUM + OPTIMISM (mainnet + testnet)
 │   ├── dex-adapters/                  # quoteUniswapV3 + quoteAerodrome
-│   ├── strategy/                      # opportunities + executor utils
+│   ├── strategy/                      # opportunities + executor utils + ABI
+│   ├── aave-discovery/                # NOVO — shared package (ABIs + reserves cache + discovery)
 │   └── shared-types/
 │
 └── docs/refs/                         # MDs externos pra expandir IA
@@ -157,23 +164,27 @@ zeus-evm/
 
 Detalhes em [TODO.md](./TODO.md).
 
-| Fase | Entrega | Status |
+| Fase / Sprint | Entrega | Status |
 |---|---|---|
-| **0** | Setup inicial (monorepo + Foundry + docs canônicos) | ✅ Pronto |
-| **1** | ZeusExecutor.sol + UniV3Lib + AerodromeLib + 18 unit tests | ✅ Pronto |
-| **2** | Detector DRY_RUN: chain-config + dex-adapters + opportunities + WSS | ✅ Pronto |
-| **3** | Flashloan Aave V3 + TxBuilder + Simulator + 5 fork tests | ✅ Pronto |
-| **4a** | Backtest histórico — confirmou: cross-DEX em blue chips sem edge | ✅ Pronto |
-| **4b** | Fork tests positivos (wallet + flashloan arb lucrativa) | ✅ Pronto |
-| **4c** | Decisão estratégia: Mix A+B em 2 trilhas | ✅ Decidido 2026-05-23 |
-| **4c-T2** | Trilha 2: cross-DEX longtail (AERO/VIRTUAL) — sem edge confirmado | ✅ Radar passivo |
-| **4c-T1** | **Trilha 1 part 1**: executeLiquidation + apps/monitor + 4 fork tests Aave V3 | ✅ Pronto ($8.643 profit em test) |
-| **5a** | Deploy ZeusExecutor v2 em Base Sepolia + verified | ✅ Pronto |
-| **5b** | 2 semanas observação testnet (revive + monitor DRY_RUN) | ⏳ Próximo |
-| **6.5** | Expansão Compound III + Morpho | ❌ Após Aave V3 lucrar |
-| **7** | Deploy mainnet capital pequeno + 4 semanas observação | ❌ Pendente |
-| **8** | Audit externo (Certik ~$4.2k ou similar) | ❌ Pendente |
-| **9** | Scale: capital aumentado, multi-chain (Arbitrum + Optimism) | ❌ Pendente |
+| **0** | Setup inicial (monorepo + Foundry + docs canônicos) | ✅ |
+| **1** | ZeusExecutor.sol + UniV3Lib + AerodromeLib + 18 unit tests | ✅ |
+| **2** | Detector DRY_RUN: chain-config + dex-adapters + opportunities + WSS | ✅ |
+| **3** | Flashloan Aave V3 + TxBuilder + Simulator + fork tests | ✅ |
+| **4a-c** | Backtest cross-DEX (sem edge) + Trilha 1 Liquidations Aave V3 (4 fork tests $8.643 profit) | ✅ |
+| **5a** | Deploy ZeusExecutor v2 → v6 evolutivo em 3 chains testnet (Base + Arb + OP) | ✅ |
+| **6.5 — Sprint 1** | Aave V3 multi-chain expansion (3 chains armed: revive + setOperator) | ✅ |
+| **6.5 — Sprint 2** | Compound III pipeline + executeCompoundLiquidation + 4 fork tests | ✅ |
+| **6.5 — Sprint 3** | Morpho Blue contract entregue + subgraph schema-fix · **TS pipeline pendente** | 🟡 |
+| **Audit Pass 1+2** | `ZeusExecutor.sol` revisado · 2 HIGH + 4 MEDIUM identificados e corrigidos · 11 testes adversariais | ✅ |
+| **Liquidator MVP** | `apps/liquidator` Sprint 1 Aave + Sprint 2 Compound · discovery automática · event decoder · slippage cache · 3 modos | ✅ |
+| **5b** | 2 semanas DRY_RUN mainnet observação calibração | ⏳ Próximo |
+| **7** | Deploy mainnet capital pequeno (cap baixo) + 4 semanas observação | ❌ Pendente |
+| **Sprint 4** | JIT Liquidity (motor #2 descorrelacionado) + Alchemy Mempool API | ❌ Pós-receita |
+| **Sprint 5** | Backrun dislocation (motor #3) — reusa mempool | ❌ Pós-Sprint 4 |
+| **Avalanche expansion** | Aave V3 only, +500-800 borrowers | ❌ Pós-Morpho |
+| **8** | Audit externo Trail of Bits / Spearbit (capital > $50k) | ❌ Pendente |
+
+**Total atual:** 53/53 Foundry tests · 9/9 typecheck workspaces · 3 protocolos · 3 chains testnet armed
 
 ---
 

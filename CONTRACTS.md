@@ -40,33 +40,42 @@ ZEUS EVM tem **1 contrato principal (`ZeusExecutor`)** + adapters modulares por 
 - `Pausable` (OpenZeppelin) — kill switch global
 - `ReentrancyGuard` (OpenZeppelin) — proteção contra reentrância
 
-**Storage (slot-packed):**
+**Storage (atualizado 2026-05-25 pós Audit Pass 2):**
 ```solidity
-address public immutable AAVE_V3_POOL;       // imutável após deploy
-uint256 public maxTradeWei;                  // circuit breaker
-mapping(address => bool) public operators;   // wallets autorizadas além do owner
-bool public killed;                          // override do Pausable pra UX
-mapping(address => bool) public approvedDexAdapters; // segurança extra
+address public immutable AAVE_V3_POOL;          // imutável após deploy
+uint256 public maxTradeWei;                     // circuit breaker fallback global
+mapping(address => uint256) private _maxTradePerToken;  // H-02 fix: cap específico por token
+mapping(address => bool) private _operators;    // wallets autorizadas além do owner
+bool private _killed;                            // override do Pausable pra UX
 ```
 
-**Funções principais:**
+**Funções principais (v6 — Aave + Compound + Morpho):**
 
 ```solidity
 // ─── Modalidade 1: Capital próprio ───
 function executeArbitrage(ArbitrageParams calldata params)
-    external
-    onlyOperator        // owner ou operators[msg.sender]
-    whenNotPaused
-    nonReentrant;
+    external onlyOperator whenNotPaused whenAlive nonReentrant;
 
-// ─── Modalidade 2: Flashloan ───
+// ─── Modalidade 2: Flashloan arbitrage ───
 function executeFlashloanArbitrage(
-    address asset,
-    uint256 amount,
+    address flashloanAsset,
+    uint256 flashloanAmount,
     ArbitrageParams calldata params
-) external onlyOperator whenNotPaused nonReentrant;
+) external onlyOperator whenNotPaused whenAlive nonReentrant;
 
-// Callback Aave V3 — só Aave pode chamar
+// ─── Modalidade 3: Liquidação Aave V3 ───
+function executeLiquidation(LiquidationParams calldata params)
+    external onlyOperator whenNotPaused whenAlive nonReentrant;
+
+// ─── Modalidade 4: Liquidação Compound III (Comet) ───
+function executeCompoundLiquidation(CompoundLiquidationParams calldata params)
+    external onlyOperator whenNotPaused whenAlive nonReentrant;
+
+// ─── Modalidade 5: Liquidação Morpho Blue ───
+function executeMorphoLiquidation(MorphoLiquidationParams calldata params)
+    external onlyOperator whenNotPaused whenAlive nonReentrant;
+
+// Callback Aave V3 — só AAVE_V3_POOL pode chamar, initiator deve ser this
 function executeOperation(
     address asset,
     uint256 amount,
@@ -75,35 +84,90 @@ function executeOperation(
     bytes calldata params
 ) external returns (bool);
 
-// ─── Liquidation ───
-function liquidatePosition(
-    LiquidationParams calldata params
-) external onlyOperator whenNotPaused nonReentrant;
-
 // ─── Admin (só owner) ───
 function kill() external onlyOwner;
 function revive() external onlyOwner;
 function setMaxTradeWei(uint256 newMax) external onlyOwner;
+function setMaxTradePerToken(address token, uint256 newMax) external onlyOwner;  // H-02 fix
+function getMaxTradeFor(address token) external view returns (uint256);          // H-02 fix
 function setOperator(address op, bool allowed) external onlyOwner;
-function approveDexAdapter(address adapter, bool approved) external onlyOwner;
 function rescueToken(address token, uint256 amount, address to) external onlyOwner;
+function pause() external onlyOwner;
+function unpause() external onlyOwner;
 ```
 
-**Eventos:**
+**Eventos (todos com profit em wei do asset do retorno):**
 - `ArbitrageExecuted(initiator, profitToken, profit, swapsCount)`
 - `FlashloanArbitrageExecuted(initiator, flashloanAsset, flashloanAmount, flashloanFee, profitToken, profit)`
-- `Liquidated(protocol, user, debtAsset, collateralAsset, profit)`
-- `Killed()` / `Revived()`
+- `LiquidationExecuted(initiator, user, collateralAsset, debtAsset, debtCovered, collateralReceived, profit)`
+- `CompoundLiquidationExecuted(initiator, comet, borrower, collateralAsset, baseAmount, collateralReceived, profit)`
+- `MorphoLiquidationExecuted(initiator, borrower, collateralToken, loanToken, assetsLiquidated, collateralReceived, profit)`
+- `MaxTradePerTokenUpdated(token, oldValue, newValue)` — H-02 fix
+- `Killed()` / `Revived()` / `OperatorSet()` / `TokenRescued()`
 
 **Custom errors (gas-efficient):**
-- `NotAuthorized()`
-- `Killed_()`
-- `InsufficientProfit(uint256 actual, uint256 required)`
+- `NotAuthorized()` — operator/owner check failed
+- `BotKilled()` — kill switch ativo
+- `InsufficientProfit(uint256 actual, uint256 required)` — minProfitWei não atingido
 - `SwapFailed(uint256 stepIndex)`
 - `InvalidDexType(uint8 dexType)`
-- `FlashloanRepayFailed()`
-- `TradeTooLarge(uint256 amount, uint256 max)`
-- `UnapprovedAdapter(address adapter)`
+- `FlashloanRepayShortfall(uint256 available, uint256 required)`
+- `TradeTooLarge(uint256 amount, uint256 max)` — cap per-token excedido
+- `EmptySteps()`
+- `InvalidCaller()` — Aave callback ou initiator inválido
+
+---
+
+## 🛡️ Security Audit Pass 1 + Pass 2 (2026-05-25)
+
+Auditoria interna realizada sob lente AppSec (Jim Manico) + vuln assessment (Omar Santos).
+
+**Findings:** 0 Critical · **2 HIGH** · **4 MEDIUM** · 6 LOW · 6 INFO
+
+**Todos os HIGH e MEDIUM corrigidos.** 11 testes adversariais adicionados (`ZeusExecutor.fixes.t.sol`).
+
+### H-01 — Approval Morpho infinita (CORRIGIDO)
+
+**Antes:**
+```solidity
+IERC20(mp.loanToken).forceApprove(mp.morpho, type(uint256).max);
+```
+Approval infinita persistia post-tx. Operator malicioso poderia passar `mp.morpho` malicioso e drenar futuras balances.
+
+**Depois:**
+```solidity
+IERC20(mp.loanToken).forceApprove(mp.morpho, amount);    // bound ao flashloan
+IMorpho(mp.morpho).liquidate(...);
+IERC20(mp.loanToken).forceApprove(mp.morpho, 0);          // reset post-call
+```
+
+### H-02 — Circuit breaker quebrado pra non-18-decimal tokens (CORRIGIDO)
+
+**Antes:** `maxTradeWei` global aplicado uniformemente — pra USDC (6 dec) o cap era efetivamente $100 trilhões.
+
+**Depois:** mapping `_maxTradePerToken` + helper `getMaxTradeFor(asset)`. Fallback global preservado pra compat.
+
+### M-01 — Pre-existing balance vaza pro profit (CORRIGIDO)
+
+**Antes:** profit calculado como `balance − amountOwed`, incluindo qualquer saldo pré-existente do debt asset.
+
+**Depois:** snapshot `balanceBefore` capturado no entrypoint, encodado nos params do flashloan, descontado no profit calc dos handlers. Aplicado nas 3 funções de liquidação.
+
+### M-02 — Mistura semântica `seizedAssets`/`repaidShares` (CORRIGIDO)
+
+**Antes:** Morpho liquidation usava `seizedAssets` (wei do collateralToken) como flashloan amount (wei do loanToken). Footgun.
+
+**Depois:** novo campo explícito `MorphoLiquidationParams.flashloanAmount` (wei do loanToken). Caller calcula off-chain via simulação `Morpho.liquidate`.
+
+### LOW + INFO findings
+
+Documentados mas não bloqueantes pra mainnet:
+- L-01 ETH preso (sem rescueETH) — não crítico em flashloan-only
+- L-02 setMaxTradeWei sem timelock — owner power, OK em multisig
+- L-03 Pause + Kill duplication — defensivo
+- L-04 Validação `address(0)` inconsistente — endurecer antes de mainnet
+- L-05 COMP rewards acumulam — sweep periódico via rescueToken
+- L-06 Eventos vazam estratégia em mempool — usar private mempool
 
 **Padrões de segurança aplicados:**
 

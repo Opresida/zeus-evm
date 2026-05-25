@@ -1,5 +1,245 @@
 # TODO — ZEUS EVM
 
+## ⚠️ PRÉ-ATIVAÇÃO MAINNET — CHECKLIST OBRIGATÓRIO
+
+**ANTES** de mudar `LIQUIDATOR_MODE` pra `mainnet` ou submeter qualquer tx real em chain de produção, validar TODOS os itens:
+
+### Thresholds estratégicos (config.ts / .env)
+- [ ] `MIN_DEBT_USD >= 100` (defaults prod, NÃO os baixos de calibração)
+- [ ] `MIN_LIQUIDATION_PROFIT_USD >= 5`
+- [ ] `HF_AT_RISK_THRESHOLD <= 1.05`
+- [ ] `HF_LIQUIDATABLE_THRESHOLD <= 1.0`
+- [ ] `MAX_SLIPPAGE_BPS` calibrado com 2 semanas de DRY_RUN data
+- [ ] `AAVE_CLOSE_FACTOR <= 0.5` (Aave limit imutável)
+- [ ] `POOL_LIQUIDITY_CAP_PCT <= 0.1` (10% liquidez pool max)
+
+### Circuit breakers on-chain (via owner txs no ZeusExecutor)
+- [ ] `setMaxTradePerToken(USDC, X)` definido — NÃO confiar no fallback `maxTradeWei`
+- [ ] `setMaxTradePerToken(WETH, X)` definido
+- [ ] `setMaxTradePerToken(cbBTC/WBTC, X)` definido (se vai operar)
+- [ ] `maxTradeWei` global setado como ceiling razoável
+- [ ] Owner = multisig Safe Wallet (NÃO carteira solo)
+- [ ] Operator = bot wallet com chave em hardware/MPC (NÃO `.env` em prod)
+
+### Validações operacionais
+- [ ] 2 semanas mínimo de DRY_RUN em Base mainnet com 0 incidentes
+- [ ] Slippage real (do calibration log) está dentro do MAX_SLIPPAGE_BPS configurado
+- [ ] Profit real médio (event LiquidationExecuted) está positivo após gas
+- [ ] Discord/Telegram webhook ativo pra alertas
+- [ ] Tenderly alerts configurados em events suspeitos
+- [ ] Kill switch testado (revive/kill ciclo completo)
+
+### Infra
+- [ ] RPC Alchemy Growth (ou equivalente pago) — NÃO confiar em free tier
+- [ ] Fly.io health-check + restart automático
+- [ ] Backup operator wallet com fundos pra gas
+- [ ] Logs persistidos (não só stdout)
+
+### Audit (opcional mas recomendado depois do primeiro lucro)
+- [ ] Bug bounty Immunefi quando TVL > $50k (ver pendência #N)
+- [ ] Audit Trail of Bits / Spearbit quando lucro acumulado > $10k
+
+**Princípio inviolável**: nada dispatcheado em mainnet sem checklist verde. Se 1 item falhar, voltar pra DRY_RUN até resolver.
+
+---
+
+## ⚡ EXPANSÃO MOTORES DE LUCRO — 3 MOTORES DESCORRELACIONADOS
+
+**Decisão Humberto 2026-05-25**: ZEUS precisa de no mínimo **3 motores de lucro independentes** rodando em paralelo pra eliminar risco de "mercado calmo prolongado". Infra mempool ($199-499/mês) aceita como custo necessário pra destravar #2 e #3.
+
+### Tese de descorrelação
+
+| Motor | Ganha quando... | Mercado favorável |
+|---|---|---|
+| **#1 Liquidations** | Mercado em crash | Volatilidade ↑ |
+| **#2 JIT Liquidity** | Volume DEX alto | Bull run, alto volume |
+| **#3 Backrun dislocation** | Movimento brusco | Volatilidade súbita |
+
+**Garantia:** ZEUS fatura em **qualquer cenário** porque os 3 motores são descorrelacionados.
+
+### Sprint 4 — JIT Liquidity Uniswap V3 (MOTOR #2)
+
+**Quando:** após Sprint 3 Morpho + 2 semanas DRY_RUN positivo do motor #1.
+
+**Como funciona:**
+1. Mempool detecta swap grande chegando (>$50k em UniV3)
+2. Bot pre-deposita liquidez concentrada exatamente no tick que vai ser atravessado
+3. Capital vem de flashloan (Aave V3) — segue princípio capital-light
+4. Swap acontece, fees do tick alvo ficam com o bot
+5. Bot remove liquidez no próximo bloco + repaga flashloan
+6. Profit = fees capturadas − flashloan fee − gas
+
+**Por que vale:**
+- ✅ Edge documentado em mainnet ETH (vários bots fazem)
+- ✅ Capital-light (flashloan da liquidez)
+- ✅ **Independente de liquidations** — receita em mercado calmo
+- ✅ Receita correlacionada com volume DEX (mais estável que crashes)
+
+**Infra requerida:**
+- Mempool watching: Alchemy Mempool API ($199/mês) ou Blocknative ($499/mês)
+- Latência crítica (<200ms) — bot dedicado próximo ao sequencer Base
+
+**Tarefas técnicas estimadas (~5-7 dias):**
+- [ ] Novo workspace `apps/jit-liquidity` (separado do liquidator pra não acoplar)
+- [ ] Mempool subscription (Alchemy WSS) + decoder de swap calldata
+- [ ] Pre-computation: dado swap em mempool, calcular tick alvo + liquidez ótima
+- [ ] Smart contract: adicionar função `executeJitLiquidity` ao ZeusExecutor (mint position + burn position atômico)
+- [ ] Pipeline: mempool detect → calcular → encoded tx → submit competitivo
+- [ ] Cache de pool states em memória (não pode esperar RPC pra cada decisão)
+- [ ] Testes fork com swap real simulado
+
+**Receita estimada:** $20-100/dia em Base, $50-500/dia em mainnet ETH (futuro)
+
+### Sprint 5 — Backrun de Dislocation (MOTOR #3)
+
+**Quando:** após Sprint 4 estabilizado (1 mês de receita JIT consistente).
+
+**Como funciona:**
+1. Mempool detecta swap grande chegando (>$100k)
+2. Bot pre-calcula: pool ficará X% dislocated post-swap
+3. Bot prepara tx oposta com flashloan (compra do lado barato, vende no lado caro)
+4. Submete pra próximo bloco (posição #2 na fila)
+5. Captura spread de retorno ao equilíbrio (geralmente 0.1-0.5%)
+
+**Por que vale:**
+- ✅ Capital-light
+- ✅ Totalmente independente do #1 e #2
+- ✅ Receita em volatilidade (movimento brusco em qualquer direção)
+- ✅ Reusa mempool subscription do Sprint 4 (custo zero adicional de infra)
+
+**Tarefas técnicas estimadas (~5-7 dias):**
+- [ ] Adicionar contrato `executeBackrunArb` (similar a executeFlashloanArbitrage mas multi-pool aware)
+- [ ] Detector de "swap impact" — dado calldata de swap em mempool, calcular novo preço pós-swap
+- [ ] Comparison entre pools (UniV3 fee tiers diferentes, Aerodrome volatile vs stable, etc)
+- [ ] Pipeline: detect → impact calc → arb decision → submit
+- [ ] Race condition handling (outros bots tentando o mesmo backrun)
+
+**Receita estimada:** $30-200/dia (varia muito com volume)
+
+### Otimizações dos motores #1 (DE GRAÇA com mempool já paga)
+
+Estes não são motores separados — são amplificadores que viram automáticos uma vez que mempool está ativa:
+
+#### Liquidations PRE-EMPTIVAS
+- Mempool detecta tx que vai mover HF (borrow/withdraw/oracle update)
+- Bot pre-calcula novo HF
+- Se cruzar threshold → submete liquidation no MESMO bloco
+- **Capture rate em crashes: 5-10x** vs polling
+- Implementação: ~3 dias após Sprint 4
+
+#### Capture-race awareness
+- Mempool ve outros bots tentando mesma oportunidade
+- Bot ajusta gas price OR desiste antecipadamente
+- Reduz tx revertidas em 30-50%
+- Implementação: ~2 dias após Sprint 4
+
+#### Oracle update prediction
+- Chainlink updates aparecem em mempool antes do bloco
+- Liquidator pre-monta lista de positions afetadas
+- Submete batch logo após confirmação
+- Implementação: ~2 dias após Sprint 4
+
+### Estratégias FUTURAS (com mais código, mesma infra mempool)
+
+| Estratégia | Esforço | Receita estimada |
+|---|---|---|
+| Cross-pool fee tier arbitrage UniV3 | ~1 sem | $10-80/dia |
+| Aerodrome ve(3,3) intra-DEX (Base only) | ~1 sem | $5-50/dia |
+| Cross-protocol oracle arbitrage | ~2 sem | $20-150/dia |
+| Compound COMP rewards harvest | ~2 dias (side-effect do #1) | $5-30/dia automático |
+
+### Orçamento expandido Caminho B (após Sprint 4)
+
+| Item | Custo/mês |
+|---|---|
+| Alchemy Growth (RPC) | $49 |
+| Alchemy Mempool API | $199 |
+| Fly.io 24/7 multi-process | $50-80 |
+| Tenderly Pro | $50 |
+| Reserva | $30 |
+| **Total** | **$378-408/mês** |
+
+ROI esperado: receita base $5k+/mês (motores #1+#2+#3) cobre infra com folga. Princípio capital-light preservado (45% lucro pra reinvestimento conforme `project-zeus-evm-capital-principle`).
+
+---
+
+## 🌐 EXPANSÃO MULTI-CHAIN — ROADMAP DOCUMENTADO
+
+Chains alvo pra expansão pós-validação 2 semanas DRY_RUN. Ordem de implementação sugerida (mas decisão final fica pra após observar resultados das chains atuais).
+
+### 🥇 Avalanche C-Chain — PRÓXIMA EXPANSÃO RECOMENDADA
+
+**Status:** anotada como prioritária (decisão Humberto 2026-05-25). Implementar **após Morpho Sprint 3** + 2 semanas DRY_RUN positivo.
+
+**Por que faz sentido pro ZEUS:**
+
+| Benefício | Detalhe quantitativo |
+|---|---|
+| **+500-800 borrowers Aave V3** | Cobertura cresce ~60-70% acima do Base+Arb+OP atual |
+| **TVL Aave V3 Avalanche** | ~$300M (estagnado mas estável, não em risco de morte) |
+| **Gas barato nativo** | ~$0.01-0.05 por tx → liquidações pequenas ($5-50) ainda mais viáveis |
+| **Stack já cobre** | Mesma arquitetura Aave V3 multi-chain do Sprint 1, zero refactor |
+| **Concorrência menos saturada** | Bots top focam mainnet ETH/Arb/Base; Avalanche tem menos bots competitivos |
+| **Block time ~1-2s** | Compatível com nosso polling 60s (Caminho A) |
+| **Positions em assets locais** | sAVAX, JOE, BENQI tokens — bots multi-chain genéricos costumam ignorar |
+| **EVM equivalent (C-Chain)** | Sem refactor de código, só chain config |
+
+**Por que NÃO é o primeiro alvo de expansão:**
+- Compound III: ❌ não existe em Avalanche (perderíamos Sprint 2 pipeline)
+- Morpho Blue: ❌ sem volume real (perderíamos Sprint 3 futuro)
+- TVL Aave estagnado: capital crypto está migrando pra L2s ETH-aligned
+
+**Custo de implementação:** ~45min código + 1h teste
+
+**Tarefas técnicas (quando ativar):**
+- [ ] Adicionar `packages/chain-config/src/avalanche.ts` com endereços canônicos:
+  - Aave V3 Pool: `0x794a61358D6845594F94dc1DB02A252b5b4814aD` (mesmo de Arb/OP)
+  - PoolAddressesProvider: `0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb`
+  - Aave Data Provider: `0x50ddd0Cd4266299527d25De9CBb55fE0EB8dAc30`
+  - Uniswap V3 (se disponível) OR usar TraderJoe/Pangolin como DEX alternativo
+- [ ] Adicionar entrada em `POOL_ADDRESSES_PROVIDER_BY_CHAIN` (chainId 43114)
+- [ ] Subgraph ID Aave V3 Avalanche (pesquisar oficial Messari/Aave)
+- [ ] `AVALANCHE_RPC_HTTP` no `.env.example`
+- [ ] `EXECUTOR_CONTRACT_ADDRESS_AVALANCHE` (vazio até deploy)
+- [ ] Deploy ZeusExecutor v6+ em Avalanche Fuji (testnet) → revive → setOperator
+- [ ] Deploy ZeusExecutor em Avalanche mainnet (após observação 2 sem testnet)
+- [ ] Validar DRY_RUN em Avalanche mainnet observando 2 sem antes de dispatch real
+- [ ] Considerar TraderJoe/Pangolin como alternativa DEX pro swap (Uniswap V3 em AVAX pode ter pools rasos pra alguns pares)
+
+**Gatilho pra começar:**
+- ✅ Sprint 3 Morpho entregue + estável
+- ✅ 2 semanas DRY_RUN positivo em Base mainnet
+- ✅ Liquidator dispatching real em testnet Sepolia sem incidente
+- ✅ Decisão consciente do Humberto baseada nos dados de calibração
+
+### 🥈 Polygon PoS — VIÁVEL mas baixa prioridade
+
+**Status:** documentada como possível, mas não recomendada como próxima.
+
+**Trade-offs (vs Avalanche):**
+- ✅ TVL Aave maior (~$1-2B)
+- ✅ Mais borrowers ativos (1-3k)
+- ❌ Mercado SATURADO de bots maduros (desde 2022)
+- ❌ Sem Compound III nativo (idem Avalanche)
+- ❌ Sem Morpho com volume
+- ❌ Polygon perdendo share relativa pra L2s ETH-aligned
+
+Avaliar caso Avalanche prove receita consistente, considerar Polygon como expansão #3 pós-Avalanche.
+
+### 🥉 Outras chains (mapeadas mas baixa prioridade)
+
+| Chain | Aave V3 | Compound III | Morpho | Veredito |
+|---|---|---|---|---|
+| **BSC** | ✅ ~$200M TVL | ❌ | ❌ | Oracle history problemático, evitar até post-receita |
+| Polygon zkEVM | 🟡 Pequeno | ❌ | ❌ | Cedo demais |
+| Scroll | 🟡 Pequeno | ❌ | ❌ | Cedo demais |
+| Linea | 🟡 Pequeno | ❌ | ❌ | Cedo demais |
+| Mantle | 🟡 Pequeno | ❌ | ❌ | Cedo demais |
+
+---
+
+
+
 Lista detalhada do que está pronto e do que falta para **pleno funcionamento** (do estado atual até bot rodando em mainnet Base com capital real).
 
 **Última atualização:** 2026-05-22 (Fases 0-3 concluídas, Fase 4 parcial, Fase 5a deploy testnet concluído)
@@ -480,4 +720,16 @@ Quando estiver em produção, monitorar:
 | 2026-05-26 | **Sprint 1 ENTREGUE**: ZeusExecutor v1 deployado e verified em Arbitrum Sepolia + Optimism Sepolia (mesmo endereço `0xd7e8fde4451d5352e7644d4a601a243528765df3` em ambas via CREATE2 deterministic). Monitor refatorado multi-chain (CHAIN_ID env var). Validação DRY_RUN: **Arbitrum=293 borrowers c/ debt + 10 em risco**, **Optimism=63 borrowers + 1 em risco**. **72x mais positions monitoradas que Base sozinho.** |
 | 2026-05-26 | **Sprint 2 CANCELADO**: tentamos LRT cross-DEX (cbETH+wstETH), descobrimos que mid-price spread NÃO é capturável (slippage destrói em pools rasos). Lição documentada em NO_EDGE_TOKENS.md. Pivot pra Sprint 3 (multi-protocolo) que tem edge confirmado. |
 | 2026-05-26 | **Sprint 3A ENTREGUE**: Compound III. Interface IComet.sol + struct CompoundLiquidationParams + executeCompoundLiquidation() + dispatch. Fork tests 4/4 PASS (revert paths + sanity). Monitor protocols/compoundV3.ts via eventos Withdraw + Multicall3 isLiquidatable. Cobertura Base+Arb+OP (cUSDCv3 + cWETHv3). Total: 37/37 testes. |
-| 2026-05-26 | **Sprint 3B ENTREGUE**: Morpho Blue. Interface IMorpho.sol + struct MorphoLiquidationParams + executeMorphoLiquidation() + dispatch. Fork tests 5/5 PASS. Monitor protocols/morpho.ts via subgraph oficial Base (schema-fix pendente — campos diferentes do assumido). Cobertura Base only (Morpho ativo apenas em Base mainnet em 2026). Total: **42/42 testes Foundry** + 6/6 typecheck workspaces. |
+| 2026-05-26 | **Sprint 3B ENTREGUE**: Morpho Blue. Interface IMorpho.sol + struct MorphoLiquidationParams + executeMorphoLiquidation() + dispatch. Fork tests 5/5 PASS. Monitor protocols/morpho.ts via subgraph oficial Base (schema-fix pendente — campos diferentes do assumido). Cobertura Base only (Morpho ativo apenas em Base mainnet em 2026). Total: **42/42 testes Foundry** + 6/6 typecheck workspaces.
+| 2026-05-25 | **Sprint 3 FECHAMENTO**: (1) Fix schema Morpho subgraph — Position/Market refletem Messari-format (`account.id`, `market.inputToken`=collateralToken, `position.asset`=loanToken, `liquidationThreshold` BigDecimal→WAD); campo `irm` não existe no subgraph, marcado com flag `irmResolved:false` pra enrichment on-chain antes de dispatch real. (2) **Redeploy ZeusExecutor v6** (Aave + Compound + Morpho) nas 3 chains testnet, todas verified: Base Sepolia `0xe38298B4d242d0D1C45696a96c4C588926Cf1139`, Arbitrum Sepolia `0xe48473D75805886Ac4162B1304EAB6b8F93C5faa`, Optimism Sepolia `0xe48473D75805886Ac4162B1304EAB6b8F93C5faa`. (3) `.env` atualizado. foundry.toml ganhou aliases `arbitrum_sepolia`+`optimism_sepolia` (Etherscan v2 unified key). 42/42 Foundry + 6/6 typecheck preservados.
+| 2026-05-25 | **Contratos v6 armed em testnet**: 3× revive() + 3× setOperator(0xE060…cBB4) executados via `cast send`. Estado on-chain validado em todas: isKilled=false, isOperator=true. Prontos pra observação contínua DRY_RUN.
+| 2026-05-25 | **Live validation DRY_RUN nas 4 chains**: monitor boot OK em Base Sepolia (executor v6 lido do .env), Arb Sepolia, OP Sepolia, e Base mainnet. Aave V3 funcional nas 4. **Morpho schema-fix validado live em Base mainnet — 200 positions ativas retornadas com loanToken/collateralToken/oracle/lltv corretos (USR/BONDUSD, USDtb/sUSDe, RLUSD/syrupUSDC)**. Testnet vazia em Arb/OP (esperado).
+| 2026-05-25 | **Fix Compound chunking**: `fetchCompoundActiveBorrowers` ganhou chunking interno em janelas de 9_999 blocos (compatível com free tier dRPC/Alchemy). Lookback do caller reduzido de 100k → 10k pra caber em 1 call sem timeout (steady-state polling 60s captura novos eventos via delta). Validado live em Base mainnet: cUSDCv3=7 borrowers · cWETHv3=32 borrowers · 0 liquidáveis. Pendência menor: rate limit transitório no 1º tick de boot quando dRPC já está sobrecarregado — absorvido pelo try/catch do loop, próxima iteração recupera. Pra cobertura histórica >10k blocos sem free tier limits, precisa refactor bootstrap+steady-state OU provider pago.
+| 2026-05-25 | **Security Audit Pass 1 + Pass 2 + 4 fixes aplicados**: (Pass 1) revisão TS off-chain mudanças do dia — 0 Critical/High, 4 MEDIUM documentadas. (Pass 2) audit profundo `ZeusExecutor.sol` (915 LOC) sob lente Jim Manico AppSec + Omar Santos vuln assessment: identificados **2 HIGH + 4 MEDIUM**. **4 fixes aplicados**: (H-01) approval Morpho de `type(uint256).max` → bounded `amount` + reset post-call em `_handleMorphoLiquidationOperation`; (H-02) `mapping(token => maxTradeWei)` per-token + `setMaxTradePerToken` + `getMaxTradeFor` aplicados em todos os entrypoints + `_executeSwaps` — resolve mistura de decimals (USDC/USDT/WBTC vs WETH); (M-01) snapshot `balanceBefore` pre-flashloan capturado nos 3 entrypoints de liquidação + encoded em params + descontado no profit calc dos handlers — pre-existing balance protegido contra drain via operator malicioso; (M-02) novo campo explícito `MorphoLiquidationParams.flashloanAmount` substitui mistura `seizedAssets`/`repaidShares` como flashloan amount. **Tests**: 42/42 anteriores preservados + 11 novos adversariais = **53/53 PASS**. 7/7 typecheck workspaces TS. Audit substitui parcialmente Certik ($4.2k poupados, redirecionados pra infra: Alchemy Growth + Fly.io 24/7 + Tenderly Pro + Ledger).
+| 2026-05-25 | **Liquidator Sprint 1 — Aave V3 scaffold + pipeline completo**: Novo workspace `apps/liquidator` separado do monitor. Componentes: (1) `config.ts` com 3 modos `LIQUIDATOR_MODE=dryrun\|testnet\|mainnet` (default dryrun), close factor Aave configurável, slippage tolerance, gas estimate; (2) `chainContext.ts` resolve client + wallet opcional por chain; (3) `protocols/aave/calculator.ts` algoritmo binary search: 10 samples logarítmicos + 5 de refinamento local sobre `flashloanAmount`, valida via UniswapV3 QuoterV2 nos 4 fee tiers, escolhe melhor profit líquido (após repay + 0.05% flashloan fee + gas estimate); (4) `protocols/aave/simulator.ts` wrapper sobre simulator genérico do strategy package; (5) `protocols/aave/builder.ts` calldata de `executeLiquidation` com swapSteps single-swap UniV3; (6) `dispatcher.ts` com 3 gates (simulação OK → modo dryrun? → wallet presente?) + `waitForTransactionReceipt` em testnet/mainnet; (7) `pipeline.ts` orchestrator calc→build→sim→dispatch; (8) `index.ts` boot + cache `getMaxTradeFor` por debt asset comum + API programática `processOpportunity()` + standalone demo opcional. **ABI atualizada** com `flashloanAmount` Morpho + `setMaxTradePerToken` + `getMaxTradeFor` views. **Smoke boot validado** em DRY_RUN contra Base mainnet (gates funcionando como esperado, abortou em "no executor deployed" — correto). **8/8 typecheck workspaces**. Pendência consciente pra próxima sessão: discovery automático Aave (resolver collateralAsset/debtAsset/bonus via getUserConfiguration + getReserveData on-chain) — hoje requer position passada externamente via `processOpportunity()`.
+| 2026-05-25 | **Liquidator discovery automática Aave V3 ENTREGUE (pendência #1)**: 3 novos arquivos: (1) `protocols/aave/abi.ts` ABIs Pool + PoolAddressesProvider + PoolDataProvider + ERC20View; (2) `protocols/aave/reserves.ts` cache de reserves+config Aave V3, resolve `poolDataProvider` dinamicamente via `PoolAddressesProvider.getPoolDataProvider()` — robusto a rotações Aave; (3) `protocols/aave/discovery.ts` pipeline subgraph→Multicall3→par dominante: `fetchAaveV3Candidates` lista users com debt, `fetchHealthFactorsBatch` filtra HF<threshold via Multicall3 batch=100, `resolveBorrowerPositionPair` escolhe top-1 collateral (maior aTokenBalance + usageAsCollateral) e top-1 debt (maior variable+stable debt), `discoverAaveLiquidatablePositions` orquestra tudo. `index.ts` ganhou `discoveryTick()` + setInterval polling 60s. **Live validation Base mainnet (block 46471104)**: 200 candidatos subgraph → **28 at-risk** (HF < 1.05) → **2 positions com par (collateral,debt) resolvido** → pipeline rejeitou os 2 (correto: sem executor deployado em Base mainnet). PoolDataProvider resolvido dinamicamente: `0x0F43731EB8d45A581f4a36DD74F5f358bc90C73A`. 15 reserves ativos cacheados em 1 RPC roundtrip via Multicall3. **8/8 typecheck preservado**. Liquidator agora roda 24/7 autônomo em DRY_RUN, gerando dados pra calibração.
+| 2026-05-25 | **Liquidator event decoder ENTREGUE (pendência #2)**: Novo arquivo `apps/liquidator/src/eventDecoder.ts` com `decodeLiquidationEvent(receipt, executorAddr)` que itera logs do receipt, filtra pelo address do executor (ignora logs de Aave/Compound/Morpho), tenta decodar pelos 4 eventos canônicos (`LiquidationExecuted`, `CompoundLiquidationExecuted`, `MorphoLiquidationExecuted`, `FlashloanArbitrageExecuted`, `ArbitrageExecuted`) — primeiro match vence. Helper `profitDeltaBps(real, expected)` retorna delta em bps (positivo = MEV favorável, negativo = slippage > estimado). **DispatchOutcome.confirmed expandido**: agora inclui `profitWei` (real do event), `expectedProfitWei`, `profitDeltaBps`, `gasUsed`, `blockNumber`, `eventName`. **Dispatcher**: após `waitForTransactionReceipt` status=success, chama decoder, calcula delta, e LOGA banda de calibração: dentro de ±1% = 🎯 calibrado; +1% acima = 🟢 favorável (underestimate ou MEV+); -1% abaixo = 🟠 slippage > estimado (sinal pra ajustar `MAX_SLIPPAGE_BPS`). **Pipeline**: passa `decision.expectedProfitWei` pro dispatcher. **8/8 typecheck verde**. Decoder não exercitado em smoke test (sem tx confirmed ainda — requer executor deployado em mainnet OR dispatch real em testnet); validação real virá com primeira liquidação confirmada.
+| 2026-05-25 | **Log humanizado de profit + USD ENTREGUE**: Novo `apps/liquidator/src/priceUtils.ts` com (1) `formatWei(wei, decimals)` → string decimal humano "12.45", (2) `estimateUsd(symbol, wei, decimals, ethPrice)` reconhecendo stables (peg $1) + ETH-family (× ETH price) + BTC-family (× ETH × 21), (3) `gasCostUsd(gasUsed, gasPrice, ethPrice)` via `receipt.effectiveGasPrice`. **Config**: novo `ETH_USD_PRICE_ESTIMATE` default $3000 (hardcoded MVP, TODO: substituir por Chainlink ETH/USD oracle on-chain). **Dispatcher**: log de tx confirmada agora inclui linha humana `💰 profit=$12.45 (gas $0.32, líquido $12.13)` + banda de calibração + campos JSON estruturados (`realProfitFormatted`, `realProfitUsd`, `gasCostUsd`, `netProfitUsd`). **DispatchOutcome.confirmed** ganhou 5 fields USD. **Pipeline**: propaga `position.debtAssetDecimals`/`debtAssetSymbol` + `env.ETH_USD_PRICE_ESTIMATE` pro dispatcher. Reconhecimento automático de tokens via 3 Sets (`STABLE_SYMBOLS`, `ETH_SYMBOLS`, `BTC_SYMBOLS`).
+| 2026-05-25 | **Shared discovery package ENTREGUE (pendência #3)**: Novo workspace `packages/aave-discovery/` com 5 arquivos: (1) `abi.ts` ABIs Aave V3 Pool/PoolAddressesProvider/PoolDataProvider/ERC20View + `POOL_ADDRESSES_PROVIDER_BY_CHAIN` map; (2) `logger.ts` interface `LoggerLike` (pino-compatible) + `NOOP_LOGGER` pra default silencioso; (3) `types.ts` `AaveCandidate` + `AaveLiquidatablePosition`; (4) `reserves.ts` `buildAaveReservesCache` com logger injetável; (5) `discovery.ts` pipeline completo (`fetchAaveV3Candidates`, `fetchHealthFactorsBatch`, `resolveBorrowerPositionPair`, `discoverAaveLiquidatablePositions`). **Liquidator migrado**: removidos 3 arquivos locais (`protocols/aave/{abi,reserves,discovery}.ts`), adicionado `@zeus-evm/aave-discovery` como workspace dep, `types.ts` re-exporta `AaveLiquidatablePosition` do package. **9/9 typecheck workspaces** + smoke boot Base mainnet OK (29 at-risk → 1 com par resolvido). Monitor NÃO migrado nessa sessão (não-bloqueante; migração futura economiza ~50% das RPC calls duplicadas entre os 2 apps). Package está pronto pra ser consumido por qualquer app que precise discovery Aave V3.
+| 2026-05-25 | **Slippage cache + bug fix calculator ENTREGUE (pendência #6)**: Novo `apps/liquidator/src/slippageCache.ts` com classe `SlippageCache` (TTL 60s default, lookup por chave exata `${tokenIn}|${tokenOut}|${fee}|${amountIn}` lowercased) + helper `cachedQuoteUniswapV3` (wrapper transparente sobre `quoteUniswapV3` que faz lookup→fetch→cache automaticamente; só cacheia Quote bem-sucedida, erros sempre re-tentam). Singleton compartilhado entre Aave + Compound calculators. Métricas expostas via `stats()` (hits/misses/size/hitRate). `pruneExpired()` chamado a cada tick. **Integração**: substituído `quoteUniswapV3` por `cachedQuoteUniswapV3` em [aave/calculator.ts](apps/liquidator/src/protocols/aave/calculator.ts) + [compound/calculator.ts](apps/liquidator/src/protocols/compound/calculator.ts). `discoveryTick` no index.ts agora loga `cache=hits/total (hitRate%)` por tick. **Refactor pipeline**: gate "no executor" movido pra DEPOIS do calculator, retornando `dryrun_skipped` em vez de `reverted_pre_dispatch` — calculator agora roda SEMPRE em DRY_RUN mainnet, alimenta cache e LOGA decision teórica via `🔭 [no-executor]` event pra calibração das 2 semanas de observação. **Bug NaN corrigido**: `BigInt(Math.floor(env.MIN_DEBT_USD))` virava `0n` quando MIN_DEBT_USD < 1, causando `Math.pow(Infinity, ...)→NaN→BigInt(NaN) throws` no sample logarítmico. Fix: clamp `Math.max(1, Math.floor(...))` em ambos calculators. **Live validation**: cache foi exercitado (4 misses em 1 position = 1 × 4 fee tiers UniV3 correto), confirmando pipeline funcional. Hit rate 0% em testes atuais porque positions detectadas em Base mainnet são dust ($0.00001-0.03 de debt) — sem volume real de liquidations grandes no momento (Aave Base 2026 tem ~123 borrowers, maioria saudável). Cache vai mostrar valor real quando houver positions ≥ $100. **⚠️ Warning visível adicionado no config.ts** + nova seção "PRÉ-ATIVAÇÃO MAINNET — CHECKLIST OBRIGATÓRIO" no topo do TODO.md (anotação Humberto: lembrar de restaurar thresholds de prod antes de jogar pra main). **9/9 typecheck preservado.**
+| 2026-05-25 | **Sprint 2 — Compound III pipeline ENTREGUE (pendência #4)**: Novo módulo `apps/liquidator/src/protocols/compound/` com 5 arquivos: (1) `abi.ts` Comet ABI (`isLiquidatable`, `baseToken`, `numAssets`, `getAssetInfo`, `quoteCollateral`, `collateralBalanceOf`) + `Withdraw` event; (2) `comets.ts` cache de Comet info — `buildCompoundCometCache` itera todos os Comets configurados, faz Multicall3 batch pra cada (baseToken + symbol/decimals + iterar getAssetInfo até numAssets); (3) `discovery.ts` `fetchCompoundActiveBorrowers` (event scan chunked 9999 blocos pra free tier), `findLiquidatableBorrowers` (Multicall3 isLiquidatable batch=100), `resolveTopCollateralForBorrower` (Multicall3 collateralBalanceOf → top-1 por wei), `discoverCompoundLiquidatablePositions(ForComet)` orquestradores; (4) `calculator.ts` `calculateOptimalCompoundLiquidation` binary search com `Comet.quoteCollateral` on-chain (já dá desconto aplicado — math mais simples que Aave) + swap sim UniV3 + filtro `MAX_SLIPPAGE_BPS`; (5) `builder.ts` calldata `executeCompoundLiquidation` com `minCollateralReceived` slippage on-chain + swapSteps single-swap. **types.ts**: novo `CompoundLiquidatablePosition`. **pipeline.ts**: `runCompoundPipeline` com mesma estrutura do `runAavePipeline` (3 gates + dispatcher). **index.ts**: boot constrói `compoundCometCache` em paralelo ao `aaveReservesCache` (Comets cUSDCv3 + cWETHv3 lidos do `chainConfig.compoundV3`), `discoveryTick` agora roda Aave + Compound sequencialmente com stats unificadas. **Live validation Base mainnet**: cache 5 collaterals cUSDCv3 + 8 collaterals cWETHv3 buildado, tick 3 mostrou Compound discovery rodando (cUSDCv3: 6 borrowers ativos via event scan, 0 liquidatable atualmente; cWETHv3: 0 borrowers na janela 5h). Ticks 1-2 falharam por rate limit transitório dRPC (problema conhecido, recuperado em tick 3). **9/9 typecheck workspaces preservado**. Cobertura agora: **3 protocolos sob radar** (Aave V3 + Compound III + Morpho via monitor antigo). |

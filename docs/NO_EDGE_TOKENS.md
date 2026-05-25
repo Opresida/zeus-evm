@@ -81,8 +81,28 @@ Para referência:
 
 ---
 
+## 🚨 Lição crítica: Mid-price ≠ Execution price (2026-05-26)
+
+Durante exploração de Sprint 2 (LRT depeg arbitrage), descobrimos:
+
+**Quote individual (1 unidade) mostra spread inexistente na realidade:**
+- cbETH/WETH Base: spread 4,1% no mid-price → 0,45% LOSS em 0.1 ETH, 45% LOSS em 25 ETH
+- wstETH/WETH Arbitrum fee100 vs fee3000: spread 32% no mid-price → 91% LOSS em 10 ETH
+
+**Causa**: pools "secundários" (fee tiers menos usados) têm liquidez tão baixa que
+qualquer trade real esgota o pool e move o preço drasticamente.
+
+**Regra de ouro**: NUNCA usar quote de 1 unidade como sinal de oportunidade.
+Sempre simular com **tamanho realista** (>= $1k) antes de assumir edge real.
+
+Implicação:
+- Cross-DEX arb baseado em mid-price spread = estratégia quebrada
+- Vale APENAS pra pools profundos E balanceados (raro em L2s 2026)
+- Pra LRTs, melhor estratégia = "wait-for-event" (eventos de stress reais)
+
 ## 📝 Histórico de mudanças
 
 | Data | Mudança |
 |---|---|
 | 2026-05-23 | Criação inicial. Trilha 2 (Radar Longtail) — exclui LSTs + memecoins sem pool Aerodrome |
+| 2026-05-26 | Lição mid-price ≠ execution: cross-DEX LRT confirmado SEM edge (cbETH Base + wstETH Arbitrum testados) |

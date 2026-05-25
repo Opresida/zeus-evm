@@ -28,9 +28,16 @@ import { ZeusExecutor } from "../src/ZeusExecutor.sol";
  *   - Owner precisa chamar setOperator(executor, true) pra autorizar bot
  */
 contract DeployScript is Script {
-    // ─── Endereços oficiais Aave V3 ───
+    // ─── Endereços oficiais Aave V3 por chainId ───
+    // Base
     address constant AAVE_V3_POOL_BASE_MAINNET = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
     address constant AAVE_V3_POOL_BASE_SEPOLIA = 0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27;
+    // Arbitrum (mesmo POOL em mainnet e Optimism via CREATE2 deterministic)
+    address constant AAVE_V3_POOL_ARBITRUM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AAVE_V3_POOL_ARBITRUM_SEPOLIA = 0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff;
+    // Optimism
+    address constant AAVE_V3_POOL_OPTIMISM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AAVE_V3_POOL_OPTIMISM_SEPOLIA = 0xb50201558B00496A145fE76f7424749556E326D8;
 
     // ─── Defaults de maxTradeWei (override via env) ───
     uint256 constant DEFAULT_MAX_TRADE_WEI_MAINNET = 0.1 ether;
@@ -72,6 +79,10 @@ contract DeployScript is Script {
         // pra evitar colisão com a var `AAVE_V3_POOL` que o detector usa pra mainnet).
         if (block.chainid == 8453) return AAVE_V3_POOL_BASE_MAINNET;
         if (block.chainid == 84532) return AAVE_V3_POOL_BASE_SEPOLIA;
+        if (block.chainid == 42161) return AAVE_V3_POOL_ARBITRUM;
+        if (block.chainid == 421614) return AAVE_V3_POOL_ARBITRUM_SEPOLIA;
+        if (block.chainid == 10) return AAVE_V3_POOL_OPTIMISM;
+        if (block.chainid == 11155420) return AAVE_V3_POOL_OPTIMISM_SEPOLIA;
 
         try vm.envAddress("DEPLOY_AAVE_V3_POOL_OVERRIDE") returns (address poolOverride) {
             if (poolOverride != address(0)) return poolOverride;
@@ -92,7 +103,14 @@ contract DeployScript is Script {
             if (maxOverride > 0) return maxOverride;
         } catch {}
 
-        if (block.chainid == 8453) return DEFAULT_MAX_TRADE_WEI_MAINNET;
+        // Mainnets recebem cap maior; testnets cap menor (cautela)
+        if (
+            block.chainid == 8453 || // Base mainnet
+            block.chainid == 42161 || // Arbitrum mainnet
+            block.chainid == 10 // Optimism mainnet
+        ) {
+            return DEFAULT_MAX_TRADE_WEI_MAINNET;
+        }
         return DEFAULT_MAX_TRADE_WEI_TESTNET;
     }
 }

@@ -10,13 +10,11 @@
  * Modo DRY_RUN: detecta + simula + loga, mas NÃO submete tx (KILL_SWITCH=true).
  */
 
-import { createPublicClient, http, type Address, type PublicClient } from 'viem';
-import { base } from 'viem/chains';
-
-import { BASE_MAINNET } from '@zeus-evm/chain-config';
+import type { Address, PublicClient } from 'viem';
 
 import { loadConfig } from './config';
 import { logger } from './logger';
+import { getChainContext, type ChainContext } from './chainContext';
 import { fetchAllAaveV3Candidates } from './protocols/aaveV3';
 import {
   getUserAccountDataBatch,
@@ -37,7 +35,7 @@ interface MonitorState {
 
 async function discoveryLoop(
   env: ReturnType<typeof loadConfig>,
-  client: AnyClient,
+  ctx: ChainContext,
   state: MonitorState,
 ): Promise<void> {
   if (!env.THEGRAPH_API_KEY) {
@@ -46,40 +44,43 @@ async function discoveryLoop(
   }
 
   try {
-    logger.info('🔍 Discovery: buscando candidatos Aave V3 Base via subgraph (borrowedReservesCount > 0)...');
+    logger.info(
+      { chain: ctx.chainConfig.name, subgraphId: ctx.subgraphId },
+      `🔍 Discovery: buscando candidatos Aave V3 ${ctx.chainConfig.name} via subgraph...`,
+    );
     const candidates = await fetchAllAaveV3Candidates({
       apiKey: env.THEGRAPH_API_KEY,
-      subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
-      maxUsers: 1000, // top 1000 já cobre os ~120 borrowers ativos reais; resto são fantasmas
+      subgraphId: ctx.subgraphId,
+      maxUsers: 1000,
     });
 
     logger.info({ count: candidates.length }, `📋 ${candidates.length} candidatos com borrowedReservesCount > 0`);
 
     if (candidates.length === 0) return;
 
-    // On-chain HF check — também traz debt/collateral EXATOS em USD (1e8 base)
+    // On-chain HF check via Multicall3 — usa pool da chain ativa
     const users = candidates.map((c) => c.user);
     const accountDataList = await getUserAccountDataBatch(
-      client,
-      BASE_MAINNET.aave.pool,
+      ctx.client,
+      ctx.chainConfig.aave.pool,
       users,
-      10,
     );
 
-    // Filtrar dust: positions com debt < MIN_DEBT_USD não valem o gas mesmo se liquidáveis
+    // Filtrar dust
     const minDebtBase = BigInt(Math.floor(env.MIN_DEBT_USD * 1e8));
     const withRealDebt = accountDataList.filter((u) => u.totalDebtBase >= minDebtBase);
 
     const atRisk = filterAtRisk(withRealDebt, env.HF_AT_RISK_THRESHOLD);
     logger.info(
       {
+        chain: ctx.chainConfig.name,
         candidates: candidates.length,
         scanned: accountDataList.length,
         withDebt: withRealDebt.length,
         atRisk: atRisk.length,
         threshold: env.HF_AT_RISK_THRESHOLD,
       },
-      `🎯 ${withRealDebt.length} com debt ≥ $${env.MIN_DEBT_USD} (de ${accountDataList.length}); ${atRisk.length} em risco (HF < ${env.HF_AT_RISK_THRESHOLD})`,
+      `🎯 [${ctx.chainConfig.shortName}] ${withRealDebt.length} com debt ≥ $${env.MIN_DEBT_USD} (de ${accountDataList.length}); ${atRisk.length} em risco (HF < ${env.HF_AT_RISK_THRESHOLD})`,
     );
 
     // Atualiza cache state
@@ -110,7 +111,7 @@ async function discoveryLoop(
 
 async function hfCheckLoop(
   env: ReturnType<typeof loadConfig>,
-  client: AnyClient,
+  ctx: ChainContext,
   state: MonitorState,
 ): Promise<void> {
   if (state.positionsInRisk.size === 0) return;
@@ -120,10 +121,9 @@ async function hfCheckLoop(
 
   try {
     const accountDataList = await getUserAccountDataBatch(
-      client,
-      BASE_MAINNET.aave.pool,
+      ctx.client,
+      ctx.chainConfig.aave.pool,
       users,
-      10,
     );
 
     let liquidatable = 0;
@@ -160,44 +160,42 @@ async function hfCheckLoop(
 
 async function main() {
   const env = loadConfig();
+  const ctx = getChainContext(env);
 
   logger.info(
     {
-      chain: BASE_MAINNET.name,
-      subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
+      chainId: ctx.chainConfig.chainId,
+      chain: ctx.chainConfig.name,
+      isTestnet: ctx.chainConfig.isTestnet ?? false,
+      subgraphId: ctx.subgraphId,
       hasApiKey: !!env.THEGRAPH_API_KEY,
       hfAtRisk: env.HF_AT_RISK_THRESHOLD,
       hfLiquidatable: env.HF_LIQUIDATABLE_THRESHOLD,
       minDebtUsd: env.MIN_DEBT_USD,
       minProfitUsd: env.MIN_LIQUIDATION_PROFIT_USD,
     },
-    '🚀 Monitor boot (DRY_RUN mode)',
+    `🚀 Monitor boot (DRY_RUN mode) — chain=${ctx.chainConfig.name}`,
   );
 
-  const client: AnyClient = createPublicClient({
-    chain: base,
-    transport: http(env.BASE_RPC_HTTP),
-  });
-
-  const blockNumber = await client.getBlockNumber();
-  logger.info({ blockNumber: blockNumber.toString() }, '✅ Conectado em Base mainnet');
+  const blockNumber = await ctx.client.getBlockNumber();
+  logger.info({ blockNumber: blockNumber.toString() }, `✅ Conectado em ${ctx.chainConfig.name}`);
 
   const state: MonitorState = {
     positionsInRisk: new Map(),
   };
 
   // ─── Discovery inicial ───
-  await discoveryLoop(env, client, state);
+  await discoveryLoop(env, ctx, state);
 
   // ─── Loops periódicos ───
   setInterval(() => {
-    discoveryLoop(env, client, state).catch((err) =>
+    discoveryLoop(env, ctx, state).catch((err) =>
       logger.error({ err }, 'discoveryLoop iteration failed'),
     );
   }, DISCOVERY_INTERVAL_MS);
 
   setInterval(() => {
-    hfCheckLoop(env, client, state).catch((err) =>
+    hfCheckLoop(env, ctx, state).catch((err) =>
       logger.error({ err }, 'hfCheckLoop iteration failed'),
     );
   }, HF_CHECK_INTERVAL_MS);

@@ -168,6 +168,7 @@ async function main() {
       chain: ctx.chainConfig.name,
       isTestnet: ctx.chainConfig.isTestnet ?? false,
       subgraphId: ctx.subgraphId,
+      executorContract: ctx.executorContractAddress ?? '(não deployado)',
       hasApiKey: !!env.THEGRAPH_API_KEY,
       hfAtRisk: env.HF_AT_RISK_THRESHOLD,
       hfLiquidatable: env.HF_LIQUIDATABLE_THRESHOLD,

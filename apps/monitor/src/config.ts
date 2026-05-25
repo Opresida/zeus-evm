@@ -30,8 +30,16 @@ const envSchema = z.object({
   ARBITRUM_SEPOLIA_RPC_HTTP: optionalUrl(),
   OPTIMISM_SEPOLIA_RPC_HTTP: optionalUrl(),
 
-  EXECUTOR_CONTRACT_ADDRESS: optionalAddress(),
   EXECUTOR_BOT_ADDRESS: optionalAddress(),
+
+  // Endereços do ZeusExecutor por chain (vazios são OK, função resolve usa chainId)
+  EXECUTOR_CONTRACT_ADDRESS: optionalAddress(), // legacy fallback (Base Sepolia)
+  EXECUTOR_CONTRACT_ADDRESS_BASE: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_BASE_SEPOLIA: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_ARBITRUM: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_ARBITRUM_SEPOLIA: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_OPTIMISM: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA: optionalAddress(),
 
   // Monitor-específico
   /** API key da TheGraph (free, sign up em thegraph.com/studio) */

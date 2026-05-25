@@ -415,8 +415,11 @@ Detalhado em Fase 4c opção A acima.
 
 ## 🔄 Em andamento
 
-- [ ] **Trilha 1 (Liquidações)** — construir apps/monitor + executeLiquidation no contrato (FOCO PRINCIPAL agora)
+- [x] ~~Trilha 1 part 1 (Liquidações Aave V3 Base)~~ — entregue 2026-05-23
 - [x] ~~Trilha 2 (Radar Longtail)~~ — concluída 2026-05-23, sem edge, vira radar passivo
+- [x] ~~Sprint 1 REVISADO (Aave V3 Arbitrum + Optimism)~~ — entregue 2026-05-26 (361 borrowers cobertos, 11 em risco)
+- [ ] **Sprint 2 (LRT depeg arb)** — segundo motor de receita, sem custo extra de infra
+- [ ] **Sprint 3 (Compound III + Morpho + Moonwell)** — mais protocolos pra cobertura
 
 ---
 
@@ -472,3 +475,6 @@ Quando estiver em produção, monitorar:
 | 2026-05-23 | **Trilha 1 part 1 ENTREGUE**: executeLiquidation() + apps/monitor completo + 4 fork tests Aave V3 PASSANDO. Total testes: 33/33. ZeusExecutor v2 redeployado em Sepolia: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (verified). Teste principal: position artificial 10 WETH + $12k debt → crash 40% WETH → liquidação capturou $8.643 profit em 1 tx. |
 | 2026-05-23 | **Multicall3 implementado** no healthFactor.ts — HF check de 20s → 3s (6.7x mais rápido). Validado contra Base mainnet: 123 borrowers ativos reais detectados (resto são "fantasmas" do subgraph). |
 | 2026-05-23 | **Plano de Expansão decidido** (Fase 6.5 detalhada em 4 sprints): Sprint 1 (Seamless + reduzir MIN_DEBT) → Sprint 2 (Arbitrum + Optimism) → Sprint 3 (Compound III + Morpho + Moonwell) → Sprint 4 (Mempool watching). Objetivo: passar de 123 → 7.000+ borrowers monitorados em ~4 semanas. Próxima sessão: começa Sprint 1 segunda 2026-05-25. |
+| 2026-05-26 | **Princípio operacional definido**: FLASHLOAN-ONLY até primeiro lucro; quando bot gerar receita real, 45% reinvestido em capital próprio pra outras estratégias do ecossistema ZEUS. Aprovadas: Liquidations, JIT Liquidity, LRT depeg arb, Vault liquidations. Rejeitadas: IR arb, HF rebalancing as service, sandwich. |
+| 2026-05-26 | **Sprint 1 PIVOT**: Seamless migrou pra Morpho em 2025 (não faz mais sentido fork Aave standalone). Substituído por Sprint 1 REVISADO = **Aave V3 multi-chain (Arbitrum + Optimism)**. Reusa 95% do código, 40x mais borrowers. |
+| 2026-05-26 | **Sprint 1 ENTREGUE**: ZeusExecutor v1 deployado e verified em Arbitrum Sepolia + Optimism Sepolia (mesmo endereço `0xd7e8fde4451d5352e7644d4a601a243528765df3` em ambas via CREATE2 deterministic). Monitor refatorado multi-chain (CHAIN_ID env var). Validação DRY_RUN: **Arbitrum=293 borrowers c/ debt + 10 em risco**, **Optimism=63 borrowers + 1 em risco**. **72x mais positions monitoradas que Base sozinho.** |

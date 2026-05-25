@@ -153,6 +153,7 @@ zeus-evm/
 - **Fase 4c-T2**: Backtest 1000 blocos longtail (AERO/VIRTUAL) — 0 opp também → Trilha 2 vira radar passivo
 - **Trilha 1 part 1 (Liquidações)**: `executeLiquidation()` + apps/monitor + 4 fork tests. Position 10 WETH + $12k debt + crash 40% → **$8.643 profit em 1 tx** ($0.15 gas).
 - **Fase 5a**: ZeusExecutor v2 deployado em Base Sepolia `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` + verified
+- **Sprint 1 REVISADO (2026-05-26)**: Aave V3 multi-chain expansion. ZeusExecutor v1 deployado em Arbitrum Sepolia + Optimism Sepolia (mesmo endereço `0xd7e8fde4451d5352e7644d4a601a243528765df3` via CREATE2). Monitor refatorado multi-chain. **DRY_RUN: Arbitrum=293 borrowers + 10 em risco, Optimism=63 borrowers + 1 em risco**.
 - **Total**: 33/33 Foundry tests · 6/6 vitest · 6/6 typecheck workspaces
 
 ### 🟡 Em andamento (Trilha 1 part 2 — observação Sepolia)
@@ -179,7 +180,10 @@ zeus-evm/
 ### 🔑 Decisões já tomadas
 - Provider RPC: **dRPC** primário + Alchemy fallback
 - Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
-- Contrato testnet v2 verified: `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428` (com executeLiquidation)
+- Contratos testnet verified:
+  - Base Sepolia v2 (com executeLiquidation): `0xe53cb8ced877eac30ce39bf1b3c592602ba3c428`
+  - Arbitrum Sepolia v1: `0xd7e8fde4451d5352e7644d4a601a243528765df3`
+  - Optimism Sepolia v1: `0xd7e8fde4451d5352e7644d4a601a243528765df3`
 
 ### ⏸️ Aguardando decisão do Humberto
 - **Estratégia com edge** (Fase 4c) ← bloqueador principal

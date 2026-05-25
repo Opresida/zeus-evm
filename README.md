@@ -8,7 +8,10 @@
 **Chain inicial:** Base (Coinbase L2)
 **Próximas chains:** Arbitrum One, Optimism, BSC (após estratégia validada)
 **Time:** Humberto (product) + Claude (engineering)
-**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + **Trilha 1 part 1 (Liquidações Aave V3 — $8.643 profit em fork test)** — **33/33 testes Foundry passando** · contrato v2 verified em Base Sepolia: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428)
+**Status:** Fases 0-3 + Track A (deploy Sepolia) + Track B (cross-DEX validado sem edge) + Trilha 1 part 1 (Liquidações Aave V3 — $8.643 profit em fork test) + **Sprint 1 REVISADO (multi-chain Arbitrum + Optimism) — 361 borrowers cobertos, 11 já em risco** — **33/33 testes Foundry passando** · contratos verified em 3 testnets:
+- Base Sepolia v2: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428)
+- Arbitrum Sepolia v1: [`0xd7e8fde4...`](https://sepolia.arbiscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3)
+- Optimism Sepolia v1: [`0xd7e8fde4...`](https://sepolia-optimism.etherscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3)
 
 ---
 

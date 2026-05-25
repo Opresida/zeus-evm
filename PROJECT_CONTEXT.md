@@ -93,6 +93,7 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 - **Track B (cross-DEX)** — Backtests provaram: cross-DEX em Base 2026 não tem edge. Vira radar passivo. 2 fork tests positivos validando mecânica.
 - **Trilha 1 part 1 (Liquidações)** — `executeLiquidation()` + apps/monitor + 4 fork tests. Position 10 WETH + $12k debt → crash 40% WETH → **liquidação capturou $8.643 profit em 1 tx** ($0.15 de gas em mainnet).
 - **ZeusExecutor v2 redeployado** em Base Sepolia: [`0xe53cb8ce...`](https://sepolia.basescan.org/address/0xe53cb8ced877eac30ce39bf1b3c592602ba3c428), verified
+- **Sprint 1 REVISADO (Multi-chain Aave V3)** — Arbitrum + Optimism Sepolia: [`0xd7e8fde4...`](https://sepolia.arbiscan.io/address/0xd7e8fde4451d5352e7644d4a601a243528765df3) (mesmo endereço em ambas via CREATE2). Monitor refatorado multi-chain. **DRY_RUN validado: Arbitrum=293 borrowers + 10 em risco, Optimism=63 borrowers + 1 em risco** = 72x mais cobertura que Base sozinho.
 - **Total**: **33/33 testes Foundry passando** · 6/6 vitest · 6/6 typecheck workspaces · push contínuo no GitHub
 
 ### 🔍 Descoberta importante (Fase 4a)

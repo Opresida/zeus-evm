@@ -43,6 +43,86 @@
 
 ---
 
+## 🚨 GAPS CRÍTICOS — INVENTÁRIO 2026-05-25
+
+Lógicas/otimizações faltantes identificadas em scan proativo de produção. Sem essas, bot funciona em testnet mas quebra em mainnet (silenciosa ou caramente). Organizado por criticidade.
+
+### 🔴 CRÍTICO — Bloqueadores pra mainnet real
+
+- [ ] **Daily loss limit** — kill switch automático se perder >$X em 24h (config `DAILY_LOSS_LIMIT_USD` default 100). Bug pode drenar gas reserve em horas sem detecção. ~2-3h
+- [ ] **Cooldown após N falhas seguidas** — pausar 5min se 3 tx revertem consecutivamente. Sem isso, bot fica em loop infinito queimando gas. ~1h
+- [ ] **Position deduplication** — guardar lista de borrowers em tx pendente, recusar resubmit em ticks consecutivos. ~2h
+- [ ] **Gas reserve monitoring + alerta** — ETH wallet < threshold = log warn + Discord alert. ~1-2h
+- [ ] **EIP-1559 gas pricing correto** — `maxFeePerGas` + `maxPriorityFeePerGas` (não `gasPrice` legado). Base usa EIP-1559. ~2-3h
+- [ ] **Health endpoint HTTP** — `/healthz` retorna 200 se loop ativo. Fly.io precisa pra restart automático. ~1h
+- [ ] **Discord/Telegram webhook alerts** — kill switch acionado, capital baixo, tx revertendo muito, profit médio caiu. ~2h
+- [ ] **Stale position re-check pré-dispatch** — antes de submeter, fazer 1 último `getUserAccountData` pra confirmar HF ainda < threshold. Reduz race com outros bots. ~1-2h
+
+**Total crítico:** ~12-18h (~2-3 sessões)
+
+### 🟡 IMPORTANTE — Bot opera sem, mas perde capture rate ou eficiência
+
+- [ ] **Cache eth_gasPrice por bloco** (anotação Humberto) — não fazer 1 RPC extra por tx. ~1h
+- [ ] **Gas bumping dinâmico** (anotação Humberto) — mempool ve outro bot tentando mesma liquidation → subir `maxPriorityFee` em real-time. Requer mempool (Caminho B). ~3-5h
+- [ ] **Multi-collateral positions evaluation** — hoje pegamos "top-1 por wei" (M-01 do audit). Em prod, avaliar TODOS os pares (collateral_i, debt_j) possíveis e escolher max profit. Hoje 26/28 at-risk não resolvem por isso. ~4-6h
+- [ ] **Partial liquidation amount otimization (Aave)** — não sempre 50% close factor. Às vezes 25% gera mais profit (pool raso). Calculator deveria sample isso também. ~3h
+- [ ] **Multi-path swaps** — hoje só single-swap collateral→debt. Em prod, 2-3 hops (UniV3 → Aerodrome → UniV3) pra positions com pool direto raso. ~5-8h
+- [ ] **Auto-claim COMP rewards** — `Comet.absorb()` acumula COMP no contrato. Sweep periódico via `rescueToken` OR adicionar função dedicada. ~2h
+- [ ] **Graceful shutdown** — SIGTERM aguarda tx pendentes confirmarem antes de matar processo. Evita nonce corruption. ~2h
+- [ ] **Tx replay log persistente** — guardar todas decisões em arquivo (JSONL) pra debug post-mortem de incidentes. ~2-3h
+
+### 🟢 RECOMENDÁVEL — Produção robusta de longo prazo
+
+- [ ] **Per-protocol cap** — `MAX_EXPOSURE_AAVE_USD` / `_COMPOUND` / `_MORPHO` separados. Concentration risk. ~1h
+- [ ] **Per-chain cap** — não colocar 80% capital em 1 chain. ~1h
+- [ ] **Anomaly detection** — profit médio diário cair 50% = alerta (oracle attack? bug? mudança protocolo?). ~3h
+- [ ] **Reorg handling** — Base pode reorgar (raro). Reconciliar tx que parecia confirmada mas sumiu. ~4-6h
+- [ ] **Multi-wallet rotation** — 2-3 bot wallets pra evitar nonce contention em volume alto. ~3h
+- [ ] **Key rotation procedure** — a cada 6 meses, swap key (procedural). ~1h
+- [ ] **On-chain audit log** — guardar commit hash do código ativo em storage slot pra comprovar versão. ~2h
+
+### 🧠 STRATEGY GAPS — descobertos no scan proativo
+
+- [ ] **Race condition cross-protocol** — borrower liquidable em Aave E Morpho. Se outro bot liquida em Morpho primeiro, nosso Aave reverte. Mitigação: simulate just-before-submit + abortar se debt mudou. ~3h
+- [ ] **Oracle staleness sanity check** — `Chainlink.latestRoundData()` retorna `updatedAt`. Se > 5min atrás, hesitar (oracle pode estar manipulado/freezado). ~2h
+- [ ] **Block timestamp drift detection** — sanity check pra timestamps fora de ordem (raro mas Base sequencer pode). ~1h
+- [ ] **Pause detection upstream** — antes de submeter, ler `Pool.paused()` Aave / `Comet.paused()` Compound. Se pausado, abortar. ~2h
+- [ ] **Fee-on-transfer tokens blacklist** — alguns tokens deduzem 1-2% na transferência (USDT antigo, novos memecoins). Validar contra `tokenIn.balanceOf` antes vs depois. Lista de tokens proibidos no config. ~3h
+
+### 📝 Ordem sugerida de implementação (próximas 4-6 sessões)
+
+```
+Sessão A (CRÍTICOS bloqueadores parte 1):
+  - Daily loss limit + cooldown após falhas
+  - Position dedup
+  - Discord webhook alerts
+
+Sessão B (CRÍTICOS bloqueadores parte 2):
+  - EIP-1559 gas pricing
+  - Gas reserve monitoring
+  - Health endpoint HTTP
+  - Stale position re-check pré-dispatch
+  - Cache eth_gasPrice por bloco
+
+Sessão C (Sprint 3 Morpho — protocolo missing):
+  - Pipeline TS pra Morpho
+  - IRM enrichment on-chain
+
+Sessão D (IMPORTANTES):
+  - Multi-collateral evaluation
+  - Partial liquidation optimization
+  - Pause detection upstream
+  - Oracle staleness check
+
+Sessão E+ (depois primeira semana mainnet):
+  - Gas bumping dinâmico (requer mempool — Sprint 4)
+  - Multi-path swaps
+  - Anomaly detection
+  - Reorg handling
+```
+
+---
+
 ## ⚡ EXPANSÃO MOTORES DE LUCRO — 3 MOTORES DESCORRELACIONADOS
 
 **Decisão Humberto 2026-05-25**: ZEUS precisa de no mínimo **3 motores de lucro independentes** rodando em paralelo pra eliminar risco de "mercado calmo prolongado". Infra mempool ($199-499/mês) aceita como custo necessário pra destravar #2 e #3.

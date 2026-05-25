@@ -182,10 +182,16 @@ async function compoundDiscoveryLoop(ctx: ChainContext): Promise<void> {
 
   for (const market of markets) {
     try {
+      // Lookback 10k cabe numa única chamada no free tier dRPC (limite 10k blocos +
+      // request timeout). Cobertura ~5h Base / ~30min Arb. Steady-state captura
+      // novos eventos via polling 60s. Pra cobertura histórica ampla (>10k blocos)
+      // sem refactor bootstrap+steady-state, precisa provider pago.
+      // O chunking interno em `fetchCompoundActiveBorrowers` continua ativo como
+      // salvaguarda se alguém aumentar este lookback no futuro.
       const { totalBorrowers, liquidatable } = await scanCompoundLiquidatable({
         client: ctx.client,
         comet: market.address,
-        blockLookback: 100_000, // ~28h Base / ~5.5h Arb (block times diferentes)
+        blockLookback: 10_000,
       });
 
       logger.info(
@@ -237,10 +243,16 @@ async function morphoDiscoveryLoop(
       first: 200,
     });
 
-    // Filtra por debt mínimo (em wei do loanToken, depende do token — aprox $100 em USDC = 100e6)
-    // Simplificação: filtrar positions com borrowAmount > 100 USDC equivalent (assume USDC base 6 decimals)
-    const minBorrowUsdc6 = BigInt(env.MIN_DEBT_USD * 1_000_000);
-    const significant = positions.filter((p) => p.borrowAmount >= minBorrowUsdc6);
+    // Filtra por debt mínimo. Cada position tem seu loanToken com decimals próprios —
+    // converte MIN_DEBT_USD pro wei do loanToken ASSUMINDO peg ≈ $1 (válido pra stables
+    // como USDC/USDT/DAI/RLUSD que dominam o volume Morpho Base). Posições em loan tokens
+    // não-stables (ex: WETH) serão filtradas conservadoramente — refinar via oracle price
+    // quando entrarmos em dispatch real.
+    const minBorrowByDecimals = (decimals: number): bigint =>
+      BigInt(env.MIN_DEBT_USD) * 10n ** BigInt(decimals);
+    const significant = positions.filter(
+      (p) => p.borrowAmount >= minBorrowByDecimals(p.loanTokenDecimals),
+    );
 
     logger.info(
       {
@@ -260,10 +272,12 @@ async function morphoDiscoveryLoop(
           borrower: p.borrower,
           marketId: p.marketId,
           loanToken: p.marketParams.loanToken,
+          loanSymbol: p.loanTokenSymbol,
           collateralToken: p.marketParams.collateralToken,
           borrowAmount: p.borrowAmount.toString(),
+          irmResolved: p.irmResolved,
         },
-        `  📌 Morpho position ${p.borrower.slice(0, 10)}... loan=${p.marketParams.loanToken.slice(0, 10)} debt=${p.borrowAmount.toString()}`,
+        `  📌 Morpho ${p.borrower.slice(0, 10)}... debt=${p.borrowAmount.toString()} ${p.loanTokenSymbol}`,
       );
     }
   } catch (err) {

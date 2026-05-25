@@ -5,28 +5,24 @@
  * é um market separado com identificador único (bytes32).
  *
  * Estratégia:
- *   1. Query subgraph oficial Morpho Blue (Base) pra listar positions com healthFactor < threshold
- *   2. Pra cada position retornada, temos:
- *      - borrower address
- *      - market id + marketParams completos (5 campos)
- *      - collateral / borrow amounts
- *   3. Filtra por debt mínimo
- *   4. Retorna lista pronta pra dispatch
+ *   1. Query subgraph Messari-format `morpho-blue-base` listando positions side=BORROWER com balance>0
+ *   2. Cada Position é UMA perna (debt OU collateral, não ambas):
+ *      - account.id  → borrower
+ *      - market.id   → marketId bytes32 (Morpho Blue)
+ *      - asset       → loanToken (quando side=BORROWER é o token sendo emprestado)
+ *      - balance     → debt em wei do loanToken
+ *      - market.inputToken → collateralToken (no Messari schema o "input" do market é o colateral)
+ *      - market.oracle.oracleAddress → oracle do market
+ *      - market.liquidationThreshold → LLTV (BigDecimal "0.945" → precisa virar WAD 945e15)
+ *   3. ⚠️ Campo `irm` NÃO existe no subgraph — precisa enrichment on-chain via
+ *      `Morpho.idToMarketParams(marketId)` antes de qualquer dispatch real.
+ *   4. Filtra por debt mínimo (em loanToken wei — aprox via decimals)
  *
- * Subgraph oficial Base: 8Lz789DP5VKLXumTMTgygjU2xtuzx8AhbaacgN5PYCAs (mesma estrutura nas outras chains)
- *
- * 🚧 TODO: schema do subgraph oficial é diferente do que assumimos no MVP.
- * Erros recebidos:
- *   - Type `Position` has no field `user` (provável: `borrower` ou `id`)
- *   - Type `Market` has no field `loanAsset` (provável: `loanToken`)
- *   - Type `Market` has no field `collateralAsset` (provável: `collateralToken`)
- *   - Type `Position` has no field `borrowAssets` (provável: `borrow` ou `principal`)
- *
- * Próxima sessão: rodar introspection query pra descobrir schema real, ajustar.
- * Por enquanto: contrato + monitor preparados, schema-fix é trivial.
+ * Subgraph oficial Base: 8Lz789DP5VKLXumTMTgygjU2xtuzx8AhbaacgN5PYCAs (Messari morpho-blue-base)
  */
 
 import type { Address } from 'viem';
+import { parseUnits, zeroAddress } from 'viem';
 
 const GATEWAY_URL = 'https://gateway.thegraph.com/api';
 
@@ -42,9 +38,20 @@ export interface MorphoLiquidatablePosition {
   borrower: Address;
   marketId: `0x${string}`;
   marketParams: MorphoMarketParams;
-  collateralAmount: bigint;     // wei do collateralToken
-  borrowAmount: bigint;          // wei do loanToken (debt atual)
-  healthFactor: number;          // 1.0 = peg liquidation
+  /** Wei do loanToken (debt atual = position.balance quando side=BORROWER). */
+  borrowAmount: bigint;
+  /** Decimals do loanToken — útil pra converter pra USD off-chain. */
+  loanTokenDecimals: number;
+  /** Symbol do loanToken (apenas log/diagnóstico). */
+  loanTokenSymbol: string;
+  /**
+   * Indica que `marketParams.irm` veio como zeroAddress placeholder e PRECISA
+   * ser preenchido via `Morpho.idToMarketParams(marketId)` on-chain antes de
+   * qualquer dispatch real ao ZeusExecutor.executeMorphoLiquidation.
+   */
+  irmResolved: boolean;
+  /** HF teórico — não computado aqui (calcular on-chain quando necessário). */
+  healthFactor: number;
 }
 
 interface GraphQLResponse<T> {
@@ -54,24 +61,33 @@ interface GraphQLResponse<T> {
 
 interface SubgraphPositionResponse {
   positions: Array<{
-    user: { id: string };
+    account: { id: string };
     market: {
       id: string;
-      loanAsset: { id: string };
-      collateralAsset: { id: string };
-      oracle: { id: string } | null;
-      irm: { id: string } | null;
-      lltv: string;
+      inputToken: { id: string; symbol: string; decimals: number };
+      oracle: { oracleAddress: string } | null;
+      liquidationThreshold: string;
     };
-    collateral: string;
-    borrowShares: string;
-    borrowAssets: string;
+    asset: { id: string; symbol: string; decimals: number };
+    side: 'BORROWER' | 'SUPPLIER' | 'COLLATERAL';
+    balance: string;
   }>;
 }
 
 /**
- * Lista positions com debt > min, ordenadas por borrowAssets desc.
- * Pra filtrar por HF requer chamada on-chain extra — fazer em separado.
+ * Converte LLTV em BigDecimal ("0.945") pra WAD (945000000000000000n).
+ * Usa parseUnits do viem pra evitar IEEE754 drift.
+ */
+function lltvDecimalToWad(decimal: string): bigint {
+  if (!decimal || decimal === '0') return 0n;
+  return parseUnits(decimal, 18);
+}
+
+/**
+ * Lista positions BORROWER ativas, ordenadas por balance desc.
+ * Pra cada position retornada, `marketParams.irm` virá como zeroAddress
+ * (subgraph não expõe esse campo) — enrichment on-chain é obrigatório
+ * antes de dispatch real ao executeMorphoLiquidation.
  */
 export async function fetchMorphoPositions(opts: {
   apiKey: string;
@@ -85,29 +101,25 @@ export async function fetchMorphoPositions(opts: {
     throw new Error('THEGRAPH_API_KEY obrigatório');
   }
 
-  // Schema Morpho subgraph: positions(where: { borrowAssets_gt: 0 })
-  // Campos exatos dependem da versão do subgraph — pode precisar ajuste após primeira execução
   const query = `
     query Positions($first: Int!, $skip: Int!) {
       positions(
         first: $first
         skip: $skip
-        where: { borrowAssets_gt: "0" }
-        orderBy: borrowAssets
+        where: { side: BORROWER, balance_gt: "0" }
+        orderBy: balance
         orderDirection: desc
       ) {
-        user { id }
+        account { id }
         market {
           id
-          loanAsset { id }
-          collateralAsset { id }
-          oracle { id }
-          irm { id }
-          lltv
+          inputToken { id symbol decimals }
+          oracle { oracleAddress }
+          liquidationThreshold
         }
-        collateral
-        borrowShares
-        borrowAssets
+        asset { id symbol decimals }
+        side
+        balance
       }
     }
   `;
@@ -131,22 +143,24 @@ export async function fetchMorphoPositions(opts: {
 
   const positions: MorphoLiquidatablePosition[] = [];
   for (const p of json.data.positions) {
-    // Algumas positions podem ter oracle/irm nulos (markets antigos/inválidos) — skip
-    if (!p.market.oracle?.id || !p.market.irm?.id) continue;
+    // Markets sem oracle são inválidos/legacy — skip
+    if (!p.market.oracle?.oracleAddress) continue;
 
     positions.push({
-      borrower: p.user.id as Address,
+      borrower: p.account.id as Address,
       marketId: p.market.id as `0x${string}`,
       marketParams: {
-        loanToken: p.market.loanAsset.id as Address,
-        collateralToken: p.market.collateralAsset.id as Address,
-        oracle: p.market.oracle.id as Address,
-        irm: p.market.irm.id as Address,
-        lltv: BigInt(p.market.lltv),
+        loanToken: p.asset.id as Address,
+        collateralToken: p.market.inputToken.id as Address,
+        oracle: p.market.oracle.oracleAddress as Address,
+        irm: zeroAddress, // ⚠️ enrichment on-chain obrigatório antes de dispatch
+        lltv: lltvDecimalToWad(p.market.liquidationThreshold),
       },
-      collateralAmount: BigInt(p.collateral),
-      borrowAmount: BigInt(p.borrowAssets),
-      healthFactor: 0, // calcular on-chain se quiser precisão
+      borrowAmount: BigInt(p.balance),
+      loanTokenDecimals: p.asset.decimals,
+      loanTokenSymbol: p.asset.symbol,
+      irmResolved: false,
+      healthFactor: 0,
     });
   }
 

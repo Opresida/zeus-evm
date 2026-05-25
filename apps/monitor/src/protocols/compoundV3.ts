@@ -35,31 +35,46 @@ export interface CompoundLiquidatable {
 }
 
 /**
+ * Limite de blocos por `eth_getLogs` request no free tier dRPC.
+ * Alchemy free tier também tem limites similares. 10k é o teto seguro.
+ */
+const FREE_TIER_BLOCK_RANGE_LIMIT = 9_999;
+
+/**
  * Scan recente Comet pra encontrar borrowers que mexeram em position.
  * Default: últimos 10.000 blocos (~5h em Base, ~30min em Arb/OP).
+ *
+ * Divide o range em chunks de até FREE_TIER_BLOCK_RANGE_LIMIT pra compatibilidade
+ * com free tier dRPC/Alchemy. Sequencial pra evitar rate limit (não paralelo).
  */
 export async function fetchCompoundActiveBorrowers(opts: {
   client: AnyClient;
   comet: Address;
   blockLookback?: number;
+  /** Override do tamanho do chunk. Default: FREE_TIER_BLOCK_RANGE_LIMIT. */
+  chunkSize?: number;
 }): Promise<Address[]> {
-  const { client, comet, blockLookback = 10_000 } = opts;
+  const { client, comet, blockLookback = 10_000, chunkSize = FREE_TIER_BLOCK_RANGE_LIMIT } = opts;
 
   const currentBlock = await client.getBlockNumber();
-  const fromBlock = currentBlock - BigInt(blockLookback);
+  const startBlock = currentBlock - BigInt(blockLookback);
 
-  const logs = await client.getLogs({
-    address: comet,
-    event: WITHDRAW_EVENT,
-    fromBlock,
-    toBlock: 'latest',
-  });
-
-  // Dedupe por src (borrower)
   const uniqueBorrowers = new Set<Address>();
-  for (const log of logs) {
-    if (log.args.src) uniqueBorrowers.add(log.args.src);
+  const step = BigInt(chunkSize);
+
+  for (let from = startBlock; from <= currentBlock; from += step + 1n) {
+    const to = from + step > currentBlock ? currentBlock : from + step;
+    const logs = await client.getLogs({
+      address: comet,
+      event: WITHDRAW_EVENT,
+      fromBlock: from,
+      toBlock: to,
+    });
+    for (const log of logs) {
+      if (log.args.src) uniqueBorrowers.add(log.args.src);
+    }
   }
+
   return Array.from(uniqueBorrowers);
 }
 

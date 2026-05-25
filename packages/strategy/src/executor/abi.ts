@@ -139,6 +139,45 @@ export const ZEUS_EXECUTOR_ABI = [
     ],
     outputs: [],
   },
+  // ─── executeMorphoLiquidation (modalidade liquidação Morpho Blue + flashloan Aave) ───
+  {
+    type: 'function',
+    name: 'executeMorphoLiquidation',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'morpho' },
+          { type: 'address', name: 'loanToken' },
+          { type: 'address', name: 'collateralToken' },
+          { type: 'address', name: 'oracle' },
+          { type: 'address', name: 'irm' },
+          { type: 'uint256', name: 'lltv' },
+          { type: 'address', name: 'borrower' },
+          { type: 'uint256', name: 'seizedAssets' },
+          { type: 'uint256', name: 'repaidShares' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
   // ─── Eventos (pra decode de logs futuros) ───
   {
     type: 'event',
@@ -184,6 +223,19 @@ export const ZEUS_EXECUTOR_ABI = [
       { type: 'address', name: 'borrower', indexed: true },
       { type: 'address', name: 'collateralAsset', indexed: false },
       { type: 'uint256', name: 'baseAmount', indexed: false },
+      { type: 'uint256', name: 'collateralReceived', indexed: false },
+      { type: 'uint256', name: 'profit', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'MorphoLiquidationExecuted',
+    inputs: [
+      { type: 'address', name: 'initiator', indexed: true },
+      { type: 'address', name: 'borrower', indexed: true },
+      { type: 'address', name: 'collateralToken', indexed: true },
+      { type: 'address', name: 'loanToken', indexed: false },
+      { type: 'uint256', name: 'assetsLiquidated', indexed: false },
       { type: 'uint256', name: 'collateralReceived', indexed: false },
       { type: 'uint256', name: 'profit', indexed: false },
     ],

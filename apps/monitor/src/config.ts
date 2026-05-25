@@ -48,6 +48,8 @@ const envSchema = z.object({
   AAVE_V3_BASE_SUBGRAPH_ID: z.string().default('GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF'),
   AAVE_V3_ARBITRUM_SUBGRAPH_ID: z.string().default('DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B'),
   AAVE_V3_OPTIMISM_SUBGRAPH_ID: z.string().default('DSfLz8oQBUeU5atALgUFQKMTSYV9mZAVYp4noLSXAfvb'),
+  // Morpho Blue (apenas Base tem volume real em 2026)
+  MORPHO_BLUE_BASE_SUBGRAPH_ID: z.string().default('8Lz789DP5VKLXumTMTgygjU2xtuzx8AhbaacgN5PYCAs'),
 
   /** HF threshold pra considerar "em risco" e re-checar on-chain */
   HF_AT_RISK_THRESHOLD: z.coerce.number().positive().default(1.05),

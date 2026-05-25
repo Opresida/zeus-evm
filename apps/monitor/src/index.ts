@@ -17,6 +17,7 @@ import { logger } from './logger';
 import { getChainContext, type ChainContext } from './chainContext';
 import { fetchAllAaveV3Candidates } from './protocols/aaveV3';
 import { scanCompoundLiquidatable } from './protocols/compoundV3';
+import { fetchMorphoPositions } from './protocols/morpho';
 import {
   getUserAccountDataBatch,
   filterAtRisk,
@@ -214,6 +215,65 @@ async function compoundDiscoveryLoop(ctx: ChainContext): Promise<void> {
   }
 }
 
+/**
+ * Morpho Blue discovery — só em Base (única chain com volume real em 2026).
+ * Lista positions com debt > 0 via subgraph oficial Morpho.
+ */
+async function morphoDiscoveryLoop(
+  env: ReturnType<typeof loadConfig>,
+  ctx: ChainContext,
+): Promise<void> {
+  // Morpho ativo apenas em Base mainnet
+  if (ctx.chainConfig.chainId !== 8453) return;
+
+  if (!env.THEGRAPH_API_KEY) {
+    return; // discovery requer API key
+  }
+
+  try {
+    const positions = await fetchMorphoPositions({
+      apiKey: env.THEGRAPH_API_KEY,
+      subgraphId: env.MORPHO_BLUE_BASE_SUBGRAPH_ID,
+      first: 200,
+    });
+
+    // Filtra por debt mínimo (em wei do loanToken, depende do token — aprox $100 em USDC = 100e6)
+    // Simplificação: filtrar positions com borrowAmount > 100 USDC equivalent (assume USDC base 6 decimals)
+    const minBorrowUsdc6 = BigInt(env.MIN_DEBT_USD * 1_000_000);
+    const significant = positions.filter((p) => p.borrowAmount >= minBorrowUsdc6);
+
+    logger.info(
+      {
+        chain: ctx.chainConfig.name,
+        totalPositions: positions.length,
+        significantPositions: significant.length,
+        minDebtUsd: env.MIN_DEBT_USD,
+      },
+      `📊 [${ctx.chainConfig.shortName}/morpho] ${positions.length} positions ativas · ${significant.length} acima de $${env.MIN_DEBT_USD}`,
+    );
+
+    // Loga top 3 positions maiores (potencialmente liquidáveis)
+    for (const p of significant.slice(0, 3)) {
+      logger.info(
+        {
+          chain: ctx.chainConfig.name,
+          borrower: p.borrower,
+          marketId: p.marketId,
+          loanToken: p.marketParams.loanToken,
+          collateralToken: p.marketParams.collateralToken,
+          borrowAmount: p.borrowAmount.toString(),
+        },
+        `  📌 Morpho position ${p.borrower.slice(0, 10)}... loan=${p.marketParams.loanToken.slice(0, 10)} debt=${p.borrowAmount.toString()}`,
+      );
+    }
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : err },
+      'Morpho discovery falhou',
+    );
+  }
+}
+
 async function main() {
   const env = loadConfig();
   const ctx = getChainContext(env);
@@ -241,9 +301,10 @@ async function main() {
     positionsInRisk: new Map(),
   };
 
-  // ─── Discovery inicial (Aave V3 + Compound III) ───
+  // ─── Discovery inicial (Aave V3 + Compound III + Morpho Blue) ───
   await discoveryLoop(env, ctx, state);
   await compoundDiscoveryLoop(ctx);
+  await morphoDiscoveryLoop(env, ctx);
 
   // ─── Loops periódicos ───
   setInterval(() => {
@@ -255,6 +316,12 @@ async function main() {
   setInterval(() => {
     compoundDiscoveryLoop(ctx).catch((err) =>
       logger.error({ err }, 'compoundDiscoveryLoop iteration failed'),
+    );
+  }, DISCOVERY_INTERVAL_MS);
+
+  setInterval(() => {
+    morphoDiscoveryLoop(env, ctx).catch((err) =>
+      logger.error({ err }, 'morphoDiscoveryLoop iteration failed'),
     );
   }, DISCOVERY_INTERVAL_MS);
 

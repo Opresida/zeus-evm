@@ -44,9 +44,28 @@ struct LiquidationParams {
 
 /// @notice Discriminator pro callback executeOperation diferenciar tipo de operação
 enum OperationType {
-    Arbitrage,           // 0 — flashloan pra arb cross-DEX
-    Liquidation,         // 1 — flashloan pra liquidação Aave V3
-    CompoundLiquidation  // 2 — flashloan pra liquidação Compound III (absorb + buyCollateral)
+    Arbitrage,            // 0 — flashloan pra arb cross-DEX
+    Liquidation,          // 1 — flashloan pra liquidação Aave V3
+    CompoundLiquidation,  // 2 — flashloan pra liquidação Compound III (absorb + buyCollateral)
+    MorphoLiquidation     // 3 — flashloan pra liquidação Morpho Blue (markets isolados)
+}
+
+/// @notice Parâmetros de uma liquidação Morpho Blue
+/// @dev Morpho tem markets isolados — cada (loanToken, collateralToken, oracle, irm, lltv) é market separado
+struct MorphoLiquidationParams {
+    address morpho;                  // endereço do Morpho singleton
+    // MarketParams: identifica o market do borrower
+    address loanToken;               // = debtAsset do flashloan (mesmo asset)
+    address collateralToken;
+    address oracle;
+    address irm;
+    uint256 lltv;
+    address borrower;                // dono da position underwater
+    uint256 seizedAssets;            // quantidade de colateral a seizar (deixe 0 se usar repaidShares)
+    uint256 repaidShares;            // quantidade de shares de dívida (deixe 0 se usar seizedAssets)
+    SwapStep[] swapSteps;            // swaps pra converter colateral → loanToken pra repay flashloan
+    uint256 minProfitWei;            // profit mínimo em loanToken após repay
+    address profitReceiver;          // pra onde enviar o profit
 }
 
 /// @notice Parâmetros de uma liquidação Compound III (Comet)
@@ -98,6 +117,16 @@ interface IZeusExecutor {
         address indexed borrower,
         address collateralAsset,
         uint256 baseAmount,
+        uint256 collateralReceived,
+        uint256 profit
+    );
+
+    event MorphoLiquidationExecuted(
+        address indexed initiator,
+        address indexed borrower,
+        address indexed collateralToken,
+        address loanToken,
+        uint256 assetsLiquidated,
         uint256 collateralReceived,
         uint256 profit
     );
@@ -154,6 +183,16 @@ interface IZeusExecutor {
     ///      d. repay flashloan Aave + fee 0.05%
     ///      e. profit residual em baseToken vai pro profitReceiver
     function executeCompoundLiquidation(CompoundLiquidationParams calldata params) external;
+
+    /// @notice Modalidade 5: liquidação Morpho Blue (markets isolados)
+    /// @dev Fluxo atômico:
+    ///   1. flashloan(loanToken, amount) do Aave V3 — quantidade pra repaidShares OU pra cobrir seized
+    ///   2. callback executeOperation:
+    ///      a. Morpho.liquidate(marketParams, borrower, seized OR shares, ...) → recebe collateral
+    ///      b. swap collateral → loanToken via swapSteps
+    ///      c. repay flashloan Aave + fee 0.05%
+    ///      d. profit residual em loanToken vai pro profitReceiver
+    function executeMorphoLiquidation(MorphoLiquidationParams calldata params) external;
 
     // ════════ ADMIN (owner only) ════════
 

@@ -7,10 +7,11 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, CompoundLiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
+import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, CompoundLiquidationParams, MorphoLiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
 import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
 import {IPool} from "./interfaces/aave/IPool.sol";
 import {IComet} from "./interfaces/compound/IComet.sol";
+import {IMorpho, MarketParams} from "./interfaces/morpho/IMorpho.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 
@@ -170,6 +171,41 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         // Callback executa _handleCompoundLiquidationOperation
     }
 
+    /// @inheritdoc IZeusExecutor
+    function executeMorphoLiquidation(MorphoLiquidationParams calldata params)
+        external
+        override
+        onlyOperator
+        whenNotPaused
+        whenAlive
+        nonReentrant
+    {
+        if (params.morpho == address(0) || params.borrower == address(0)) revert NotAuthorized();
+        if (params.loanToken == address(0) || params.collateralToken == address(0)) revert NotAuthorized();
+
+        // Estimar quanto loanToken precisamos pegar emprestado:
+        // - Se repaidShares: precisa converter pra assets. Pra simplicidade, deixamos o caller setar
+        //   um buffer no `seizedAssets` mode OU calcular off-chain.
+        // - Estratégia adotada: flashloan exato baseado em seizedAssets (off-chain calcula loanAmount = seized * oraclePrice * ltv)
+        //   OU usar repaidShares e estimar via subgraph.
+        //   Aqui assumimos que o caller passou loanAmount já calculado via `seizedAssets` (assets a serem repaid).
+        //   Pra MVP: pegamos seizedAssets como sinal e Morpho retorna assets reais.
+        //   Como aproximação, flashloan = seizedAssets (será refinado em produção via simulação eth_call).
+        uint256 flashAmount = params.seizedAssets > 0 ? params.seizedAssets : params.repaidShares;
+        if (flashAmount > maxTradeWei) revert TradeTooLarge(flashAmount, maxTradeWei);
+
+        bytes memory encodedParams = abi.encode(OperationType.MorphoLiquidation, abi.encode(params, msg.sender));
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            params.loanToken,
+            flashAmount,
+            encodedParams,
+            0
+        );
+        // Callback executa _handleMorphoLiquidationOperation
+    }
+
     /// @inheritdoc IFlashLoanSimpleReceiver
     /// @notice Callback chamado pelo Aave V3 Pool após emprestar tokens
     /// @dev Validações:
@@ -194,6 +230,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _handleLiquidationOperation(asset, amount, premium, inner);
         } else if (opType == OperationType.CompoundLiquidation) {
             _handleCompoundLiquidationOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.MorphoLiquidation) {
+            _handleMorphoLiquidationOperation(asset, amount, premium, inner);
         } else {
             revert InvalidCaller(); // OperationType desconhecido
         }
@@ -372,6 +410,73 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             cp.borrower,
             cp.collateralAsset,
             cp.baseAmount,
+            collateralReceived,
+            profit
+        );
+    }
+
+    /// @dev Liquidação Morpho Blue — markets isolados, 1 call atômica
+    function _handleMorphoLiquidationOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (MorphoLiquidationParams memory mp, address operator) = abi.decode(inner, (MorphoLiquidationParams, address));
+
+        // asset emprestado deve bater com loanToken (sanity check)
+        if (asset != mp.loanToken) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(mp.collateralToken).balanceOf(address(this));
+
+        // 1. Aprovar Morpho pra puxar loanToken (Morpho puxa via callback ou direto, segurança)
+        IERC20(mp.loanToken).forceApprove(mp.morpho, type(uint256).max);
+
+        // 2. Chamar Morpho.liquidate
+        MarketParams memory marketParams = MarketParams({
+            loanToken: mp.loanToken,
+            collateralToken: mp.collateralToken,
+            oracle: mp.oracle,
+            irm: mp.irm,
+            lltv: mp.lltv
+        });
+
+        IMorpho(mp.morpho).liquidate(
+            marketParams,
+            mp.borrower,
+            mp.seizedAssets,
+            mp.repaidShares,
+            "" // sem callback custom
+        );
+
+        uint256 collateralReceived = IERC20(mp.collateralToken).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1);
+
+        // 3. Swap collateral → loanToken via DEX
+        if (mp.swapSteps.length > 0) {
+            _executeSwaps(mp.swapSteps);
+        }
+
+        // 4. Validar capacidade de repay
+        uint256 amountOwed = amount + premium;
+        uint256 loanBalance = IERC20(mp.loanToken).balanceOf(address(this));
+        if (loanBalance < amountOwed) revert FlashloanRepayShortfall(loanBalance, amountOwed);
+
+        // 5. Profit líquido em loanToken (após repay)
+        uint256 profit = loanBalance - amountOwed;
+        if (profit < mp.minProfitWei) revert InsufficientProfit(profit, mp.minProfitWei);
+
+        // 6. Transferir profit pro receiver
+        if (mp.profitReceiver != address(this) && profit > 0) {
+            IERC20(mp.loanToken).safeTransfer(mp.profitReceiver, profit);
+        }
+
+        emit MorphoLiquidationExecuted(
+            operator,
+            mp.borrower,
+            mp.collateralToken,
+            mp.loanToken,
+            amount, // assets do flashloan que cobriu a liquidação
             collateralReceived,
             profit
         );

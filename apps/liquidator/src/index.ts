@@ -39,6 +39,10 @@ import { FailureTracker } from './failureTracker';
 import { PositionDedupTracker } from './positionDedup';
 import { GasReserveTracker } from './gasReserveTracker';
 import { triggerKillSwitchOnChain } from './dispatcher';
+import { EventBus } from './eventBus';
+import { createDiscordSink } from './alerting/discordSink';
+import { createGenericWebhookSink } from './alerting/genericWebhookSink';
+import type { Severity } from './events';
 import { resolve as resolvePath } from 'node:path';
 import { parseEther } from 'viem';
 
@@ -70,6 +74,8 @@ interface LiquidatorState {
   dedupTracker: PositionDedupTracker;
   /** Gas reserve tracker — monitora ETH balance da bot wallet */
   gasReserveTracker: GasReserveTracker;
+  /** Event bus — emite eventos tipados pra webhooks/sinks externos */
+  eventBus: EventBus;
 }
 
 /**
@@ -258,6 +264,56 @@ export async function boot(): Promise<LiquidatorState> {
     }
   }
 
+  // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
+  const eventBus = new EventBus(logger);
+
+  // Discord sink (se URL configurada)
+  if (env.DISCORD_WEBHOOK_URL) {
+    const severities = parseSeverities(env.DISCORD_SEVERITIES);
+    eventBus.subscribe(
+      createDiscordSink({
+        webhookUrl: env.DISCORD_WEBHOOK_URL,
+        severities,
+        logger,
+      }),
+    );
+    logger.info(
+      { severities },
+      `📢 Discord sink ativo — severidades: ${severities.join(',')}`,
+    );
+  }
+
+  // Generic webhook sink (se URL configurada)
+  if (env.GENERIC_WEBHOOK_URL) {
+    const severities = parseSeverities(env.GENERIC_SEVERITIES);
+    eventBus.subscribe(
+      createGenericWebhookSink({
+        url: env.GENERIC_WEBHOOK_URL,
+        severities,
+        logger,
+      }),
+    );
+    logger.info(
+      { severities },
+      `📡 Generic webhook sink ativo — severidades: ${severities.join(',')}`,
+    );
+  }
+
+  if (eventBus.subscriberCount() === 0) {
+    logger.info('📭 Nenhum sink de alerta configurado (defina DISCORD_WEBHOOK_URL ou GENERIC_WEBHOOK_URL)');
+  }
+
+  // Emite evento de boot pra notificar subscribers
+  eventBus.emit({
+    type: 'liquidator.boot',
+    timestamp: new Date().toISOString(),
+    chain: ctx.chainConfig.name,
+    mode: env.LIQUIDATOR_MODE,
+    severity: 'info',
+    executorAddress: ctx.executorContractAddress ?? null,
+    account: ctx.account ?? null,
+  });
+
   return {
     env,
     ctx,
@@ -269,7 +325,17 @@ export async function boot(): Promise<LiquidatorState> {
     failureTracker,
     dedupTracker,
     gasReserveTracker,
+    eventBus,
   };
+}
+
+/** Parsea string "info,warn,critical" pra array de Severity. */
+function parseSeverities(raw: string): Severity[] {
+  const valid: Severity[] = ['info', 'warn', 'critical'];
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s): s is Severity => valid.includes(s as Severity));
 }
 
 /**
@@ -289,6 +355,7 @@ export async function processOpportunity(
     failureTracker: state.failureTracker,
     dedupTracker: state.dedupTracker,
     gasReserveTracker: state.gasReserveTracker,
+    eventBus: state.eventBus,
   });
 }
 
@@ -308,6 +375,7 @@ export async function processCompoundOpportunity(
     failureTracker: state.failureTracker,
     dedupTracker: state.dedupTracker,
     gasReserveTracker: state.gasReserveTracker,
+    eventBus: state.eventBus,
   });
 }
 
@@ -481,6 +549,21 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     },
     `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''} | dedup=${dedupStats.total} (p=${dedupStats.pending} c=${dedupStats.confirmed} f=${dedupStats.failed}) | gas=${gasStats.status} ${gasStats.balanceEth}ETH`,
   );
+
+  // Emit tick event pra subscribers (Discord filtra fora por default — só generic webhook recebe)
+  state.eventBus.emit({
+    type: 'discovery.tick_completed',
+    timestamp: new Date().toISOString(),
+    chain: ctx.chainConfig.name,
+    mode: state.env.LIQUIDATOR_MODE,
+    severity: 'info',
+    aavePositions: stats.aave,
+    compoundPositions: stats.compound,
+    dispatched: stats.dispatched,
+    dryrun: stats.dryrun,
+    rejected: stats.rejected,
+    elapsedMs: Date.now() - startedAt,
+  });
 }
 
 function updateStats(

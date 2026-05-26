@@ -124,6 +124,19 @@ const envSchema = z.object({
    *  Default true (segurança). Em dryrun não tem efeito (sem wallet). */
   BLOCK_DISPATCH_ON_CRITICAL_GAS: z.coerce.boolean().default(true),
 
+  // ─── Alerting (event bus + webhooks) ───
+  /** URL do webhook Discord pra alertas formatados (embeds). Vazio = sink Discord não ativa.
+   *  Criar webhook em canal SEU privado: Server > Integrations > Webhooks > New */
+  DISCORD_WEBHOOK_URL: optionalUrl(),
+  /** URL genérica pra POST JSON dos eventos crus (sem formatação Discord).
+   *  Útil pra Telegram bot, mini server local, n8n, futuro WebSocket gateway. */
+  GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Filtro de severidades pro Discord (comma-separated). Default: 'warn,critical' (sem info pra evitar spam).
+   *  Override pra 'info,warn,critical' se quiser ver TUDO durante calibração. */
+  DISCORD_SEVERITIES: z.string().default('warn,critical'),
+  /** Filtro de severidades pro generic webhook. Default: 'info,warn,critical' (envia tudo). */
+  GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

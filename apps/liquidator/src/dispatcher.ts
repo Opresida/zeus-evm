@@ -20,6 +20,8 @@ import { estimateUsd, formatWei, gasCostUsd } from './priceUtils';
 import type { PnlTracker, PnlEvent } from './pnlTracker';
 import type { FailureTracker } from './failureTracker';
 import type { PositionDedupTracker } from './positionDedup';
+import type { EventBus } from './eventBus';
+import type { LiquidatorMode as MMode } from './config';
 
 type AnyPublicClient = PublicClient<any, any>;
 type AnyWalletClient = WalletClient<any, any, any>;
@@ -59,6 +61,12 @@ export interface DispatchInput {
   positionKey?: string;
   /** Protocolo da operação — pra registrar no PnL event. */
   protocol?: PnlEvent['protocol'];
+  /** Event bus pra emitir eventos tipados (webhook/WebSocket futuro). */
+  eventBus?: EventBus;
+  /** Borrower address (pra emitir nos eventos de tx). */
+  borrower?: Address;
+  /** Chain ativa pra contexto dos eventos. */
+  chain?: string;
 }
 
 /**
@@ -88,9 +96,13 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     dedupTracker,
     positionKey,
     protocol,
+    eventBus,
+    borrower,
+    chain,
   } = input;
 
-  const chainName = typeof summary.chain === 'string' ? summary.chain : 'unknown';
+  const chainName = chain ?? (typeof summary.chain === 'string' ? summary.chain : 'unknown');
+  const nowIso = () => new Date().toISOString();
 
   // Gate 1: simulação tem que ter passado
   if (!simulationOk) {
@@ -98,6 +110,18 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       { ...summary, simulationReason },
       `❌ Dispatch ABORTADO — simulation falhou: ${simulationReason}`,
     );
+    if (eventBus && protocol && borrower) {
+      eventBus.emit({
+        type: 'tx.reverted_pre_dispatch',
+        timestamp: nowIso(),
+        chain: chainName,
+        mode,
+        severity: 'info',
+        protocol,
+        borrower,
+        reason: simulationReason ?? 'simulation failed',
+      });
+    }
     return { status: 'reverted_pre_dispatch', reason: simulationReason ?? 'unknown' };
   }
 
@@ -151,6 +175,21 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       // Dedup: marca como failed (bloqueia retry por TTL)
       if (dedupTracker && positionKey) {
         dedupTracker.markFailed(positionKey, `reverted on-chain`, txHash);
+      }
+      // Event bus: notifica external sinks
+      if (eventBus && protocol && borrower) {
+        eventBus.emit({
+          type: 'tx.reverted_on_chain',
+          timestamp: nowIso(),
+          chain: chainName,
+          mode,
+          severity: 'warn',
+          txHash,
+          protocol,
+          borrower,
+          gasUsdLost: revertGasUsd,
+          blockNumber: receipt.blockNumber.toString(),
+        });
       }
       logger.error(
         {
@@ -239,6 +278,25 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     // Dedup: marca como confirmed (bloqueia retry da mesma position por TTL curto)
     if (dedupTracker && positionKey) {
       dedupTracker.markConfirmed(positionKey, txHash);
+    }
+
+    // Event bus: emite evento de confirmação pra alertas externos
+    if (eventBus && protocol && borrower) {
+      eventBus.emit({
+        type: 'tx.confirmed',
+        timestamp: nowIso(),
+        chain: chainName,
+        mode,
+        severity: 'info',
+        txHash,
+        protocol,
+        borrower,
+        profitUsd: profitUsd ?? null,
+        gasCostUsd: gasUsdCost,
+        netProfitUsd: netProfitUsd ?? null,
+        profitDeltaBps: deltaBps,
+        blockNumber: receipt.blockNumber.toString(),
+      });
     }
 
     return {

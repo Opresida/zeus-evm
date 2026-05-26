@@ -32,6 +32,7 @@ import type { FailureTracker } from './failureTracker';
 import type { PositionDedupTracker } from './positionDedup';
 import type { GasReserveTracker } from './gasReserveTracker';
 import { aavePositionKey, compoundPositionKey } from './positionDedup';
+import type { EventBus } from './eventBus';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -48,6 +49,8 @@ export interface PipelineDeps {
   dedupTracker?: PositionDedupTracker;
   /** Gas reserve tracker — bloqueia dispatch se balance < critical. */
   gasReserveTracker?: GasReserveTracker;
+  /** Event bus pra emitir eventos tipados (webhook/alerts). */
+  eventBus?: EventBus;
 }
 
 export async function runAavePipeline(
@@ -188,6 +191,9 @@ export async function runAavePipeline(
     dedupTracker,
     positionKey,
     protocol: 'aave-v3',
+    eventBus: deps.eventBus,
+    borrower: position.borrower,
+    chain: ctx.chainConfig.name,
   });
 }
 
@@ -334,5 +340,8 @@ export async function runCompoundPipeline(
     dedupTracker,
     positionKey,
     protocol: 'compound-v3',
+    eventBus: deps.eventBus,
+    borrower: position.borrower,
+    chain: ctx.chainConfig.name,
   });
 }

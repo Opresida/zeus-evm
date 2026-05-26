@@ -17,6 +17,7 @@ import type { LiquidatorMode } from './config';
 import type { DispatchOutcome } from './types';
 import { decodeLiquidationEvent, profitDeltaBps } from './eventDecoder';
 import { estimateUsd, formatWei, gasCostUsd } from './priceUtils';
+import type { PnlTracker, PnlEvent } from './pnlTracker';
 
 type AnyPublicClient = PublicClient<any, any>;
 type AnyWalletClient = WalletClient<any, any, any>;
@@ -46,6 +47,10 @@ export interface DispatchInput {
   profitAssetSymbol: string;
   /** Preço ETH/USD estimado pra calcular gasCostUsd (do config). */
   ethUsdPrice: number;
+  /** PnL tracker pra registrar wins/losses e acionar kill switch automático. */
+  pnlTracker?: PnlTracker;
+  /** Protocolo da operação — pra registrar no PnL event. */
+  protocol?: PnlEvent['protocol'];
 }
 
 /**
@@ -70,7 +75,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     profitAssetDecimals,
     profitAssetSymbol,
     ethUsdPrice,
+    pnlTracker,
+    protocol,
   } = input;
+
+  const chainName = typeof summary.chain === 'string' ? summary.chain : 'unknown';
 
   // Gate 1: simulação tem que ter passado
   if (!simulationOk) {
@@ -113,9 +122,22 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
 
     if (receipt.status === 'reverted') {
+      // Gas perdido em tx revertida = LOSS pra PnL tracker (em USD)
+      const revertGasUsd = gasCostUsd(receipt.gasUsed, receipt.effectiveGasPrice ?? 0n, ethUsdPrice);
+      pnlTracker?.recordLoss(revertGasUsd, {
+        txHash,
+        chain: chainName,
+        protocol,
+        reason: `reverted on-chain at block ${receipt.blockNumber}`,
+      });
       logger.error(
-        { ...summary, txHash, blockNumber: receipt.blockNumber.toString() },
-        `💥 Tx REVERTIDA on-chain: ${txHash}`,
+        {
+          ...summary,
+          txHash,
+          blockNumber: receipt.blockNumber.toString(),
+          gasUsdLost: revertGasUsd.toFixed(4),
+        },
+        `💥 Tx REVERTIDA on-chain: ${txHash} | gas perdido $${revertGasUsd.toFixed(4)}`,
       );
       return {
         status: 'reverted_on_chain',
@@ -166,6 +188,20 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       `✅ Tx CONFIRMED ${txHash} | ${profitLabel} | ${calibrationNote}`,
     );
 
+    // Registra PnL: net positivo = win, net negativo = loss (raro mas possível)
+    if (netProfitUsd !== undefined && pnlTracker) {
+      if (netProfitUsd > 0) {
+        pnlTracker.recordWin(netProfitUsd, { txHash, chain: chainName, protocol });
+      } else if (netProfitUsd < 0) {
+        pnlTracker.recordLoss(Math.abs(netProfitUsd), {
+          txHash,
+          chain: chainName,
+          protocol,
+          reason: `confirmed but net negative (profit=$${(profitUsd ?? 0).toFixed(2)}, gas=$${gasUsdCost.toFixed(2)})`,
+        });
+      }
+    }
+
     return {
       status: 'confirmed',
       txHash,
@@ -185,5 +221,106 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ ...summary, err: msg }, `💥 Dispatch falhou: ${msg.slice(0, 200)}`);
     return { status: 'reverted_pre_dispatch', reason: msg.slice(0, 200) };
+  }
+}
+
+/**
+ * Helper pra acionar kill() on-chain quando PnL tracker detecta loss > limit.
+ *
+ * Idempotente — pode ser chamado várias vezes sem problema. Se já está killed,
+ * retorna `already_killed` sem submeter tx duplicada.
+ *
+ * Em DRY_RUN: NÃO submete tx (estado interno do tracker é suficiente pra parar dispatches).
+ * Em testnet/mainnet: submete `kill()` se wallet for owner.
+ */
+export interface KillSwitchOnChainResult {
+  status: 'submitted' | 'already_killed' | 'dryrun_skipped' | 'no_wallet' | 'failed';
+  txHash?: `0x${string}`;
+  reason?: string;
+}
+
+const EXECUTOR_KILL_ABI = [
+  {
+    type: 'function',
+    name: 'kill',
+    stateMutability: 'nonpayable',
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'isKilled',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
+  },
+] as const;
+
+export async function triggerKillSwitchOnChain(opts: {
+  mode: LiquidatorMode;
+  client: AnyPublicClient;
+  wallet?: AnyWalletClient;
+  account?: Address;
+  executorAddress: Address;
+  reason: string;
+}): Promise<KillSwitchOnChainResult> {
+  const { mode, client, wallet, account, executorAddress, reason } = opts;
+
+  if (mode === 'dryrun') {
+    logger.warn(
+      { executorAddress, reason },
+      `🟦 DRY_RUN: kill() NÃO submetido on-chain (estado interno do tracker bloqueia dispatches)`,
+    );
+    return { status: 'dryrun_skipped', reason: 'mode=dryrun' };
+  }
+
+  if (!wallet || !account) {
+    logger.error({ executorAddress }, 'Kill on-chain abortado — wallet ausente');
+    return { status: 'no_wallet', reason: 'wallet missing in non-dryrun mode' };
+  }
+
+  try {
+    // Idempotência: ler estado atual antes de submeter
+    const alreadyKilled = (await client.readContract({
+      address: executorAddress,
+      abi: EXECUTOR_KILL_ABI,
+      functionName: 'isKilled',
+    })) as boolean;
+
+    if (alreadyKilled) {
+      logger.warn(
+        { executorAddress, reason },
+        `Contrato JÁ está killed on-chain — skip tx duplicada`,
+      );
+      return { status: 'already_killed', reason: 'isKilled() returned true' };
+    }
+
+    logger.fatal(
+      { executorAddress, reason, mode },
+      `🚨 SUBMETENDO kill() ON-CHAIN — ${reason}`,
+    );
+
+    const txHash = await wallet.writeContract({
+      address: executorAddress,
+      abi: EXECUTOR_KILL_ABI,
+      functionName: 'kill',
+      account,
+      chain: wallet.chain ?? null,
+    } as any);
+
+    logger.fatal({ executorAddress, txHash }, `🚨 kill() submetido — txHash=${txHash}`);
+
+    // Aguarda confirmação (não bloqueia futuras decisões, mas confirma)
+    await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    logger.fatal({ executorAddress, txHash }, `🛑 Contrato KILLED on-chain confirmado`);
+
+    return { status: 'submitted', txHash };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { executorAddress, err: msg },
+      `Falha ao submeter kill() on-chain: ${msg.slice(0, 200)}`,
+    );
+    return { status: 'failed', reason: msg.slice(0, 200) };
   }
 }

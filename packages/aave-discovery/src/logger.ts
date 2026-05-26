@@ -8,6 +8,8 @@ export interface LoggerLike {
   warn(obj: object | string, msg?: string): void;
   debug(obj: object | string, msg?: string): void;
   error(obj: object | string, msg?: string): void;
+  /** Pino: fatal é o nível mais alto, usado pra incidentes que param o bot (ex: kill switch). */
+  fatal(obj: object | string, msg?: string): void;
 }
 
 const NOOP = () => {};
@@ -17,4 +19,5 @@ export const NOOP_LOGGER: LoggerLike = {
   warn: NOOP,
   debug: NOOP,
   error: NOOP,
+  fatal: NOOP,
 };

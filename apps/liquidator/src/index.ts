@@ -34,6 +34,9 @@ import {
 } from './protocols/compound/comets';
 import { discoverCompoundLiquidatablePositions } from './protocols/compound/discovery';
 import { slippageCache } from './slippageCache';
+import { PnlTracker } from './pnlTracker';
+import { triggerKillSwitchOnChain } from './dispatcher';
+import { resolve as resolvePath } from 'node:path';
 
 // ABI fragment do executor pra cache de getMaxTradeFor
 const EXECUTOR_VIEW_ABI = [
@@ -55,6 +58,8 @@ interface LiquidatorState {
   aaveReservesCache?: AaveReservesCache;
   /** Cache de Comets Compound (collaterals + base token) — buildado 1x no boot */
   compoundCometCache?: CompoundCometCache;
+  /** PnL tracker — rolling 24h + kill switch automático */
+  pnlTracker: PnlTracker;
 }
 
 /**
@@ -67,6 +72,36 @@ export async function boot(): Promise<LiquidatorState> {
   // Em dryrun sem wallet, usa zero address como caller (eth_call funciona)
   const callerAddress = (ctx.account ??
     '0x0000000000000000000000000000000000000000') as Address;
+
+  // PnL Tracker — em dryrun, autoKill é forçado false (estado interno é suficiente)
+  const pnlTracker = new PnlTracker({
+    dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
+    logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
+    autoKillEnabled: env.LIQUIDATOR_MODE !== 'dryrun' && env.AUTO_KILL_SWITCH_ENABLED,
+    logger,
+  });
+
+  const pnlBootStats = pnlTracker.stats();
+  logger.info(
+    {
+      windowH: 24,
+      wins: pnlBootStats.wins,
+      losses: pnlBootStats.losses,
+      winsUsd: pnlBootStats.winsUsd.toFixed(2),
+      lossesUsd: pnlBootStats.lossesUsd.toFixed(2),
+      netPnlUsd: pnlBootStats.netPnlUsd.toFixed(2),
+      dailyLimitUsd: env.DAILY_LOSS_LIMIT_USD,
+      killSwitchTriggered: pnlBootStats.killSwitchTriggered,
+    },
+    `📊 PnL 24h | wins=$${pnlBootStats.winsUsd.toFixed(2)} losses=$${pnlBootStats.lossesUsd.toFixed(2)} net=$${pnlBootStats.netPnlUsd.toFixed(2)} | limit=$${env.DAILY_LOSS_LIMIT_USD}`,
+  );
+
+  if (pnlBootStats.killSwitchTriggered) {
+    logger.fatal(
+      { reason: pnlTracker.killReason() },
+      `🚨 KILL SWITCH JÁ ATIVO na boot — dispatches futuros bloqueados. Use manualReset() apenas após auditoria.`,
+    );
+  }
 
   logger.info(
     {
@@ -166,6 +201,7 @@ export async function boot(): Promise<LiquidatorState> {
     contractCapByDebtAsset,
     aaveReservesCache,
     compoundCometCache,
+    pnlTracker,
   };
 }
 
@@ -182,6 +218,7 @@ export async function processOpportunity(
     ctx: state.ctx,
     callerAddress: state.callerAddress,
     contractCapByDebtAsset: state.contractCapByDebtAsset,
+    pnlTracker: state.pnlTracker,
   });
 }
 
@@ -197,6 +234,7 @@ export async function processCompoundOpportunity(
     ctx: state.ctx,
     callerAddress: state.callerAddress,
     contractCapByDebtAsset: state.contractCapByDebtAsset,
+    pnlTracker: state.pnlTracker,
   });
 }
 
@@ -293,6 +331,36 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   // Pruning oportunístico — barato (TTL check)
   const pruned = slippageCache.pruneExpired();
 
+  // PnL stats do tick + kill switch check
+  const pnlStats = state.pnlTracker.stats();
+  // Se tracker virou triggered durante este tick (e não foi acionado ANTES), disparar kill on-chain
+  if (
+    pnlStats.killSwitchTriggered &&
+    state.env.AUTO_KILL_SWITCH_ENABLED &&
+    state.env.LIQUIDATOR_MODE !== 'dryrun' &&
+    ctx.executorContractAddress
+  ) {
+    try {
+      const killResult = await triggerKillSwitchOnChain({
+        mode: state.env.LIQUIDATOR_MODE,
+        client: ctx.client,
+        wallet: ctx.wallet,
+        account: ctx.account,
+        executorAddress: ctx.executorContractAddress,
+        reason: state.pnlTracker.killReason() ?? 'daily loss limit exceeded',
+      });
+      logger.fatal(
+        { killResult },
+        `⛔ Auto-kill on-chain status: ${killResult.status}`,
+      );
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : err },
+        'Falha ao acionar kill on-chain — tracker continua bloqueando dispatches em memória',
+      );
+    }
+  }
+
   if (stats.aave === 0 && stats.compound === 0) {
     logger.info(
       { elapsedMs: Date.now() - startedAt, cache: cacheStats, prunedEntries: pruned },
@@ -314,8 +382,12 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
       cacheHitRate: `${(cacheStats.hitRate * 100).toFixed(1)}%`,
       cacheSize: cacheStats.size,
       cachePruned: pruned,
+      pnlNetUsd: pnlStats.netPnlUsd.toFixed(2),
+      pnlLossesUsd: pnlStats.lossesUsd.toFixed(2),
+      pnlWinsUsd: pnlStats.winsUsd.toFixed(2),
+      killSwitch: pnlStats.killSwitchTriggered ? 'TRIGGERED' : 'ok',
     },
-    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%)`,
+    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)})`,
   );
 }
 

@@ -87,6 +87,17 @@ const envSchema = z.object({
    *  ⚠️ Hardcoded MVP — refinar via Chainlink oracle on-chain depois. */
   ETH_USD_PRICE_ESTIMATE: z.coerce.number().positive().default(3000),
 
+  // ─── Daily loss limit (gap crítico #1) ───
+  /** Limite máximo de loss em USD nas últimas 24h. Quando ultrapassado, kill switch
+   *  é acionado automaticamente: dispatches futuros bloqueados + (se autoKillEnabled)
+   *  contrato é killed on-chain. Default conservador. */
+  DAILY_LOSS_LIMIT_USD: z.coerce.number().positive().default(100),
+  /** Caminho do arquivo JSONL onde PnL events são persistidos (sobrevive restart). */
+  PNL_LOG_FILE: z.string().default('logs/pnl-events.jsonl'),
+  /** Se true E modo != dryrun, dispara executor.kill() on-chain quando limit atingido.
+   *  Em dryrun fica sempre false (não submete nada). */
+  AUTO_KILL_SWITCH_ENABLED: z.coerce.boolean().default(true),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

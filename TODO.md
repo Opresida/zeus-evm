@@ -49,7 +49,7 @@ Lógicas/otimizações faltantes identificadas em scan proativo de produção. S
 
 ### 🔴 CRÍTICO — Bloqueadores pra mainnet real
 
-- [ ] **Daily loss limit** — kill switch automático se perder >$X em 24h (config `DAILY_LOSS_LIMIT_USD` default 100). Bug pode drenar gas reserve em horas sem detecção. ~2-3h
+- [x] **Daily loss limit** ✅ (entregue 2026-05-26) — `apps/liquidator/src/pnlTracker.ts` com rolling window 24h, persistência JSONL append-only, hooks no dispatcher (tx revertida = loss USD, confirmed com net negativo = loss), gate pre-dispatch nos pipelines Aave+Compound, on-chain `triggerKillSwitchOnChain` helper (idempotente, modo-aware), config `DAILY_LOSS_LIMIT_USD` (default 100) + `PNL_LOG_FILE` + `AUTO_KILL_SWITCH_ENABLED`. Boot carrega histórico 24h, log de stats por tick. **9/9 typecheck verde + smoke boot OK**.
 - [ ] **Cooldown após N falhas seguidas** — pausar 5min se 3 tx revertem consecutivamente. Sem isso, bot fica em loop infinito queimando gas. ~1h
 - [ ] **Position deduplication** — guardar lista de borrowers em tx pendente, recusar resubmit em ticks consecutivos. ~2h
 - [ ] **Gas reserve monitoring + alerta** — ETH wallet < threshold = log warn + Discord alert. ~1-2h

@@ -26,7 +26,8 @@ import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
-import { dispatch } from './dispatcher';
+import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
+import type { PnlTracker } from './pnlTracker';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -35,13 +36,23 @@ export interface PipelineDeps {
   callerAddress: Address;
   /** Cap on-chain via getMaxTradeFor(debtAsset). Computado uma vez no boot e cached. */
   contractCapByDebtAsset: Map<string, bigint>;
+  /** PnL tracker — registra wins/losses + aciona kill switch automático. */
+  pnlTracker?: PnlTracker;
 }
 
 export async function runAavePipeline(
   position: AaveLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker } = deps;
+
+  // Gate kill switch: se PnL tracker está triggered, abortar antes de qualquer trabalho
+  if (pnlTracker?.isKillSwitchTriggered()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}`,
+    };
+  }
 
   // Sanity: chain tem QuoterV2 UniV3 (calculator não funciona sem isso)
   if (!ctx.chainConfig.uniswapV3?.quoterV2) {
@@ -133,6 +144,8 @@ export async function runAavePipeline(
     profitAssetDecimals: position.debtAssetDecimals,
     profitAssetSymbol: position.debtAssetSymbol,
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    pnlTracker,
+    protocol: 'aave-v3',
   });
 }
 
@@ -144,7 +157,14 @@ export async function runCompoundPipeline(
   position: CompoundLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker } = deps;
+
+  if (pnlTracker?.isKillSwitchTriggered()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}`,
+    };
+  }
 
   if (!ctx.chainConfig.uniswapV3?.quoterV2) {
     return { status: 'reverted_pre_dispatch', reason: 'no UniswapV3 QuoterV2 configured' };
@@ -240,5 +260,7 @@ export async function runCompoundPipeline(
     profitAssetDecimals: position.baseTokenDecimals,
     profitAssetSymbol: position.baseTokenSymbol,
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    pnlTracker,
+    protocol: 'compound-v3',
   });
 }

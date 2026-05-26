@@ -37,8 +37,10 @@ import { slippageCache } from './slippageCache';
 import { PnlTracker } from './pnlTracker';
 import { FailureTracker } from './failureTracker';
 import { PositionDedupTracker } from './positionDedup';
+import { GasReserveTracker } from './gasReserveTracker';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
+import { parseEther } from 'viem';
 
 // ABI fragment do executor pra cache de getMaxTradeFor
 const EXECUTOR_VIEW_ABI = [
@@ -66,6 +68,8 @@ interface LiquidatorState {
   failureTracker: FailureTracker;
   /** Dedup tracker — evita re-submeter mesma position */
   dedupTracker: PositionDedupTracker;
+  /** Gas reserve tracker — monitora ETH balance da bot wallet */
+  gasReserveTracker: GasReserveTracker;
 }
 
 /**
@@ -137,6 +141,30 @@ export async function boot(): Promise<LiquidatorState> {
       recentTtlSec: env.DEDUP_RECENT_TTL_SEC,
     },
     `🔁 Dedup tracker pronto — pending=${env.DEDUP_PENDING_TIMEOUT_SEC}s, recent=${env.DEDUP_RECENT_TTL_SEC}s`,
+  );
+
+  // Gas Reserve Tracker — monitora ETH balance da bot wallet
+  const gasReserveTracker = new GasReserveTracker({
+    warnThresholdWei: parseEther(env.GAS_RESERVE_WARN_ETH.toString()),
+    criticalThresholdWei: parseEther(env.GAS_RESERVE_CRITICAL_ETH.toString()),
+    blockDispatchOnCritical: env.BLOCK_DISPATCH_ON_CRITICAL_GAS,
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    logger,
+  });
+
+  // Check inicial pra reportar estado no boot
+  const initialGasStatus = await gasReserveTracker.check(ctx.client, ctx.account);
+  const initialGasStats = gasReserveTracker.stats();
+  logger.info(
+    {
+      account: ctx.account ?? '(none — dryrun)',
+      status: initialGasStatus,
+      balanceEth: initialGasStats.balanceEth,
+      balanceUsd: initialGasStats.balanceUsd?.toFixed(2) ?? 'n/a',
+      warnEth: env.GAS_RESERVE_WARN_ETH,
+      criticalEth: env.GAS_RESERVE_CRITICAL_ETH,
+    },
+    `⛽ Gas reserve: ${initialGasStatus} | balance=${initialGasStats.balanceEth} ETH${initialGasStats.balanceUsd !== null ? ` ($${initialGasStats.balanceUsd.toFixed(2)})` : ''} | thresholds warn=${env.GAS_RESERVE_WARN_ETH} crit=${env.GAS_RESERVE_CRITICAL_ETH}`,
   );
 
   logger.info(
@@ -240,6 +268,7 @@ export async function boot(): Promise<LiquidatorState> {
     pnlTracker,
     failureTracker,
     dedupTracker,
+    gasReserveTracker,
   };
 }
 
@@ -259,6 +288,7 @@ export async function processOpportunity(
     pnlTracker: state.pnlTracker,
     failureTracker: state.failureTracker,
     dedupTracker: state.dedupTracker,
+    gasReserveTracker: state.gasReserveTracker,
   });
 }
 
@@ -277,6 +307,7 @@ export async function processCompoundOpportunity(
     pnlTracker: state.pnlTracker,
     failureTracker: state.failureTracker,
     dedupTracker: state.dedupTracker,
+    gasReserveTracker: state.gasReserveTracker,
   });
 }
 
@@ -319,6 +350,9 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
 
   const startedAt = Date.now();
   const stats = { aave: 0, compound: 0, dispatched: 0, dryrun: 0, rejected: 0 };
+
+  // Check gas reserve antes de qualquer trabalho — atualiza estado interno
+  await state.gasReserveTracker.check(ctx.client, ctx.account);
 
   // ─── Aave V3 ───
   if (aaveReservesCache && env.THEGRAPH_API_KEY && ctx.chainConfig.aave?.pool) {
@@ -378,6 +412,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const failureStats = state.failureTracker.stats();
   const dedupPruned = state.dedupTracker.pruneExpired();
   const dedupStats = state.dedupTracker.stats();
+  const gasStats = state.gasReserveTracker.stats();
   // Se tracker virou triggered durante este tick (e não foi acionado ANTES), disparar kill on-chain
   if (
     pnlStats.killSwitchTriggered &&
@@ -440,8 +475,11 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
       dedupConfirmed: dedupStats.confirmed,
       dedupFailed: dedupStats.failed,
       dedupPruned,
+      gasStatus: gasStats.status,
+      gasBalanceEth: gasStats.balanceEth,
+      gasBalanceUsd: gasStats.balanceUsd?.toFixed(2) ?? 'n/a',
     },
-    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''} | dedup=${dedupStats.total} (p=${dedupStats.pending} c=${dedupStats.confirmed} f=${dedupStats.failed})`,
+    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''} | dedup=${dedupStats.total} (p=${dedupStats.pending} c=${dedupStats.confirmed} f=${dedupStats.failed}) | gas=${gasStats.status} ${gasStats.balanceEth}ETH`,
   );
 }
 

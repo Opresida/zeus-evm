@@ -114,6 +114,16 @@ const envSchema = z.object({
    *  Após esse tempo, subgraph já indexou novo estado e position pode ser re-processada. */
   DEDUP_RECENT_TTL_SEC: z.coerce.number().int().positive().default(300),
 
+  // ─── Gas reserve monitoring (gap crítico #4) ───
+  /** Threshold WARN em ETH — abaixo disso loga alerta (não bloqueia). Default 0.05 ETH (~$150). */
+  GAS_RESERVE_WARN_ETH: z.coerce.number().positive().default(0.05),
+  /** Threshold CRITICAL em ETH — abaixo disso bloqueia dispatches (com flag).
+   *  Default 0.01 ETH (~$30) = cobre ~60-150 tx de liquidation em Base. */
+  GAS_RESERVE_CRITICAL_ETH: z.coerce.number().positive().default(0.01),
+  /** Se true, dispatches ficam bloqueados quando balance < critical threshold.
+   *  Default true (segurança). Em dryrun não tem efeito (sem wallet). */
+  BLOCK_DISPATCH_ON_CRITICAL_GAS: z.coerce.boolean().default(true),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

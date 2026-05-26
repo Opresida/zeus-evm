@@ -30,6 +30,7 @@ import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import type { PnlTracker } from './pnlTracker';
 import type { FailureTracker } from './failureTracker';
 import type { PositionDedupTracker } from './positionDedup';
+import type { GasReserveTracker } from './gasReserveTracker';
 import { aavePositionKey, compoundPositionKey } from './positionDedup';
 
 export interface PipelineDeps {
@@ -45,15 +46,17 @@ export interface PipelineDeps {
   failureTracker?: FailureTracker;
   /** Dedup tracker — evita re-submeter mesma position em ticks consecutivos. */
   dedupTracker?: PositionDedupTracker;
+  /** Gas reserve tracker — bloqueia dispatch se balance < critical. */
+  gasReserveTracker?: GasReserveTracker;
 }
 
 export async function runAavePipeline(
   position: AaveLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
 
-  // Gate kill switch: se PnL tracker está triggered, abortar antes de qualquer trabalho
+  // Gate kill switch
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
       status: 'reverted_pre_dispatch',
@@ -61,7 +64,7 @@ export async function runAavePipeline(
     };
   }
 
-  // Gate cooldown: se failure tracker está em cooldown, abortar
+  // Gate cooldown
   if (failureTracker?.inCooldown()) {
     const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
     return {
@@ -70,7 +73,15 @@ export async function runAavePipeline(
     };
   }
 
-  // Gate dedup: se position está em pending/recent confirmed/failed, abortar
+  // Gate gas reserve crítico
+  if (gasReserveTracker?.shouldBlockDispatch()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)`,
+    };
+  }
+
+  // Gate dedup
   const positionKey = aavePositionKey(ctx.chainConfig.name, position.borrower);
   if (dedupTracker) {
     const dedupCheck = dedupTracker.check(positionKey);
@@ -188,7 +199,7 @@ export async function runCompoundPipeline(
   position: CompoundLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
 
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
@@ -202,6 +213,13 @@ export async function runCompoundPipeline(
     return {
       status: 'reverted_pre_dispatch',
       reason: `cooldown ativo, retomada em ${remainingS}s`,
+    };
+  }
+
+  if (gasReserveTracker?.shouldBlockDispatch()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)`,
     };
   }
 

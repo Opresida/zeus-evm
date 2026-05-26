@@ -29,6 +29,8 @@ import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import type { PnlTracker } from './pnlTracker';
 import type { FailureTracker } from './failureTracker';
+import type { PositionDedupTracker } from './positionDedup';
+import { aavePositionKey, compoundPositionKey } from './positionDedup';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -41,13 +43,15 @@ export interface PipelineDeps {
   pnlTracker?: PnlTracker;
   /** Failure tracker — pausa bot após N falhas consecutivas. */
   failureTracker?: FailureTracker;
+  /** Dedup tracker — evita re-submeter mesma position em ticks consecutivos. */
+  dedupTracker?: PositionDedupTracker;
 }
 
 export async function runAavePipeline(
   position: AaveLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker } = deps;
 
   // Gate kill switch: se PnL tracker está triggered, abortar antes de qualquer trabalho
   if (pnlTracker?.isKillSwitchTriggered()) {
@@ -64,6 +68,18 @@ export async function runAavePipeline(
       status: 'reverted_pre_dispatch',
       reason: `cooldown ativo, retomada em ${remainingS}s`,
     };
+  }
+
+  // Gate dedup: se position está em pending/recent confirmed/failed, abortar
+  const positionKey = aavePositionKey(ctx.chainConfig.name, position.borrower);
+  if (dedupTracker) {
+    const dedupCheck = dedupTracker.check(positionKey);
+    if (dedupCheck.blocked) {
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `dedup blocked: ${dedupCheck.status} há ${Math.round(dedupCheck.ageMs / 1000)}s`,
+      };
+    }
   }
 
   // Sanity: chain tem QuoterV2 UniV3 (calculator não funciona sem isso)
@@ -158,6 +174,8 @@ export async function runAavePipeline(
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
     pnlTracker,
     failureTracker,
+    dedupTracker,
+    positionKey,
     protocol: 'aave-v3',
   });
 }
@@ -170,7 +188,7 @@ export async function runCompoundPipeline(
   position: CompoundLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker } = deps;
 
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
@@ -185,6 +203,18 @@ export async function runCompoundPipeline(
       status: 'reverted_pre_dispatch',
       reason: `cooldown ativo, retomada em ${remainingS}s`,
     };
+  }
+
+  // Gate dedup: position composta com (comet, borrower) pra Compound
+  const positionKey = compoundPositionKey(ctx.chainConfig.name, position.comet, position.borrower);
+  if (dedupTracker) {
+    const dedupCheck = dedupTracker.check(positionKey);
+    if (dedupCheck.blocked) {
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `dedup blocked: ${dedupCheck.status} há ${Math.round(dedupCheck.ageMs / 1000)}s`,
+      };
+    }
   }
 
   if (!ctx.chainConfig.uniswapV3?.quoterV2) {
@@ -283,6 +313,8 @@ export async function runCompoundPipeline(
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
     pnlTracker,
     failureTracker,
+    dedupTracker,
+    positionKey,
     protocol: 'compound-v3',
   });
 }

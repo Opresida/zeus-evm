@@ -19,6 +19,7 @@ import { decodeLiquidationEvent, profitDeltaBps } from './eventDecoder';
 import { estimateUsd, formatWei, gasCostUsd } from './priceUtils';
 import type { PnlTracker, PnlEvent } from './pnlTracker';
 import type { FailureTracker } from './failureTracker';
+import type { PositionDedupTracker } from './positionDedup';
 
 type AnyPublicClient = PublicClient<any, any>;
 type AnyWalletClient = WalletClient<any, any, any>;
@@ -52,6 +53,10 @@ export interface DispatchInput {
   pnlTracker?: PnlTracker;
   /** Failure tracker pra contar falhas consecutivas e ativar cooldown. */
   failureTracker?: FailureTracker;
+  /** Dedup tracker pra evitar re-submeter mesma position em ticks consecutivos. */
+  dedupTracker?: PositionDedupTracker;
+  /** Chave única da position pra dedup (ex: "base:aave-v3:0xabc..."). */
+  positionKey?: string;
   /** Protocolo da operação — pra registrar no PnL event. */
   protocol?: PnlEvent['protocol'];
 }
@@ -80,6 +85,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     ethUsdPrice,
     pnlTracker,
     failureTracker,
+    dedupTracker,
+    positionKey,
     protocol,
   } = input;
 
@@ -122,6 +129,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
 
+    // Dedup: marca position como pending durante await
+    if (dedupTracker && positionKey) {
+      dedupTracker.markPending(positionKey, txHash);
+    }
+
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
 
@@ -136,6 +148,10 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       });
       // Contagem de falha consecutiva — cooldown automático após N falhas
       failureTracker?.recordFailure(`reverted on-chain ${txHash}`);
+      // Dedup: marca como failed (bloqueia retry por TTL)
+      if (dedupTracker && positionKey) {
+        dedupTracker.markFailed(positionKey, `reverted on-chain`, txHash);
+      }
       logger.error(
         {
           ...summary,
@@ -218,6 +234,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     } else if (failureTracker) {
       // Confirmed sem net calculável (token desconhecido pra USD) — tratamos como success
       failureTracker.recordSuccess();
+    }
+
+    // Dedup: marca como confirmed (bloqueia retry da mesma position por TTL curto)
+    if (dedupTracker && positionKey) {
+      dedupTracker.markConfirmed(positionKey, txHash);
     }
 
     return {

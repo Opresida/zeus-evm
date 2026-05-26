@@ -106,6 +106,14 @@ const envSchema = z.object({
    *  Default 5min — tempo pra calibração entre tentativas. */
   COOLDOWN_DURATION_SEC: z.coerce.number().int().positive().default(300),
 
+  // ─── Position deduplication (gap crítico #3) ───
+  /** Timeout (segundos) pra tx em pending. Se receipt não chega nesse tempo,
+   *  liberamos position pra retry (assume tx perdida/travada). Default 5min. */
+  DEDUP_PENDING_TIMEOUT_SEC: z.coerce.number().int().positive().default(300),
+  /** TTL (segundos) que position confirmed/failed fica bloqueada pra re-tentativa.
+   *  Após esse tempo, subgraph já indexou novo estado e position pode ser re-processada. */
+  DEDUP_RECENT_TTL_SEC: z.coerce.number().int().positive().default(300),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

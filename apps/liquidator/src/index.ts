@@ -36,6 +36,7 @@ import { discoverCompoundLiquidatablePositions } from './protocols/compound/disc
 import { slippageCache } from './slippageCache';
 import { PnlTracker } from './pnlTracker';
 import { FailureTracker } from './failureTracker';
+import { PositionDedupTracker } from './positionDedup';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
 
@@ -63,6 +64,8 @@ interface LiquidatorState {
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
   failureTracker: FailureTracker;
+  /** Dedup tracker — evita re-submeter mesma position */
+  dedupTracker: PositionDedupTracker;
 }
 
 /**
@@ -119,6 +122,21 @@ export async function boot(): Promise<LiquidatorState> {
       cooldownSec: env.COOLDOWN_DURATION_SEC,
     },
     `🛡️ Failure tracker pronto — cooldown ${env.COOLDOWN_DURATION_SEC}s após ${env.MAX_CONSECUTIVE_FAILURES} falhas consecutivas`,
+  );
+
+  // Position Dedup Tracker — evita re-submit em ticks consecutivos
+  const dedupTracker = new PositionDedupTracker({
+    pendingTimeoutMs: env.DEDUP_PENDING_TIMEOUT_SEC * 1000,
+    recentTtlMs: env.DEDUP_RECENT_TTL_SEC * 1000,
+    logger,
+  });
+
+  logger.info(
+    {
+      pendingTimeoutSec: env.DEDUP_PENDING_TIMEOUT_SEC,
+      recentTtlSec: env.DEDUP_RECENT_TTL_SEC,
+    },
+    `🔁 Dedup tracker pronto — pending=${env.DEDUP_PENDING_TIMEOUT_SEC}s, recent=${env.DEDUP_RECENT_TTL_SEC}s`,
   );
 
   logger.info(
@@ -221,6 +239,7 @@ export async function boot(): Promise<LiquidatorState> {
     compoundCometCache,
     pnlTracker,
     failureTracker,
+    dedupTracker,
   };
 }
 
@@ -239,6 +258,7 @@ export async function processOpportunity(
     contractCapByDebtAsset: state.contractCapByDebtAsset,
     pnlTracker: state.pnlTracker,
     failureTracker: state.failureTracker,
+    dedupTracker: state.dedupTracker,
   });
 }
 
@@ -256,6 +276,7 @@ export async function processCompoundOpportunity(
     contractCapByDebtAsset: state.contractCapByDebtAsset,
     pnlTracker: state.pnlTracker,
     failureTracker: state.failureTracker,
+    dedupTracker: state.dedupTracker,
   });
 }
 
@@ -355,6 +376,8 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   // PnL stats do tick + kill switch check
   const pnlStats = state.pnlTracker.stats();
   const failureStats = state.failureTracker.stats();
+  const dedupPruned = state.dedupTracker.pruneExpired();
+  const dedupStats = state.dedupTracker.stats();
   // Se tracker virou triggered durante este tick (e não foi acionado ANTES), disparar kill on-chain
   if (
     pnlStats.killSwitchTriggered &&
@@ -412,8 +435,13 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
       cooldown: failureStats.inCooldown
         ? `${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s`
         : 'ok',
+      dedupTotal: dedupStats.total,
+      dedupPending: dedupStats.pending,
+      dedupConfirmed: dedupStats.confirmed,
+      dedupFailed: dedupStats.failed,
+      dedupPruned,
     },
-    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''}`,
+    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''} | dedup=${dedupStats.total} (p=${dedupStats.pending} c=${dedupStats.confirmed} f=${dedupStats.failed})`,
   );
 }
 

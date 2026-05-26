@@ -32,9 +32,14 @@ const envSchema = z.object({
   BACKRUN_MODE: backrunMode.default('dryrun'),
   CHAIN_ID: z.coerce.number().int().positive().default(8453),
 
-  // RPC URLs
+  // RPC URLs (primary + fallback gratuito pra resiliência)
   BASE_RPC_HTTP: optionalUrl(),
+  BASE_RPC_HTTP_FALLBACK: optionalUrl(),
   BASE_RPC_WS: optionalUrl(),
+  BASE_SEPOLIA_RPC_HTTP: optionalUrl(),
+  BASE_SEPOLIA_RPC_HTTP_FALLBACK: optionalUrl(),
+  OPTIMISM_RPC_HTTP: optionalUrl(),
+  OPTIMISM_RPC_HTTP_FALLBACK: optionalUrl(),
   /** Alchemy mempool WSS — exige plano Growth+ (alchemy_pendingTransactions).
    *  Quando vazio, o subscription roda em PLACEHOLDER mode (sem feed real). */
   ALCHEMY_MEMPOOL_WSS_URL: optionalUrl(),
@@ -54,6 +59,7 @@ const envSchema = z.object({
   ARB_EXECUTOR_ADDRESS: optionalAddress(),
   ARB_EXECUTOR_ADDRESS_BASE: optionalAddress(),
   ARB_EXECUTOR_ADDRESS_BASE_SEPOLIA: optionalAddress(),
+  ARB_EXECUTOR_ADDRESS_OPTIMISM: optionalAddress(),
 
   // ─── Backrun-específico ───
   /** Threshold em USD pra considerar um swap "whale" (default $50k).

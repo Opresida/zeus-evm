@@ -35,6 +35,16 @@ export interface ChainConfig {
     ve: Address;
   };
 
+  /** Velodrome V2 — fork direto do Aerodrome (mesmo ABI Router/Factory).
+   *  Optimism principal: 'velodrome'. Base principal: 'aerodrome'.
+   *  Ambos compartilham `quoteAerodrome` adapter (apenas endereços diferentes). */
+  velodrome?: {
+    router: Address;
+    factory: Address;
+    voter: Address;
+    ve: Address;
+  };
+
   baseswap?: {
     router: Address;
     factory: Address;

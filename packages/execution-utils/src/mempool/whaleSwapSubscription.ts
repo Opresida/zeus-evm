@@ -90,7 +90,8 @@ const AERODROME_ROUTER_ABI = [
 export interface KnownRouters {
   uniswapV3SwapRouter02: Address;
   uniswapV3UniversalRouter: Address;
-  aerodromeRouter: Address;
+  /** Aerodrome (Base) ou Velodrome (Optimism) — mesmo router ABI. */
+  velodromeStyleRouter: Address;
 }
 
 /** Resolve qual venue corresponde ao `to` da pending tx. */
@@ -102,7 +103,8 @@ export function classifyVenue(to: Address, routers: KnownRouters): WhaleSwapVenu
   ) {
     return 'uniswap-v3';
   }
-  if (target === routers.aerodromeRouter.toLowerCase()) return 'aerodrome';
+  // Mesmo address pattern em ambas (Aerodrome em Base, Velodrome em OP)
+  if (target === routers.velodromeStyleRouter.toLowerCase()) return 'aerodrome';
   return 'unknown';
 }
 

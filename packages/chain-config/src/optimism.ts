@@ -26,6 +26,8 @@ export const OPTIMISM_MAINNET: ChainConfig = {
     USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
     DAI:  '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1',
     WBTC: '0x68f180fcCe6836688e9084f035309E29Bf0A2095',
+    OP:   '0x4200000000000000000000000000000000000042', // Optimism governance token
+    VELO: '0x9560e827aF36c94D2Ac33a39bCE1Fe78631088Db', // Velodrome V2 governance
   },
 
   // ─── Aave V3 (mesmo POOL address que Arbitrum — CREATE2 deterministic!) ───
@@ -51,6 +53,15 @@ export const OPTIMISM_MAINNET: ChainConfig = {
     cUSDCv3: '0x2e44e174f7D53F0212823acC11C01A11d58c5bCB', // baseToken=USDC native Optimism
     // cWETHv3 + cUSDTv3 podem existir mas não confirmados — adicionar quando necessário
     cWETHv3: '0x0000000000000000000000000000000000000000', // TBD
+  },
+
+  // ─── Velodrome V2 (fork direto Aerodrome — mesmo ABI Router/Factory) ───
+  // Source: github.com/velodrome-finance/contracts (V2 fork de 2024)
+  velodrome: {
+    router: '0xa062aE8A9c5e11aaA026fc2670B0D65cCc8B2858',
+    factory: '0xF1046053aa5682b4F9a81b5481394DA16BE5FF5a',
+    voter: '0x41C914ee0c7E1A5edCD0295623e6dC557B5aBf3C',
+    ve: '0xFAf8FD17D9840595845582fCB047DF13f006787d',
   },
 
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',

@@ -19,7 +19,7 @@
 
 import type { Address } from 'viem';
 import {
-  BASE_TARGET_PAIRS,
+  getTargetPairsForChain,
   type TargetPair,
 } from '@zeus-evm/chain-config';
 import {
@@ -61,7 +61,7 @@ export interface BackrunPipelineDeps {
   competitionTracker?: CompetitionTracker;
   /** Relay router pra bundle privado. Opcional — sem ele, fallback mempool público. */
   relayRouter?: RelayRouter;
-  /** Pares conhecidos (default BASE_TARGET_PAIRS). */
+  /** Pares conhecidos. Default resolve via getTargetPairsForChain(chainId). */
   pairs?: readonly TargetPair[];
 }
 
@@ -92,7 +92,7 @@ export async function processWhaleSwap(
     competitionTracker,
     relayRouter,
   } = deps;
-  const pairs = deps.pairs ?? BASE_TARGET_PAIRS;
+  const pairs = deps.pairs ?? getTargetPairsForChain(chainCtx.chainId);
   const nowIso = () => new Date().toISOString();
 
   // Gate 1: kill switch (PnL > limit)
@@ -121,7 +121,7 @@ export async function processWhaleSwap(
       chainCtx.chainName,
       mode,
       whale,
-      'whale swap em par fora do universo BASE_TARGET_PAIRS',
+      'whale swap em par fora do universo de target pairs da chain ativa',
       'plan',
     );
   }
@@ -164,8 +164,8 @@ export async function processWhaleSwap(
     whale,
     pair,
     uniswapV3Quoter: chainCtx.uniswapV3Quoter,
-    aerodromeRouter: chainCtx.aerodromeRouter,
-    aerodromeFactory: chainCtx.aerodromeFactory,
+    aerodromeRouter: chainCtx.velodromeStyleRouter,
+    aerodromeFactory: chainCtx.velodromeStyleFactory,
     minTradeWei,
     maxTradeWei,
     blockNumber,

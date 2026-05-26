@@ -100,7 +100,7 @@ export const BASE_TARGET_PAIRS: TargetPair[] = [
   },
 ];
 
-/** Lookup helper */
+/** Lookup helper (Base only, retrocompat). */
 export function findPairById(id: string): TargetPair | undefined {
   return BASE_TARGET_PAIRS.find((p) => p.id === id);
 }

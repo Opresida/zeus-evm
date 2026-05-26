@@ -15,7 +15,7 @@ import {
   GasOracle,
   emitSyntheticWhale,
 } from '@zeus-evm/execution-utils';
-import { BASE_TARGET_PAIRS } from '@zeus-evm/chain-config';
+import { getTargetPairsForChain } from '@zeus-evm/chain-config';
 
 import { loadConfig } from './config';
 import { buildChainContext } from './chainContext';
@@ -75,36 +75,38 @@ async function main() {
     }
   });
 
-  // Constrói whale sintético usando AERO/USDC (par estrela)
-  const aeroUsdc = BASE_TARGET_PAIRS.find((p) => p.id === 'AERO/USDC');
-  if (!aeroUsdc) {
-    throw new Error('TargetPair AERO/USDC não encontrado em BASE_TARGET_PAIRS');
+  // Constrói whale sintético usando primeiro par disponível na chain ativa
+  const chainPairs = getTargetPairsForChain(chainCtx.chainId);
+  const firstPair = chainPairs[0];
+  if (!firstPair) {
+    throw new Error(`Nenhum target pair configurado pra chainId=${chainCtx.chainId}`);
   }
 
   const syntheticWhale: WhaleSwap = {
     pendingTxHash: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
-    venue: 'aerodrome',
-    router: chainCtx.aerodromeRouter,
-    tokenIn: aeroUsdc.tokenB, // USDC
-    tokenOut: aeroUsdc.tokenA, // AERO
-    amountIn: 100_000n * 10n ** BigInt(aeroUsdc.decimalsB), // $100k USDC
+    venue: 'aerodrome', // Aerodrome em Base, Velodrome em OP — mesmo decoder
+    router: chainCtx.velodromeStyleRouter,
+    tokenIn: firstPair.tokenB, // stable/WETH
+    tokenOut: firstPair.tokenA, // volatile (AERO em Base, VELO em OP)
+    amountIn: 100_000n * 10n ** BigInt(firstPair.decimalsB),
     amountInUsd: 100_000,
     sender: null,
-    tokenInDecimals: aeroUsdc.decimalsB,
-    tokenOutDecimals: aeroUsdc.decimalsA,
-    tokenInSymbol: 'USDC',
-    tokenOutSymbol: 'AERO',
+    tokenInDecimals: firstPair.decimalsB,
+    tokenOutDecimals: firstPair.decimalsA,
+    tokenInSymbol: firstPair.id.split('/')[1] ?? '?',
+    tokenOutSymbol: firstPair.id.split('/')[0] ?? '?',
     observedAtBlock: 0n,
     detectedAt: Date.now(),
   };
 
   logger.info(
     {
-      pair: aeroUsdc.id,
+      pair: firstPair.id,
       venue: syntheticWhale.venue,
       amountInUsd: syntheticWhale.amountInUsd,
+      chain: chainCtx.chainName,
     },
-    `🧪 Enviando whale sintético — $${syntheticWhale.amountInUsd} swap em ${aeroUsdc.id}`,
+    `🧪 Enviando whale sintético — $${syntheticWhale.amountInUsd} swap em ${firstPair.id} (${chainCtx.chainName})`,
   );
 
   // Emite no bus (sinks formatariam Discord embed) E chama direct (rota direta pro pipeline)

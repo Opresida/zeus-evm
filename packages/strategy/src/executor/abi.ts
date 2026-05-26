@@ -326,4 +326,267 @@ export const ZEUS_EXECUTOR_ABI = [
   },
   { type: 'error', name: 'EmptySteps', inputs: [] },
   { type: 'error', name: 'InvalidCaller', inputs: [] },
+
+  // ════════ V7: bribe + backrun ════════
+
+  // ─── executeFlashloanBackrun ───
+  {
+    type: 'function',
+    name: 'executeFlashloanBackrun',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { type: 'address', name: 'flashloanAsset' },
+      { type: 'uint256', name: 'flashloanAmount' },
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          {
+            type: 'tuple[]',
+            name: 'steps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitToken' },
+          { type: 'address', name: 'profitReceiver' },
+          {
+            type: 'tuple',
+            name: 'bribe',
+            components: [
+              { type: 'uint256', name: 'bribeBps' },
+              { type: 'uint256', name: 'minBribeWei' },
+              { type: 'uint256', name: 'bribeMaxBps' },
+              { type: 'uint24', name: 'swapFeeTier' },
+              { type: 'uint256', name: 'swapSlippageBps' },
+            ],
+          },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+
+  // ─── executeLiquidationWithBribe ───
+  {
+    type: 'function',
+    name: 'executeLiquidationWithBribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'user' },
+          { type: 'address', name: 'collateralAsset' },
+          { type: 'address', name: 'debtAsset' },
+          { type: 'uint256', name: 'debtToCover' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+        ],
+      },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+
+  // ─── executeCompoundLiquidationWithBribe ───
+  {
+    type: 'function',
+    name: 'executeCompoundLiquidationWithBribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'comet' },
+          { type: 'address', name: 'borrower' },
+          { type: 'address', name: 'collateralAsset' },
+          { type: 'uint256', name: 'baseAmount' },
+          { type: 'uint256', name: 'minCollateralReceived' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+        ],
+      },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+
+  // ─── executeMorphoLiquidationWithBribe ───
+  {
+    type: 'function',
+    name: 'executeMorphoLiquidationWithBribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'morpho' },
+          { type: 'address', name: 'loanToken' },
+          { type: 'address', name: 'collateralToken' },
+          { type: 'address', name: 'oracle' },
+          { type: 'address', name: 'irm' },
+          { type: 'uint256', name: 'lltv' },
+          { type: 'address', name: 'borrower' },
+          { type: 'uint256', name: 'seizedAssets' },
+          { type: 'uint256', name: 'repaidShares' },
+          { type: 'uint256', name: 'flashloanAmount' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+        ],
+      },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+
+  // ─── V7 admin setters ───
+  {
+    type: 'function',
+    name: 'setWeth',
+    stateMutability: 'nonpayable',
+    inputs: [{ type: 'address', name: 'weth' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setUniV3SwapRouter',
+    stateMutability: 'nonpayable',
+    inputs: [{ type: 'address', name: 'swapRouter' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'weth',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'uniV3SwapRouter',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+
+  // ─── V7 events ───
+  {
+    type: 'event',
+    name: 'BribePaid',
+    inputs: [
+      { type: 'address', name: 'initiator', indexed: true },
+      { type: 'uint8', name: 'opType', indexed: true },
+      { type: 'address', name: 'coinbase', indexed: true },
+      { type: 'uint256', name: 'bribeNativeWei', indexed: false },
+      { type: 'uint256', name: 'grossProfit', indexed: false },
+      { type: 'uint256', name: 'netProfit', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'BackrunExecuted',
+    inputs: [
+      { type: 'address', name: 'initiator', indexed: true },
+      { type: 'address', name: 'flashloanAsset', indexed: true },
+      { type: 'address', name: 'profitToken', indexed: true },
+      { type: 'uint256', name: 'flashloanAmount', indexed: false },
+      { type: 'uint256', name: 'grossProfit', indexed: false },
+      { type: 'uint256', name: 'bribeNativeWei', indexed: false },
+      { type: 'uint256', name: 'netProfit', indexed: false },
+    ],
+  },
+
+  // ─── V7 errors ───
+  {
+    type: 'error',
+    name: 'BribeExceedsProfit',
+    inputs: [
+      { type: 'uint256', name: 'bribeNativeRequested' },
+      { type: 'uint256', name: 'profitNativeAvailable' },
+    ],
+  },
+  { type: 'error', name: 'InvalidBribeConfig', inputs: [] },
+  { type: 'error', name: 'BribeSwapFailed', inputs: [] },
+  { type: 'error', name: 'WethNotConfigured', inputs: [] },
+  { type: 'error', name: 'SwapRouterNotConfigured', inputs: [] },
 ] as const;

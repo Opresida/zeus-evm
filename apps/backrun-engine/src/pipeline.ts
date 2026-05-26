@@ -40,6 +40,8 @@ import {
 
 import type { BackrunEnv, BackrunMode } from './config';
 import type { BackrunChainContext } from './chainContext';
+import type { BribeCalculator, GasWarDetector, CompetitionTracker } from './bribe';
+import type { RelayRouter } from './bundling';
 import { logger } from './logger';
 import { dispatchBackrun } from './dispatcher';
 
@@ -51,6 +53,14 @@ export interface BackrunPipelineDeps {
   pnlTracker: PnlTracker;
   failureTracker: FailureTracker;
   gasOracle: GasOracle;
+  /** Bribe calculator. Opcional em DRY_RUN (sem bribe = comportamento v6). */
+  bribeCalculator?: BribeCalculator;
+  /** Gas war detector. Opcional — sem ele, level = 'normal' sempre. */
+  gasWarDetector?: GasWarDetector;
+  /** Competition tracker. Opcional. */
+  competitionTracker?: CompetitionTracker;
+  /** Relay router pra bundle privado. Opcional — sem ele, fallback mempool público. */
+  relayRouter?: RelayRouter;
   /** Pares conhecidos (default BASE_TARGET_PAIRS). */
   pairs?: readonly TargetPair[];
 }
@@ -69,7 +79,19 @@ export async function processWhaleSwap(
   whale: WhaleSwap,
   deps: BackrunPipelineDeps,
 ): Promise<BackrunPipelineResult> {
-  const { env, chainCtx, mode, eventBus, pnlTracker, failureTracker, gasOracle } = deps;
+  const {
+    env,
+    chainCtx,
+    mode,
+    eventBus,
+    pnlTracker,
+    failureTracker,
+    gasOracle,
+    bribeCalculator,
+    gasWarDetector,
+    competitionTracker,
+    relayRouter,
+  } = deps;
   const pairs = deps.pairs ?? BASE_TARGET_PAIRS;
   const nowIso = () => new Date().toISOString();
 
@@ -177,7 +199,34 @@ export async function processWhaleSwap(
   };
   eventBus.emit(oppEvent);
 
-  // Validate + simulate
+  // Decide bribe ANTES de validar (precisa de bribe correto na simulação)
+  let bribe: import('@zeus-evm/strategy').BribeConfig | undefined;
+  if (bribeCalculator) {
+    const gasWar = gasWarDetector?.classify({
+      pendingTxToKnownRouters: competitionTracker?.stats().pendingTxToKnownRouters ?? 0,
+      recentFailures: failureTracker.stats().consecutiveFailures,
+    }) ?? { level: 'normal' as const, signals: undefined };
+
+    const decision = bribeCalculator.decide({
+      expectedNetProfitUsd: opp.profitUsd,
+      gasWarLevel: gasWar.level,
+      signals: gasWar.signals,
+    });
+
+    if (decision.skip) {
+      return reject(
+        eventBus,
+        chainCtx.chainName,
+        mode,
+        whale,
+        decision.reason,
+        'profit_below_threshold',
+      );
+    }
+    bribe = decision.bribe;
+  }
+
+  // Validate + simulate (com bribe quando configurado)
   const validation = await validateBackrunProfit({
     client: chainCtx.client,
     opp,
@@ -187,6 +236,7 @@ export async function processWhaleSwap(
     minNetProfitUsd: env.MIN_BACKRUN_PROFIT_USD,
     estimatedGasUsd: env.GAS_COST_USD_ESTIMATE,
     blockNumber,
+    bribe,
   });
 
   if (!validation.passed) {
@@ -215,6 +265,7 @@ export async function processWhaleSwap(
     calldata: validation.calldata!,
     netProfitUsd: validation.netProfitUsd,
     simulationGas: validation.simulation?.gasUsed,
+    relayRouter,
   });
 
   logger.info(

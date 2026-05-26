@@ -32,6 +32,7 @@ import type { BackrunOpportunity } from '@zeus-evm/strategy';
 
 import type { BackrunEnv, BackrunMode } from './config';
 import type { BackrunChainContext } from './chainContext';
+import type { RelayRouter } from './bundling';
 import { logger } from './logger';
 
 export interface DispatchBackrunInput {
@@ -48,6 +49,9 @@ export interface DispatchBackrunInput {
   calldata: Hex;
   netProfitUsd: number;
   simulationGas?: bigint;
+  /** Bundle relay router opcional. Quando presente (e mode != dryrun), tenta bundle
+   *  privado ANTES do mempool público. Quando ausente, usa wallet.sendTransaction direto. */
+  relayRouter?: RelayRouter;
 }
 
 export interface DispatchBackrunResult {
@@ -72,6 +76,7 @@ export async function dispatchBackrun(
     calldata,
     netProfitUsd,
     simulationGas,
+    relayRouter,
   } = input;
 
   const nowIso = () => new Date().toISOString();
@@ -132,12 +137,67 @@ export async function dispatchBackrun(
         netProfitUsd: netProfitUsd.toFixed(4),
         maxFeeGwei: (Number(fees.maxFeePerGas) / 1e9).toFixed(4),
         priorityGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+        bundleRelay: relayRouter ? 'enabled' : 'mempool-only',
       },
       `🚀 Backrun SUBMETENDO (${mode}) — ${opp.pair.id} net=$${netProfitUsd.toFixed(2)}`,
     );
 
-    const txHash = await chainCtx.wallet.sendTransaction(txParams as any);
-    logger.info({ txHash, pair: opp.pair.id }, `📤 Backrun submetido: ${txHash}`);
+    // Estratégia de submissão:
+    //   1. SE relayRouter disponível: assina tx offline + submete bundle privado em paralelo
+    //      pra TODOS relays suportados. SE TODOS falharem → fallback mempool público.
+    //   2. SE bundle ok mas NÃO incluído em N blocos: mempool fallback (TODO em prod).
+    //      Pra MVP: bundle ok = "fire and forget" + watch nonce pra descobrir tx hash.
+    //
+    // ⚠️ Limitação MVP: quando bundle aceito mas não incluído, perdemos a oportunidade
+    //    (não fazemos mempool fallback automático pra evitar dupla submissão). Caller
+    //    deve monitorar inclusion off-chain (próxima iteração).
+    let txHash: `0x${string}`;
+    let viaBundle = false;
+
+    if (relayRouter) {
+      const targetBlock = (await chainCtx.client.getBlockNumber()) + 1n;
+      // Pra bundle precisamos do raw signed tx hex.
+      const signedTx = (await (chainCtx.wallet as any).signTransaction({
+        ...txParams,
+        type: 'eip1559',
+      } as any)) as Hex;
+
+      const bundleResult = await relayRouter.submit({
+        signedTx,
+        targetBlockNumber: targetBlock,
+        anchorTxHash: opp.whale.pendingTxHash as Hex,
+        chainId: chainCtx.chainId,
+        bundleId: `backrun-${opp.pair.id}-${Date.now()}`,
+      });
+
+      if (bundleResult.ok) {
+        viaBundle = true;
+        logger.info(
+          {
+            firstBundleHash: bundleResult.firstBundleHash,
+            relaysOk: bundleResult.results.filter((r) => r.ok).map((r) => r.relay),
+            elapsedMs: bundleResult.elapsedMs,
+            targetBlock: targetBlock.toString(),
+          },
+          `📦 Bundle submetido em ${bundleResult.results.filter((r) => r.ok).length} relay(s) — aguardando inclusion`,
+        );
+        // Hash do bundle ≠ tx hash on-chain. Derivamos tx hash via keccak256(signedTx) =
+        // o tx hash determinístico. Confirma se incluído via waitForTransactionReceipt.
+        const { keccak256 } = await import('viem');
+        txHash = keccak256(signedTx) as `0x${string}`;
+      } else {
+        logger.warn(
+          { errors: bundleResult.results.map((r) => (!r.ok ? `${r.relay}: ${r.error}` : '')).filter(Boolean) },
+          `⚠️ Bundle rejeitado por todos relays — fallback mempool público`,
+        );
+        txHash = await chainCtx.wallet.sendTransaction(txParams as any);
+        logger.info({ txHash, pair: opp.pair.id }, `📤 Backrun mempool (fallback): ${txHash}`);
+      }
+    } else {
+      txHash = await chainCtx.wallet.sendTransaction(txParams as any);
+      logger.info({ txHash, pair: opp.pair.id }, `📤 Backrun mempool: ${txHash}`);
+    }
+    void viaBundle;
 
     const receipt = await chainCtx.client.waitForTransactionReceipt({
       hash: txHash,

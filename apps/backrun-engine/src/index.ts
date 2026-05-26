@@ -25,12 +25,14 @@ import {
   type WhaleSwapDetectedEvent,
 } from '@zeus-evm/execution-utils';
 import type { Severity } from '@zeus-evm/execution-utils';
-import type { Address } from 'viem';
+import type { Address, Hex } from 'viem';
 
 import { loadConfig } from './config';
 import { buildChainContext } from './chainContext';
 import { logger } from './logger';
 import { processWhaleSwap, type BackrunPipelineDeps } from './pipeline';
+import { BribeCalculator, GasWarDetector, CompetitionTracker } from './bribe';
+import { RelayRouter } from './bundling';
 
 async function main() {
   const env = loadConfig();
@@ -91,6 +93,44 @@ async function main() {
     logger.info({ severities }, '🔔 Generic webhook sink registrado');
   }
 
+  // Bribe machinery (v7)
+  const bribeCalculator = new BribeCalculator({
+    minProfitUsd: env.BRIBE_MIN_PROFIT_USD,
+    hardCapBps: env.BRIBE_HARD_CAP_BPS,
+    defaultSwapFeeTier: env.BRIBE_SWAP_FEE_TIER,
+    defaultSwapSlippageBps: env.BRIBE_SWAP_SLIPPAGE_BPS,
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    logger,
+  });
+  const gasWarDetector = new GasWarDetector({ logger });
+  const competitionTracker = new CompetitionTracker({ logger });
+
+  // Bundle relay router — só ativa se ao menos 1 URL configurada
+  let relayRouter: RelayRouter | undefined;
+  const hasAnyRelay =
+    env.FLASHBOTS_RELAY_URL || env.ATLAS_RELAY_URL || env.BLOCKNATIVE_RELAY_URL;
+  if (hasAnyRelay && env.BACKRUN_MODE !== 'dryrun') {
+    relayRouter = new RelayRouter({
+      config: {
+        flashbotsUrl: env.FLASHBOTS_RELAY_URL,
+        atlasUrl: env.ATLAS_RELAY_URL,
+        blocknativeUrl: env.BLOCKNATIVE_RELAY_URL,
+        flashbotsAuthKey: env.FLASHBOTS_AUTH_KEY as Hex | undefined,
+        identityAddress: chainCtx.account,
+        timeoutMs: env.RELAY_TIMEOUT_MS,
+      },
+      logger,
+    });
+    logger.info(
+      { relays: relayRouter.registeredRelays() },
+      `📦 Bundle relay router registrado (${relayRouter.registeredRelays().length} relay(s))`,
+    );
+  } else if (env.BACKRUN_MODE !== 'dryrun') {
+    logger.warn(
+      'Nenhuma URL de bundle relay configurada — fallback mempool público. Configure FLASHBOTS_RELAY_URL etc pra ativar bundles privados.',
+    );
+  }
+
   // Deps comuns pra pipeline
   const deps: BackrunPipelineDeps = {
     env,
@@ -100,7 +140,16 @@ async function main() {
     pnlTracker,
     failureTracker,
     gasOracle,
+    bribeCalculator,
+    gasWarDetector,
+    competitionTracker,
+    relayRouter,
   };
+
+  // Poll baseFee a cada 5s pra alimentar gasWarDetector
+  setInterval(() => {
+    void gasWarDetector.pollBaseFee(chainCtx.client);
+  }, 5_000);
 
   // Subscribe ao bus pra processar WhaleSwapDetectedEvent
   eventBus.subscribe(async (event) => {

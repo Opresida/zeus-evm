@@ -16,7 +16,11 @@
 
 import type { Address, PublicClient } from 'viem';
 
-import { buildFlashloanCalldata } from '../../executor/txBuilder';
+import {
+  buildFlashloanCalldata,
+  buildBackrunCalldata,
+  type BribeConfig,
+} from '../../executor/txBuilder';
 import { simulateArbitrage, type SimulationResult } from '../../executor/simulator';
 import type { CrossDexOpportunity } from '../crossDex';
 import type { BackrunOpportunity } from './types';
@@ -41,6 +45,9 @@ export interface ValidateBackrunParams {
   /** Estimativa de gas em USD pra Base (default $0.50). */
   estimatedGasUsd?: number;
   blockNumber?: bigint;
+  /** Bribe config opcional. Quando presente, encoda via `executeFlashloanBackrun` (v7).
+   *  Quando ausente, encoda via `executeFlashloanArbitrage` (v6 fallback compatível). */
+  bribe?: BribeConfig;
 }
 
 export interface ValidateBackrunResult {
@@ -92,20 +99,31 @@ export async function validateBackrunProfit(
     minNetProfitUsd = 1,
     estimatedGasUsd = 0.5,
     blockNumber,
+    bribe,
   } = params;
 
   const flashloanAsset = opp.whale.tokenIn;
   const flashloanAmount = opp.amountIn;
 
-  // 1. Encoda calldata pro executeFlashloanArbitrage
-  const calldata = buildFlashloanCalldata({
-    opp: backrunToCrossDex(opp),
-    profitReceiver: callerAddress,
-    slippageBps,
-    minProfitMarginBps,
-    flashloanAsset,
-    flashloanAmount,
-  });
+  // 1. Encoda calldata. Com bribe → executeFlashloanBackrun (v7). Sem → fallback v6.
+  const calldata = bribe
+    ? buildBackrunCalldata({
+        opp: backrunToCrossDex(opp),
+        profitReceiver: callerAddress,
+        slippageBps,
+        minProfitMarginBps,
+        flashloanAsset,
+        flashloanAmount,
+        bribe,
+      })
+    : buildFlashloanCalldata({
+        opp: backrunToCrossDex(opp),
+        profitReceiver: callerAddress,
+        slippageBps,
+        minProfitMarginBps,
+        flashloanAsset,
+        flashloanAmount,
+      });
 
   // 2. Simula via eth_call
   const simulation = await simulateArbitrage({

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@zeus-evm/aave-discovery": "workspace:*",
     "@zeus-evm/chain-config": "workspace:*",
     "@zeus-evm/dex-adapters": "workspace:*",
     "@zeus-evm/execution-utils": "workspace:*",

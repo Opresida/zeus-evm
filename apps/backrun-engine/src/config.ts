@@ -84,6 +84,28 @@ const envSchema = z.object({
   DISCORD_SEVERITIES: z.string().default('warn,critical'),
   GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
 
+  // ─── Bundle relays (V7) ───
+  /** URL do Flashbots relay. Mainnet default = https://relay.flashbots.net. */
+  FLASHBOTS_RELAY_URL: optionalUrl(),
+  /** Signing key pra reputation tracking no Flashbots (não é a key do bot, é separada). */
+  FLASHBOTS_AUTH_KEY: optionalString(),
+  /** URL FastLane Atlas (Base/Polygon). Placeholder até integrarmos UserOp encoding. */
+  ATLAS_RELAY_URL: optionalUrl(),
+  /** URL Blocknative MEV relay (multi-chain). */
+  BLOCKNATIVE_RELAY_URL: optionalUrl(),
+  /** Timeout em ms pra submit a cada relay (default 4000). */
+  RELAY_TIMEOUT_MS: z.coerce.number().int().positive().default(4_000),
+
+  // ─── Bribe config defaults (V7) ───
+  /** Hard cap em bps. Bribe nunca ultrapassa essa fração do profit. Default 9500 = 95%. */
+  BRIBE_HARD_CAP_BPS: z.coerce.number().int().min(100).max(9_900).default(9_500),
+  /** Fee tier UniV3 default pro pool profitToken/WETH no swap inline (500 = 0.05%). */
+  BRIBE_SWAP_FEE_TIER: z.coerce.number().int().positive().default(500),
+  /** Slippage default no swap inline (bps). Default 50 = 0.5%. */
+  BRIBE_SWAP_SLIPPAGE_BPS: z.coerce.number().int().min(1).max(1_000).default(50),
+  /** Profit USD mínimo pra entrar em leilão de bribe. Abaixo disso, SKIP. */
+  BRIBE_MIN_PROFIT_USD: z.coerce.number().positive().default(20),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

@@ -32,3 +32,6 @@ Thumbs.db
 runs/
 logs/
 *.pid
+
+# Discovery scraper output
+apps/discovery-scraper/reports/

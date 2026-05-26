@@ -293,82 +293,9 @@ export function buildLiquidationWithBribeCalldata(
   });
 }
 
-export interface BuildCompoundLiquidationWithBribeParams {
-  comet: Address;
-  borrower: Address;
-  collateralAsset: Address;
-  baseAmount: bigint;
-  minCollateralReceived: bigint;
-  swapSteps: SolidityNumSwapStep[];
-  minProfitWei: bigint;
-  profitReceiver: Address;
-  bribe: BribeConfig;
-}
+// buildCompoundLiquidationWithBribeCalldata REMOVIDO em v7.1 (contrato sem essa função).
+// Pra Compound: use builder v6 sem bribe.
 
-export function buildCompoundLiquidationWithBribeCalldata(
-  params: BuildCompoundLiquidationWithBribeParams,
-): Hex {
-  validateBribeConfig(params.bribe);
-  return encodeFunctionData({
-    abi: ZEUS_EXECUTOR_ABI,
-    functionName: 'executeCompoundLiquidationWithBribe',
-    args: [
-      {
-        comet: params.comet,
-        borrower: params.borrower,
-        collateralAsset: params.collateralAsset,
-        baseAmount: params.baseAmount,
-        minCollateralReceived: params.minCollateralReceived,
-        swapSteps: params.swapSteps,
-        minProfitWei: params.minProfitWei,
-        profitReceiver: params.profitReceiver,
-      },
-      params.bribe,
-    ],
-  });
-}
-
-export interface BuildMorphoLiquidationWithBribeParams {
-  morpho: Address;
-  loanToken: Address;
-  collateralToken: Address;
-  oracle: Address;
-  irm: Address;
-  lltv: bigint;
-  borrower: Address;
-  seizedAssets: bigint;
-  repaidShares: bigint;
-  flashloanAmount: bigint;
-  swapSteps: SolidityNumSwapStep[];
-  minProfitWei: bigint;
-  profitReceiver: Address;
-  bribe: BribeConfig;
-}
-
-export function buildMorphoLiquidationWithBribeCalldata(
-  params: BuildMorphoLiquidationWithBribeParams,
-): Hex {
-  validateBribeConfig(params.bribe);
-  return encodeFunctionData({
-    abi: ZEUS_EXECUTOR_ABI,
-    functionName: 'executeMorphoLiquidationWithBribe',
-    args: [
-      {
-        morpho: params.morpho,
-        loanToken: params.loanToken,
-        collateralToken: params.collateralToken,
-        oracle: params.oracle,
-        irm: params.irm,
-        lltv: params.lltv,
-        borrower: params.borrower,
-        seizedAssets: params.seizedAssets,
-        repaidShares: params.repaidShares,
-        flashloanAmount: params.flashloanAmount,
-        swapSteps: params.swapSteps,
-        minProfitWei: params.minProfitWei,
-        profitReceiver: params.profitReceiver,
-      },
-      params.bribe,
-    ],
-  });
-}
+// buildMorphoLiquidationWithBribeCalldata REMOVIDO em v7.1 — contrato não tem
+// mais executeMorphoLiquidationWithBribe (EIP-170 size limit).
+// Pra Morpho: use buildFlashloanCalldata + executeMorphoLiquidation (v6, sem bribe).

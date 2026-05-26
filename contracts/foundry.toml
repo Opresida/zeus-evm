@@ -6,13 +6,19 @@ test = "test"
 script = "script"
 solc = "0.8.27"
 optimizer = true
-optimizer_runs = 1_000_000
+# optimizer_runs ajustado pra 200 (default Solidity) na v8 — privilegia SIZE em vez de gas.
+# v6/v7 usavam 1_000_000 (otimizava gas, mas inflava bytecode). v8 com split em 3 contratos
+# já tem headroom de gas (1 call externa pro BribeManager = ~700 gas extra, irrelevante).
+optimizer_runs = 200
 via_ir = true
 evm_version = "cancun"
 
 # Otimizacao agressiva pra contratos hot-path (executor)
 [profile.default.optimizer_details]
 yul = true
+
+# Tests legacy do ZeusExecutor v6/v7 (monolítico) FORAM REMOVIDOS na v8.
+# Suites novas em test/BribeManager.t.sol + test/ZeusLiquidator.t.sol + test/ZeusArbExecutor.t.sol
 
 [profile.ci]
 fuzz = { runs = 10_000 }

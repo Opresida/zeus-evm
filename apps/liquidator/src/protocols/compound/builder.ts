@@ -23,6 +23,7 @@ export interface BuiltCompoundLiquidationTx {
     baseToken: Address;
     collateralAsset: Address;
     swapSteps: number;
+    withBribe: boolean;
   };
 }
 
@@ -36,6 +37,8 @@ export interface BuildCompoundOpts {
   expectedSwapOutput: bigint;
   /** minCollateralReceived: proteção on-chain durante buyCollateral (~95% do esperado). */
   minCollateralReceivedWei: bigint;
+  // bribe REMOVIDO em v7.1 (executeCompoundLiquidationWithBribe não existe no contrato).
+  // Compound continua sem bribe — usar v6 path puro.
 }
 
 export function buildCompoundLiquidationTx(
@@ -101,6 +104,7 @@ export function buildCompoundLiquidationTx(
       baseToken: position.baseToken,
       collateralAsset: position.collateralAsset,
       swapSteps: swapSteps.length,
+      withBribe: false, // Compound não tem bribe em v7.1
     },
   };
 }

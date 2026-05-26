@@ -52,6 +52,22 @@ const envSchema = z.object({
   EXECUTOR_CONTRACT_ADDRESS_OPTIMISM: optionalAddress(),
   EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA: optionalAddress(),
 
+  // ─── V8: contratos splittados (ZeusLiquidator + ZeusArbExecutor + BribeManager) ───
+  // Liquidator app usa LIQUIDATOR_ADDRESS_*. Quando não setado, fallback pra EXECUTOR_CONTRACT_ADDRESS_*
+  // (mantém retrocompat com deploys v6/v7 já existentes em mainnet).
+  LIQUIDATOR_ADDRESS: optionalAddress(),
+  LIQUIDATOR_ADDRESS_BASE: optionalAddress(),
+  LIQUIDATOR_ADDRESS_BASE_SEPOLIA: optionalAddress(),
+  LIQUIDATOR_ADDRESS_ARBITRUM: optionalAddress(),
+  LIQUIDATOR_ADDRESS_ARBITRUM_SEPOLIA: optionalAddress(),
+  LIQUIDATOR_ADDRESS_OPTIMISM: optionalAddress(),
+  LIQUIDATOR_ADDRESS_OPTIMISM_SEPOLIA: optionalAddress(),
+
+  // BribeManager address (compartilhado entre Liquidator e ArbExecutor — pra decoder de evento)
+  BRIBE_MANAGER_ADDRESS: optionalAddress(),
+  BRIBE_MANAGER_ADDRESS_BASE: optionalAddress(),
+  BRIBE_MANAGER_ADDRESS_BASE_SEPOLIA: optionalAddress(),
+
   // ─── Subgraph (reusa do monitor) ───
   THEGRAPH_API_KEY: optionalString(),
   AAVE_V3_BASE_SUBGRAPH_ID: z.string().default('GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF'),
@@ -151,6 +167,36 @@ const envSchema = z.object({
   DISCORD_SEVERITIES: z.string().default('warn,critical'),
   /** Filtro de severidades pro generic webhook. Default: 'info,warn,critical' (envia tudo). */
   GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+
+  // ─── Bribe (V7) — opt-in pra liquidator competir via bundle privado ───
+  /** Se true, usa funções v7 `*WithBribe` em vez das v6. Default false (mantém v6).
+   *  Em mainnet competitivo (Ethereum L1), ativar pra ter chance contra searchers Tier-1.
+   *  Em Base/Arb/OP FCFS, bribe ajuda mas não é vital. */
+  BRIBE_ENABLED: z.coerce.boolean().default(false),
+  /** Hard cap em bps. Bribe nunca passa disso. Default 9500 = 95%. */
+  BRIBE_HARD_CAP_BPS: z.coerce.number().int().min(100).max(9_900).default(9_500),
+  /** Fee tier UniV3 default pro pool profitToken/WETH no swap inline (500 = 0.05%). */
+  BRIBE_SWAP_FEE_TIER: z.coerce.number().int().positive().default(500),
+  /** Slippage default no swap inline (bps). */
+  BRIBE_SWAP_SLIPPAGE_BPS: z.coerce.number().int().min(1).max(1_000).default(50),
+  /** Profit USD mínimo pra entrar em leilão de bribe. Liquidations geram ticket >$5
+   *  então threshold pode ser mais agressivo que backrun. Default $5. */
+  BRIBE_MIN_PROFIT_USD: z.coerce.number().positive().default(5),
+  /** % do profit pra bribe quando BRIBE_ENABLED=true. Calibrar via observação.
+   *  Default 50% — equilibrado entre competir e preservar profit. */
+  BRIBE_DEFAULT_BPS: z.coerce.number().int().min(100).max(9_500).default(5_000),
+
+  // ─── Bundle relays (V7) ───
+  /** URL Flashbots Protect (Ethereum L1 ou compatible). Vazio = sem Flashbots. */
+  FLASHBOTS_RELAY_URL: optionalUrl(),
+  /** Signing key pra reputation tracking no Flashbots. */
+  FLASHBOTS_AUTH_KEY: optionalString(),
+  /** URL FastLane Atlas (placeholder até integrar UserOp encoding). */
+  ATLAS_RELAY_URL: optionalUrl(),
+  /** URL Blocknative MEV-Share / Private RPC. */
+  BLOCKNATIVE_RELAY_URL: optionalUrl(),
+  /** Timeout em ms pra cada relay submit. */
+  RELAY_TIMEOUT_MS: z.coerce.number().int().positive().default(4_000),
 
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });

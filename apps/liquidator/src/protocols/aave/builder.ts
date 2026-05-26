@@ -8,7 +8,7 @@
  */
 
 import { encodeFunctionData, type Address, type Hex, encodeAbiParameters } from 'viem';
-import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
+import { ZEUS_EXECUTOR_ABI, type BribeConfig } from '@zeus-evm/strategy';
 import { DexType } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -24,6 +24,7 @@ export interface BuiltLiquidationTx {
     debtAsset: Address;
     collateralAsset: Address;
     swapSteps: number;
+    withBribe: boolean;
   };
 }
 
@@ -40,6 +41,9 @@ export interface BuildOpts {
   preferredFeeTier: number;
   /** Expected swap output (em wei do debtAsset) pra aplicar slippage */
   expectedSwapOutput: bigint;
+  /** Bribe config opcional. Quando presente, encoda via `executeLiquidationWithBribe` (v7).
+   *  Quando ausente, fallback v6 `executeLiquidation`. */
+  bribe?: BribeConfig;
 }
 
 /**
@@ -54,7 +58,7 @@ export function buildLiquidationTx(
   decision: LiquidationDecision,
   opts: BuildOpts,
 ): BuiltLiquidationTx {
-  const { executorAddress, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput } = opts;
+  const { executorAddress, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput, bribe } = opts;
 
   const swapRouter = chainConfig.uniswapV3.swapRouter02;
 
@@ -87,11 +91,18 @@ export function buildLiquidationTx(
     profitReceiver,
   };
 
-  const data = encodeFunctionData({
-    abi: ZEUS_EXECUTOR_ABI,
-    functionName: 'executeLiquidation',
-    args: [liquidationParams],
-  });
+  // V7: quando bribe configurado, usa variante WithBribe. Caso contrário fallback v6.
+  const data = bribe
+    ? encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeLiquidationWithBribe',
+        args: [liquidationParams, bribe],
+      })
+    : encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeLiquidation',
+        args: [liquidationParams],
+      });
 
   return {
     to: executorAddress,
@@ -102,6 +113,7 @@ export function buildLiquidationTx(
       debtAsset: position.debtAsset,
       collateralAsset: position.collateralAsset,
       swapSteps: swapSteps.length,
+      withBribe: Boolean(bribe),
     },
   };
 }

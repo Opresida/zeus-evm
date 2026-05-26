@@ -110,7 +110,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.BASE_RPC_HTTP,
         subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
         viemChain: base,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_BASE,
+        executorAddr: env.LIQUIDATOR_ADDRESS_BASE ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_BASE,
       };
     case 84532:
       return {
@@ -118,7 +118,10 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.BASE_SEPOLIA_RPC_HTTP,
         subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
         viemChain: baseSepolia,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_BASE_SEPOLIA ?? env.EXECUTOR_CONTRACT_ADDRESS,
+        executorAddr: env.LIQUIDATOR_ADDRESS_BASE_SEPOLIA
+          ?? env.LIQUIDATOR_ADDRESS
+          ?? env.EXECUTOR_CONTRACT_ADDRESS_BASE_SEPOLIA
+          ?? env.EXECUTOR_CONTRACT_ADDRESS,
       };
     case 42161:
       return {
@@ -126,7 +129,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.ARBITRUM_RPC_HTTP,
         subgraphId: env.AAVE_V3_ARBITRUM_SUBGRAPH_ID,
         viemChain: arbitrum,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_ARBITRUM,
+        executorAddr: env.LIQUIDATOR_ADDRESS_ARBITRUM ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_ARBITRUM,
       };
     case 421614:
       return {
@@ -134,7 +137,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.ARBITRUM_SEPOLIA_RPC_HTTP,
         subgraphId: env.AAVE_V3_ARBITRUM_SUBGRAPH_ID,
         viemChain: arbitrumSepolia,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_ARBITRUM_SEPOLIA,
+        executorAddr: env.LIQUIDATOR_ADDRESS_ARBITRUM_SEPOLIA ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_ARBITRUM_SEPOLIA,
       };
     case 10:
       return {
@@ -142,7 +145,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.OPTIMISM_RPC_HTTP,
         subgraphId: env.AAVE_V3_OPTIMISM_SUBGRAPH_ID,
         viemChain: optimism,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_OPTIMISM,
+        executorAddr: env.LIQUIDATOR_ADDRESS_OPTIMISM ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_OPTIMISM,
       };
     case 11155420:
       return {
@@ -150,7 +153,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         rpc: env.OPTIMISM_SEPOLIA_RPC_HTTP,
         subgraphId: env.AAVE_V3_OPTIMISM_SUBGRAPH_ID,
         viemChain: optimismSepolia,
-        executorAddr: env.EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA,
+        executorAddr: env.LIQUIDATOR_ADDRESS_OPTIMISM_SEPOLIA ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA,
       };
     default:
       throw new Error(

@@ -314,17 +314,12 @@ interface IZeusExecutor {
         BribeConfig calldata bribe
     ) external;
 
-    /// @notice Variante de executeCompoundLiquidation com bribe.
-    function executeCompoundLiquidationWithBribe(
-        CompoundLiquidationParams calldata params,
-        BribeConfig calldata bribe
-    ) external;
+    // executeCompoundLiquidationWithBribe REMOVIDO em v7.1 (size limit EIP-170).
+    // Compound continua via executeCompoundLiquidation (v6, sem bribe).
 
-    /// @notice Variante de executeMorphoLiquidation com bribe.
-    function executeMorphoLiquidationWithBribe(
-        MorphoLiquidationParams calldata params,
-        BribeConfig calldata bribe
-    ) external;
+    // executeMorphoLiquidationWithBribe REMOVIDO em v7.1 (size limit EIP-170).
+    // Morpho continua via executeMorphoLiquidation (v6, sem bribe). Reintroduzir
+    // quando extrairmos BribeLib pra contrato externo (TODO v8).
 
     // ════════ ADMIN (owner only) ════════
 

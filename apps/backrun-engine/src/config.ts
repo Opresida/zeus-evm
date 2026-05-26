@@ -44,8 +44,16 @@ const envSchema = z.object({
   EXECUTOR_BOT_ADDRESS: optionalAddress(),
 
   // ─── ZeusExecutor address (chain-active) ───
+  // Pre-v8: EXECUTOR_CONTRACT_ADDRESS_* apontava pro contrato monolítico.
+  // V8: usar ARB_EXECUTOR_ADDRESS_* (aponta pro ZeusArbExecutor). EXECUTOR_CONTRACT_ADDRESS_*
+  // fica como fallback pra deploys pre-v8 ainda em uso.
   EXECUTOR_CONTRACT_ADDRESS: optionalAddress(),
   EXECUTOR_CONTRACT_ADDRESS_BASE: optionalAddress(),
+
+  // V8: ZeusArbExecutor address (split do monolítico)
+  ARB_EXECUTOR_ADDRESS: optionalAddress(),
+  ARB_EXECUTOR_ADDRESS_BASE: optionalAddress(),
+  ARB_EXECUTOR_ADDRESS_BASE_SEPOLIA: optionalAddress(),
 
   // ─── Backrun-específico ───
   /** Threshold em USD pra considerar um swap "whale" (default $50k).

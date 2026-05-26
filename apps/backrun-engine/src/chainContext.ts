@@ -76,7 +76,11 @@ export function buildChainContext(env: BackrunEnv): BackrunChainContext {
     );
   }
 
+  // V8: prioridade pra ARB_EXECUTOR_ADDRESS_* (ZeusArbExecutor split).
+  // Fallback: EXECUTOR_CONTRACT_ADDRESS_* (contrato monolítico pre-v8).
   const executorAddress =
+    (env.ARB_EXECUTOR_ADDRESS_BASE as Address | undefined) ??
+    (env.ARB_EXECUTOR_ADDRESS as Address | undefined) ??
     (env.EXECUTOR_CONTRACT_ADDRESS_BASE as Address | undefined) ??
     (env.EXECUTOR_CONTRACT_ADDRESS as Address | undefined);
 

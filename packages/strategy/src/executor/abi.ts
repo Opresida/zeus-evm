@@ -1,10 +1,27 @@
 /**
- * ABI mínima do ZeusExecutor — só as funções que o detector precisa chamar.
- * Mantida sincronizada manualmente com contracts/src/ZeusExecutor.sol.
+ * ABI mínima dos contratos ZEUS v8.
  *
- * Quando adicionarmos build pipeline, esse ABI será gerado de forge build artifact.
+ * V8 refactor (2026-05-26): ZeusExecutor monolítico foi splittado em 3 contratos
+ * pra resolver EIP-170 + permitir Compound/Morpho withBribe:
+ *   - BribeManager.sol    (standalone) — paga bribe ao block.coinbase
+ *   - ZeusLiquidator.sol  — Aave + Compound + Morpho liquidations (com/sem bribe)
+ *   - ZeusArbExecutor.sol — Arbitrage (wallet/flashloan) + Backrun com bribe
+ *
+ * Pra evitar quebrar callers off-chain, ZEUS_EXECUTOR_ABI continua existindo como
+ * UNION das funcs dos 2 executors — caller escolhe o `to:` certo (liquidatorAddress
+ * vs arbExecutorAddress) baseado em qual função está chamando. ABIs específicos
+ * (ZEUS_LIQUIDATOR_ABI + ZEUS_ARB_EXECUTOR_ABI + BRIBE_MANAGER_ABI) ficam exportados
+ * pra decoders de evento e log filtering.
+ *
+ * Sincronização: manual com contracts/src/*.sol. Quando adicionarmos artifact build,
+ * esses ABIs serão gerados automaticamente.
  */
 
+/**
+ * Union ABI — usado quando código off-chain encoda calldata e não distingue entre
+ * Liquidator/ArbExecutor. Cobre tudo (executeArbitrage do ArbExec + executeLiquidation
+ * do Liquidator + 3 *WithBribe variants, etc).
+ */
 export const ZEUS_EXECUTOR_ABI = [
   // ─── executeArbitrage (modalidade capital próprio) ───
   {
@@ -420,104 +437,10 @@ export const ZEUS_EXECUTOR_ABI = [
     outputs: [],
   },
 
-  // ─── executeCompoundLiquidationWithBribe ───
-  {
-    type: 'function',
-    name: 'executeCompoundLiquidationWithBribe',
-    stateMutability: 'nonpayable',
-    inputs: [
-      {
-        type: 'tuple',
-        name: 'params',
-        components: [
-          { type: 'address', name: 'comet' },
-          { type: 'address', name: 'borrower' },
-          { type: 'address', name: 'collateralAsset' },
-          { type: 'uint256', name: 'baseAmount' },
-          { type: 'uint256', name: 'minCollateralReceived' },
-          {
-            type: 'tuple[]',
-            name: 'swapSteps',
-            components: [
-              { type: 'address', name: 'router' },
-              { type: 'address', name: 'tokenIn' },
-              { type: 'address', name: 'tokenOut' },
-              { type: 'uint256', name: 'amountIn' },
-              { type: 'uint256', name: 'minAmountOut' },
-              { type: 'uint8', name: 'dexType' },
-              { type: 'bytes', name: 'extraData' },
-            ],
-          },
-          { type: 'uint256', name: 'minProfitWei' },
-          { type: 'address', name: 'profitReceiver' },
-        ],
-      },
-      {
-        type: 'tuple',
-        name: 'bribe',
-        components: [
-          { type: 'uint256', name: 'bribeBps' },
-          { type: 'uint256', name: 'minBribeWei' },
-          { type: 'uint256', name: 'bribeMaxBps' },
-          { type: 'uint24', name: 'swapFeeTier' },
-          { type: 'uint256', name: 'swapSlippageBps' },
-        ],
-      },
-    ],
-    outputs: [],
-  },
+  // executeCompoundLiquidationWithBribe REMOVIDO em v7.1 (EIP-170 size limit).
 
-  // ─── executeMorphoLiquidationWithBribe ───
-  {
-    type: 'function',
-    name: 'executeMorphoLiquidationWithBribe',
-    stateMutability: 'nonpayable',
-    inputs: [
-      {
-        type: 'tuple',
-        name: 'params',
-        components: [
-          { type: 'address', name: 'morpho' },
-          { type: 'address', name: 'loanToken' },
-          { type: 'address', name: 'collateralToken' },
-          { type: 'address', name: 'oracle' },
-          { type: 'address', name: 'irm' },
-          { type: 'uint256', name: 'lltv' },
-          { type: 'address', name: 'borrower' },
-          { type: 'uint256', name: 'seizedAssets' },
-          { type: 'uint256', name: 'repaidShares' },
-          { type: 'uint256', name: 'flashloanAmount' },
-          {
-            type: 'tuple[]',
-            name: 'swapSteps',
-            components: [
-              { type: 'address', name: 'router' },
-              { type: 'address', name: 'tokenIn' },
-              { type: 'address', name: 'tokenOut' },
-              { type: 'uint256', name: 'amountIn' },
-              { type: 'uint256', name: 'minAmountOut' },
-              { type: 'uint8', name: 'dexType' },
-              { type: 'bytes', name: 'extraData' },
-            ],
-          },
-          { type: 'uint256', name: 'minProfitWei' },
-          { type: 'address', name: 'profitReceiver' },
-        ],
-      },
-      {
-        type: 'tuple',
-        name: 'bribe',
-        components: [
-          { type: 'uint256', name: 'bribeBps' },
-          { type: 'uint256', name: 'minBribeWei' },
-          { type: 'uint256', name: 'bribeMaxBps' },
-          { type: 'uint24', name: 'swapFeeTier' },
-          { type: 'uint256', name: 'swapSlippageBps' },
-        ],
-      },
-    ],
-    outputs: [],
-  },
+  // executeMorphoLiquidationWithBribe REMOVIDO em v7.1 (EIP-170 size limit).
+  // Morpho continua disponível via executeMorphoLiquidation (v6, sem bribe).
 
   // ─── V7 admin setters ───
   {
@@ -590,3 +513,91 @@ export const ZEUS_EXECUTOR_ABI = [
   { type: 'error', name: 'WethNotConfigured', inputs: [] },
   { type: 'error', name: 'SwapRouterNotConfigured', inputs: [] },
 ] as const;
+
+/**
+ * ABI do BribeManager (v8) — contrato standalone.
+ * Útil pra decode de eventos BribePaid + filter de logs.
+ */
+export const BRIBE_MANAGER_ABI = [
+  {
+    type: 'function',
+    name: 'validateConfig',
+    stateMutability: 'pure',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'pay',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { type: 'address', name: 'profitToken' },
+      { type: 'uint256', name: 'grossProfit' },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+      { type: 'address', name: 'weth' },
+      { type: 'address', name: 'swapRouter' },
+      { type: 'uint8', name: 'opType' },
+      { type: 'address', name: 'operator' },
+    ],
+    outputs: [
+      { type: 'uint256', name: 'bribeNativeWei' },
+      { type: 'uint256', name: 'profitTokenConsumed' },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'BribePaid',
+    inputs: [
+      { type: 'address', name: 'initiator', indexed: true },
+      { type: 'uint8', name: 'opType', indexed: true },
+      { type: 'address', name: 'coinbase', indexed: true },
+      { type: 'uint256', name: 'bribeNativeWei', indexed: false },
+      { type: 'uint256', name: 'grossProfit', indexed: false },
+      { type: 'uint256', name: 'netProfit', indexed: false },
+    ],
+  },
+  { type: 'error', name: 'InvalidBribeConfig', inputs: [] },
+  {
+    type: 'error',
+    name: 'BribeExceedsProfit',
+    inputs: [
+      { type: 'uint256', name: 'bribeNativeRequested' },
+      { type: 'uint256', name: 'profitNativeAvailable' },
+    ],
+  },
+  { type: 'error', name: 'BribeSwapFailed', inputs: [] },
+  { type: 'error', name: 'WethNotConfigured', inputs: [] },
+  { type: 'error', name: 'SwapRouterNotConfigured', inputs: [] },
+] as const;
+
+/**
+ * Alias semântico — ZEUS_LIQUIDATOR_ABI e ZEUS_ARB_EXECUTOR_ABI ambos apontam pro
+ * mesmo ZEUS_EXECUTOR_ABI (union). Diferenciação é feita pelo `to:` address que
+ * o caller escolhe (liquidatorAddress vs arbExecutorAddress).
+ *
+ * Em v9 podemos splittar fisicamente — por enquanto union basta pra encode/decode.
+ */
+export const ZEUS_LIQUIDATOR_ABI = ZEUS_EXECUTOR_ABI;
+export const ZEUS_ARB_EXECUTOR_ABI = ZEUS_EXECUTOR_ABI;

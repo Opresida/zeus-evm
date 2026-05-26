@@ -20,6 +20,7 @@ import type {
   CompoundLiquidatablePosition,
   DispatchOutcome,
 } from './types';
+import type { BribeConfig } from '@zeus-evm/strategy';
 import { calculateOptimalLiquidation } from './protocols/aave/calculator';
 import { buildLiquidationTx } from './protocols/aave/builder';
 import { simulateLiquidation } from './protocols/aave/simulator';
@@ -57,6 +58,25 @@ export interface PipelineDeps {
   eventBus?: EventBus;
   /** Gas oracle EIP-1559 pra pricing correto on Base/Arb/OP. */
   gasOracle?: import('@zeus-evm/execution-utils').GasOracle;
+}
+
+/**
+ * Constrói BribeConfig estático baseado nas env vars. Retorna undefined quando
+ * BRIBE_ENABLED=false (mantém comportamento v6 sem mudanças).
+ *
+ * Pra MVP do liquidator, usa BPS fixo (default 50%). Tabela escalonada por
+ * gas war fica no backrun-engine onde a competição é mais brutal.
+ */
+function bribeFromEnv(env: LiquidatorEnv, profitUsd: number): BribeConfig | undefined {
+  if (!env.BRIBE_ENABLED) return undefined;
+  if (profitUsd < env.BRIBE_MIN_PROFIT_USD) return undefined;
+  return {
+    bribeBps: BigInt(env.BRIBE_DEFAULT_BPS),
+    minBribeWei: 0n, // sem floor pra liquidator MVP
+    bribeMaxBps: BigInt(env.BRIBE_HARD_CAP_BPS),
+    swapFeeTier: env.BRIBE_SWAP_FEE_TIER,
+    swapSlippageBps: BigInt(env.BRIBE_SWAP_SLIPPAGE_BPS),
+  };
 }
 
 export async function runAavePipeline(
@@ -145,7 +165,8 @@ export async function runAavePipeline(
     return { status: 'dryrun_skipped', reason: 'no executor deployed on chain' };
   }
 
-  // 2. Builder
+  // 2. Builder — opt-in pra bribe via env (v7)
+  const aaveBribe = bribeFromEnv(env, decision.expectedProfitUsd);
   const built = buildLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
     chainConfig: ctx.chainConfig,
@@ -157,6 +178,7 @@ export async function runAavePipeline(
     expectedSwapOutput: (decision.flashloanAmount *
       (10_000n + BigInt(position.liquidationBonusBps))) /
       10_000n,
+    bribe: aaveBribe,
   });
 
   // 3. Simulator
@@ -211,6 +233,7 @@ export async function runAavePipeline(
       collateralAsset: built.summary.collateralAsset,
       expectedProfitUsd: decision.expectedProfitUsd.toFixed(2),
       slippageBps: decision.estimatedSlippageBps,
+      withBribe: built.summary.withBribe,
     },
     simulationOk: sim.success,
     simulationGas: sim.gasUsed,
@@ -325,6 +348,7 @@ export async function runCompoundPipeline(
     ? (position.collateralBalanceWei * baseAmountFraction * 95n) / (10_000n * 100n)
     : 1n;
 
+  // Compound não suporta bribe em v7.1 (removido por EIP-170 size limit).
   const built = buildCompoundLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
     chainConfig: ctx.chainConfig,
@@ -386,6 +410,7 @@ export async function runCompoundPipeline(
       collateralAsset: built.summary.collateralAsset,
       expectedProfitUsd: decision.expectedProfitUsd.toFixed(2),
       slippageBps: decision.estimatedSlippageBps,
+      withBribe: built.summary.withBribe,
     },
     simulationOk: sim.success,
     simulationGas: sim.gasUsed,

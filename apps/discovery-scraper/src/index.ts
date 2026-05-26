@@ -25,9 +25,19 @@ import {
   cacheStats as safetyCacheStats,
   type TokenSafety,
 } from './sources/tokenSafety';
+import {
+  fetchCompetitionStats,
+  getCachedCompetition,
+  setCachedCompetition,
+  initCompetitionCache,
+  flushCompetitionCache,
+  competitionCacheStats,
+  type CompetitionStats,
+} from './sources/onchainCompetition';
 import { applyHardFilters, isSameDexFamily, type CandidatePair } from './filters/hardFilters';
 import { applyPairSafetyFilters } from './filters/tokenSafetyFilters';
 import { compositeScore } from './scoring/composite';
+import { competitionScore, competitionSummary } from './scoring/competition';
 import { calcAgeDays } from './scoring/poolAge';
 import { sendDiscordReport } from './output/reportDiscord';
 import { writeJsonReport } from './output/reportJson';
@@ -265,9 +275,21 @@ async function processChain(
     );
   }
 
-  // 6. Aplica safety filters + score composite
+  // 5b. Resolve RPC pra essa chain (pra competition tracking)
+  const rpc = resolveRpc(chain, env);
+  const competitionEnabled = env.SCRAPER_COMPETITION_ENABLED && rpc !== null;
+  if (env.SCRAPER_COMPETITION_ENABLED && !rpc) {
+    logger.warn(
+      { chain: chain.name },
+      `⚠️ RPC não configurada pra ${chain.name} — competition tracking SKIPPED (usa placeholder 50)`,
+    );
+  }
+
+  // 6. Aplica safety filters + COMPETITION FETCH + score composite
   const ranked: RankedCandidate[] = [];
   let droppedSafety = 0;
+  let competitionFetched = 0;
+  let competitionCacheHits = 0;
   for (const c of candidatesMarket) {
     const baseSafety = safetyByAddr.get(c.candidate.baseTokenAddress);
     const quoteSafety = safetyByAddr.get(c.candidate.quoteTokenAddress);
@@ -281,6 +303,28 @@ async function processChain(
       }
     }
 
+    // F4: fetch competition stats on-chain (cache 6h economiza calls)
+    let competitionPts = 50; // placeholder default quando RPC indisponível
+    let competitionStats: CompetitionStats | null = null;
+    if (competitionEnabled && rpc) {
+      competitionStats = getCachedCompetition(chain.chainId, c.candidate.pairId);
+      if (competitionStats) {
+        competitionCacheHits++;
+      } else {
+        competitionStats = await fetchCompetitionStats({
+          chainId: chain.chainId,
+          pools: c.poolsInfo.map((p) => ({ poolAddress: p.poolAddress, dexId: p.dexId })),
+          rpcUrl: rpc.primary,
+          rpcUrlFallback: rpc.fallback,
+          blockRange: env.SCRAPER_COMPETITION_BLOCK_RANGE,
+          logger,
+        });
+        setCachedCompetition(chain.chainId, c.candidate.pairId, competitionStats);
+        competitionFetched++;
+      }
+      competitionPts = competitionScore(competitionStats);
+    }
+
     const score = compositeScore({
       tvlDexA: c.tvlDexA,
       tvlDexB: c.tvlDexB,
@@ -291,6 +335,7 @@ async function processChain(
       ageDays: c.ageDays,
       baseTokenSafety: baseSafety,
       quoteTokenSafety: quoteSafety,
+      competitionScore: competitionPts,
     });
 
     ranked.push({
@@ -321,8 +366,10 @@ async function processChain(
       topScore: topCandidates[0]?.score ?? 0,
       topPair: topCandidates[0]?.pairId,
       newCount: topCandidates.filter((c) => c.isNew).length,
+      competitionFetched,
+      competitionCacheHits,
     },
-    `✅ ${chain.name}: ${topCandidates.length} top candidates`,
+    `✅ ${chain.name}: ${topCandidates.length} top candidates (competition: ${competitionFetched} novos, ${competitionCacheHits} cache hits)`,
   );
 
   return {
@@ -333,6 +380,30 @@ async function processChain(
     pairsPassedFilters: ranked.length,
     topCandidates,
   };
+}
+
+/**
+ * Resolve RPC URL primary + fallback pra uma chain a partir das env vars.
+ * Retorna null se RPC não configurada (caller pula competition tracking).
+ */
+function resolveRpc(
+  chain: SupportedChain,
+  env: ReturnType<typeof loadConfig>,
+): { primary: string; fallback?: string } | null {
+  switch (chain.chainId) {
+    case 8453:
+      return env.BASE_RPC_HTTP ? { primary: env.BASE_RPC_HTTP, fallback: env.BASE_RPC_HTTP_FALLBACK } : null;
+    case 10:
+      return env.OPTIMISM_RPC_HTTP ? { primary: env.OPTIMISM_RPC_HTTP, fallback: env.OPTIMISM_RPC_HTTP_FALLBACK } : null;
+    case 42161:
+      return env.ARBITRUM_RPC_HTTP ? { primary: env.ARBITRUM_RPC_HTTP, fallback: env.ARBITRUM_RPC_HTTP_FALLBACK } : null;
+    case 137:
+      return env.POLYGON_RPC_HTTP ? { primary: env.POLYGON_RPC_HTTP, fallback: env.POLYGON_RPC_HTTP_FALLBACK } : null;
+    case 43114:
+      return env.AVAX_RPC_HTTP ? { primary: env.AVAX_RPC_HTTP, fallback: env.AVAX_RPC_HTTP_FALLBACK } : null;
+    default:
+      return null;
+  }
 }
 
 function parseArgs(): { chains: readonly SupportedChain[] | null } {
@@ -354,6 +425,7 @@ async function main() {
   const env = loadConfig();
   const stateManager = new StateManager(env.SCRAPER_STATE_PATH, logger);
   initSafetyCache(env.SCRAPER_CACHE_DIR);
+  initCompetitionCache(env.SCRAPER_CACHE_DIR);
 
   const autoTargetsWriter = new AutoTargetsWriter({
     outputDir: env.SCRAPER_AUTO_TARGETS_DIR,
@@ -430,10 +502,20 @@ async function main() {
     }
   }
 
-  // Flush cache token safety pra disco antes de continuar
+  // Flush caches pra disco
   flushSafetyCache();
+  flushCompetitionCache();
   const cstat = safetyCacheStats();
-  logger.info({ entries: cstat.entries, fresh: cstat.freshEntries }, '💾 Cache safety persistido');
+  const compStat = competitionCacheStats();
+  logger.info(
+    {
+      safetyEntries: cstat.entries,
+      safetyFresh: cstat.freshEntries,
+      competitionEntries: compStat.entries,
+      competitionFresh: compStat.freshEntries,
+    },
+    '💾 Caches persistidos',
+  );
 
   const report: ScraperReport = {
     generatedAt: new Date().toISOString(),

@@ -64,11 +64,13 @@ interface TrackingState {
 
 const DEFAULT_TRACKING: TrackingState = { version: 1, entries: {} };
 
-/** Score mínimo pra candidate ENTRAR no auto-json (gate de qualidade). */
-const DEFAULT_MIN_AUTO_SCORE = 60;
-/** Quantos cycles consecutivos vendo o par antes de PROMOVER ao auto-json. */
-const MIN_CYCLES_TO_PROMOTE = 2;
-/** Quantos cycles sem ver antes de REMOVER do auto-json. */
+/** Score mínimo absoluto pra candidate ENTRAR no auto-json (gate de qualidade). */
+const DEFAULT_MIN_AUTO_SCORE = 50;
+/** Score acima do qual promoção é IMEDIATA (1 cycle). Alta confiança. */
+const HIGH_CONFIDENCE_SCORE = 65;
+/** Quantos cycles consecutivos pra mid-tier (score 50-65) promover. */
+const MID_TIER_CYCLES_TO_PROMOTE = 2;
+/** Quantos cycles sem ver antes de REMOVER do auto-json (grace period). */
 const MAX_CYCLES_MISSING = 3;
 
 export interface AutoTargetsOpts {
@@ -124,7 +126,13 @@ export class AutoTargetsWriter {
   /**
    * Processa candidates de UMA chain. Atualiza tracking + escreve auto-targets/<chain>.json.
    *
-   * Retorna lista do que efetivamente foi promovido pro auto-json nesse cycle.
+   * Política de promoção (refinada F3 round 2):
+   *   - Score ≥ HIGH_CONFIDENCE_SCORE (65): promoção IMEDIATA (1 cycle)
+   *   - Score em [50, 65): precisa MID_TIER_CYCLES_TO_PROMOTE (2) cycles
+   *   - Score < 50: NÃO promove
+   *
+   * Grace period (MAX_CYCLES_MISSING = 3): par fica no auto-json por 3 cycles
+   * após sumir do top — evita flicker em mercado oscilante.
    */
   processChain(chainId: number, chainGeckoNetwork: string, candidates: RankedCandidate[]): {
     promoted: AutoTargetPair[];
@@ -136,16 +144,18 @@ export class AutoTargetsWriter {
     if (!this.tracking.entries[chainKey]) this.tracking.entries[chainKey] = {};
     const chainTracking = this.tracking.entries[chainKey]!;
 
-    // Set de pairIds vistos nesse cycle com score elegível
-    const seenThisCycle = new Set<string>();
+    // Mapa pairId → score (pra decidir threshold de cycles)
+    const seenThisCycle = new Map<string, number>();
     for (const c of candidates) {
-      if (c.score >= this.minAutoScore) seenThisCycle.add(c.pairId);
+      if (c.score >= this.minAutoScore) seenThisCycle.set(c.pairId, c.score);
     }
 
-    // Atualiza tracking de cada pair eligible
+    // Atualiza tracking + detecta novos promovidos
     const newPromotions: string[] = [];
-    for (const pairId of seenThisCycle) {
+    for (const [pairId, score] of seenThisCycle) {
+      const cyclesNeeded = score >= HIGH_CONFIDENCE_SCORE ? 1 : MID_TIER_CYCLES_TO_PROMOTE;
       const entry = chainTracking[pairId];
+
       if (!entry) {
         chainTracking[pairId] = {
           firstSeenAt: now,
@@ -153,12 +163,14 @@ export class AutoTargetsWriter {
           cyclesSeenInARow: 1,
           cyclesMissingInARow: 0,
         };
+        // Alta confiança: promove imediatamente (1 cycle basta)
+        if (cyclesNeeded === 1) newPromotions.push(pairId);
       } else {
-        const wasPromoted = entry.cyclesSeenInARow >= MIN_CYCLES_TO_PROMOTE;
+        const wasPromoted = entry.cyclesSeenInARow >= cyclesNeeded;
         entry.lastSeenAt = now;
         entry.cyclesSeenInARow += 1;
         entry.cyclesMissingInARow = 0;
-        if (!wasPromoted && entry.cyclesSeenInARow >= MIN_CYCLES_TO_PROMOTE) {
+        if (!wasPromoted && entry.cyclesSeenInARow >= cyclesNeeded) {
           newPromotions.push(pairId);
         }
       }
@@ -176,11 +188,14 @@ export class AutoTargetsWriter {
       }
     }
 
-    // Decide quais entram no auto-json: tracking.cyclesSeenInARow >= MIN_CYCLES_TO_PROMOTE
-    // OU está no grace period (cyclesMissingInARow > 0 mas <= MAX_CYCLES_MISSING).
+    // Pares que entram no auto-json: stable enough OU em grace period
     const promotedPairIds = new Set<string>();
     for (const [pairId, entry] of Object.entries(chainTracking)) {
-      const stableEnough = entry.cyclesSeenInARow >= MIN_CYCLES_TO_PROMOTE;
+      const currentScore = seenThisCycle.get(pairId);
+      const cyclesNeededForThis = currentScore !== undefined && currentScore >= HIGH_CONFIDENCE_SCORE
+        ? 1
+        : MID_TIER_CYCLES_TO_PROMOTE;
+      const stableEnough = entry.cyclesSeenInARow >= cyclesNeededForThis;
       const inGracePeriod = entry.cyclesMissingInARow > 0 && entry.cyclesMissingInARow <= MAX_CYCLES_MISSING;
       if (stableEnough || inGracePeriod) promotedPairIds.add(pairId);
     }
@@ -286,7 +301,8 @@ export class AutoTargetsWriter {
     for (const chainEntries of Object.values(this.tracking.entries)) {
       totalTracked += Object.keys(chainEntries).length;
       for (const e of Object.values(chainEntries)) {
-        if (e.cyclesSeenInARow >= MIN_CYCLES_TO_PROMOTE) totalPromoted++;
+        // Stable enough = visto em ≥1 cycle (vale tanto pra high-conf 1 cycle quanto mid-tier 2)
+        if (e.cyclesSeenInARow >= 1) totalPromoted++;
       }
     }
     return { totalTracked, totalPromoted };

@@ -21,6 +21,18 @@ const envSchema = z.object({
   /** Override URL DefiLlama yields — default https://yields.llama.fi */
   DEFILLAMA_BASE_URL: optionalUrl(),
 
+  // ─── RPC URLs por chain (pra competition tracking on-chain) ───
+  BASE_RPC_HTTP: optionalUrl(),
+  BASE_RPC_HTTP_FALLBACK: optionalUrl(),
+  OPTIMISM_RPC_HTTP: optionalUrl(),
+  OPTIMISM_RPC_HTTP_FALLBACK: optionalUrl(),
+  ARBITRUM_RPC_HTTP: optionalUrl(),
+  ARBITRUM_RPC_HTTP_FALLBACK: optionalUrl(),
+  POLYGON_RPC_HTTP: optionalUrl(),
+  POLYGON_RPC_HTTP_FALLBACK: optionalUrl(),
+  AVAX_RPC_HTTP: optionalUrl(),
+  AVAX_RPC_HTTP_FALLBACK: optionalUrl(),
+
   // ─── Scraper params ───
   /** Quantos top candidates listar por chain. */
   SCRAPER_TOP_N: z.coerce.number().int().positive().default(10),
@@ -43,12 +55,20 @@ const envSchema = z.object({
   /** Cache dir (token safety). Default ./state/ */
   SCRAPER_CACHE_DIR: z.string().default('state'),
 
+  // ─── Competition tracking (F4) ───
+  /** Se true, scaneia logs on-chain pra medir densidade de bots por par.
+   *  Adiciona ~2-3 min ao sweep total (cache 6h amortiza). Default true. */
+  SCRAPER_COMPETITION_ENABLED: z.coerce.boolean().default(true),
+  /** Blocos pra trás pra scanear (cada chain). Default 5000 (~3h Base, ~50min Polygon). */
+  SCRAPER_COMPETITION_BLOCK_RANGE: z.coerce.number().int().positive().default(5_000),
+
   // ─── Auto-targets (F3) ───
   /** Diretório onde scraper escreve <chain>.json pra backrun-engine consumir.
    *  Default: ../backrun-engine/auto-targets/ (path relativo). */
   SCRAPER_AUTO_TARGETS_DIR: z.string().default('../backrun-engine/auto-targets'),
-  /** Score mínimo composite pra par ENTRAR no auto-targets (default 60). */
-  SCRAPER_MIN_AUTO_SCORE: z.coerce.number().min(0).max(100).default(60),
+  /** Score mínimo composite pra par ENTRAR no auto-targets (default 50). Promoção
+   *  é condicional: score ≥65 promove em 1 cycle, 50-65 em 2 cycles consecutivos. */
+  SCRAPER_MIN_AUTO_SCORE: z.coerce.number().min(0).max(100).default(50),
   /** Path do tracking state (anti-flicker — cycles consecutivos). */
   SCRAPER_AUTO_TRACKING_PATH: z.string().default('state/auto-targets-tracking.json'),
 

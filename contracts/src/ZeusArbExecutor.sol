@@ -47,6 +47,8 @@ contract ZeusArbExecutor is IZeusArbExecutor, IFlashLoanSimpleReceiver, Ownable2
         emit Killed();
     }
 
+    /// @notice Audit Pass 4 fix M-01: aprova EXATAMENTE grossProfit (limite superior absoluto)
+    ///         em vez de type(uint256).max. Defense em profundidade.
     function _callBribeManager(
         address profitToken,
         uint256 grossProfit,
@@ -54,7 +56,7 @@ contract ZeusArbExecutor is IZeusArbExecutor, IFlashLoanSimpleReceiver, Ownable2
         IBribeManager.BribeOpType opType,
         address operator
     ) internal returns (uint256 bribeNativeWei, uint256 profitConsumed) {
-        IERC20(profitToken).forceApprove(BRIBE_MANAGER, type(uint256).max);
+        IERC20(profitToken).forceApprove(BRIBE_MANAGER, grossProfit);
         (bribeNativeWei, profitConsumed) = IBribeManager(BRIBE_MANAGER).pay(
             profitToken, grossProfit, bribe, weth, uniV3SwapRouter, opType, operator
         );

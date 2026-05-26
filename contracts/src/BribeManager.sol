@@ -49,6 +49,11 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
     uint256 internal constant ABSOLUTE_BRIBE_CAP_BPS = 9_900;
     uint256 internal constant BPS_DENOMINATOR = 10_000;
 
+    /// @dev Audit Pass 4 fix M-02: flag que controla quem pode mandar ETH.
+    /// True somente durante uma chamada pay() ativa (set em pay, reset no fim).
+    /// receive() rejeita ETH quando false → impede ETH preso por terceiros.
+    bool private _payInProgress;
+
     /// @inheritdoc IBribeManager
     function validateConfig(BribeConfig calldata bribe) external pure override {
         if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) return; // no-op
@@ -71,6 +76,9 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
         // No-op shortcut
         if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) return (0, 0);
 
+        // M-02 fix: sinaliza pra receive() que estamos em contexto autorizado
+        _payInProgress = true;
+
         // Clamp bribeBps contra bribeMaxBps (runtime guard)
         uint256 effectiveBps = bribe.bribeBps > bribe.bribeMaxBps ? bribe.bribeMaxBps : bribe.bribeBps;
         uint256 bribeProfitTarget = (grossProfit * effectiveBps) / BPS_DENOMINATOR;
@@ -87,6 +95,7 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
             IERC20(weth).safeTransferFrom(msg.sender, address(this), bribeWeth);
             IWETH9(weth).withdraw(bribeWeth);
             _sendToCoinbase(bribeWeth, opType, operator, grossProfit, grossProfit - bribeWeth);
+            _payInProgress = false;
             return (bribeWeth, bribeWeth);
         }
 
@@ -101,6 +110,11 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
         // Approve swap router
         IERC20(profitToken).forceApprove(swapRouter, bribeProfitTarget);
 
+        // Audit Pass 4 fix H-01: amountOutMinimum = bribe.minBribeWei
+        // Antes: amountOutMinimum=0 → atacante podia sandwich o swap movendo preço
+        // do pool profitToken/WETH (rouba até bribeProfitTarget - minBribeWei).
+        // Agora: swap reverte cedo se sandwich for agressivo o suficiente. Bot off-chain
+        // DEVE setar minBribeWei adequado (~90% do quote esperado) pra slippage protection.
         uint256 wethReceived;
         try IUniV3SwapRouter(swapRouter).exactInputSingle(
             IUniV3SwapRouter.ExactInputSingleParams({
@@ -109,7 +123,7 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
                 fee: bribe.swapFeeTier,
                 recipient: address(this),
                 amountIn: bribeProfitTarget,
-                amountOutMinimum: 0, // upper-bounded pelo amountIn fixo + floor minBribeWei abaixo
+                amountOutMinimum: bribe.minBribeWei,
                 sqrtPriceLimitX96: 0
             })
         ) returns (uint256 out) {
@@ -130,6 +144,7 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
         IWETH9(weth).withdraw(wethReceived);
         _sendToCoinbase(wethReceived, opType, operator, grossProfit, grossProfit - bribeProfitTarget);
 
+        _payInProgress = false;
         return (wethReceived, bribeProfitTarget);
     }
 
@@ -146,5 +161,10 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
     }
 
     /// @notice Necessário pra receber ETH do withdraw do WETH antes do coinbase.transfer.
-    receive() external payable {}
+    /// @dev Audit Pass 4 fix M-02: só aceita ETH durante uma chamada `pay()` ativa.
+    ///      Impede que terceiros enviem ETH por engano (ficaria preso, contrato sem rescue).
+    ///      Quando _payInProgress=true, withdraw do WETH9 funciona normal.
+    receive() external payable {
+        if (!_payInProgress) revert NotAuthorizedCaller();
+    }
 }

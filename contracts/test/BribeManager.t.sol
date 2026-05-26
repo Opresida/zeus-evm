@@ -127,34 +127,35 @@ contract BribeManagerTest is Test {
     }
 
     function test_Pay_RevertsWhenBribeExceedsProfit() public {
-        BribeConfig memory bribe = BribeConfig({
-            bribeBps: 5_000, // 50%
-            minBribeWei: 1 ether,
-            bribeMaxBps: 9_000,
-            swapFeeTier: 500,
-            swapSlippageBps: 50
-        });
-        // grossProfit muito baixo → bribeProfitTarget >= grossProfit
-        // Aqui passamos grossProfit=1 → bribe = 0.5 ainda < grossProfit, mas no-op shortcut nao pega.
-        // Pra disparar BribeExceedsProfit precisamos cenário onde bribeProfitTarget >= grossProfit
-        // Caso fácil: bribeBps=9000 + grossProfit=1 → bribeTarget=0 < grossProfit (passa).
-        // Then floor minBribeWei trigga BribeExceedsProfit no path WETH.
-        // Vamos esse path no fork test. Aqui só verificamos no-op + interface.
-
-        // Pra MVP da unit test: deixamos esse cenário pros fork tests.
-        // Apenas confirmamos que pay() não reverte com config válida + no-op.
+        // Cenário fork-only: precisa WETH + UniV3 router reais.
         vm.skip(true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  Receive ETH (WETH withdraw → ETH chega via receive)
+    //  Audit Pass 4 — fix M-02: receive() rejeita ETH externo
     // ═══════════════════════════════════════════════════════════════════════
 
-    function test_ReceiveEth() public {
-        // BribeManager precisa receber ETH pra encaminhar pro coinbase
+    function test_AuditP4_M02_ReceiveRejectsExternalEth() public {
+        // M-02: receive() não aceita ETH de QUALQUER endereço — só durante pay() ativa.
+        // Antes da v8.1: aceitava qualquer ETH (preso permanente, sem rescue).
+        // Agora: reverte com NotAuthorizedCaller fora do contexto de pay().
         vm.deal(address(this), 1 ether);
+        vm.expectRevert(IBribeManager.NotAuthorizedCaller.selector);
         (bool ok,) = payable(address(bribeManager)).call{value: 0.5 ether}("");
-        assertTrue(ok);
-        assertEq(address(bribeManager).balance, 0.5 ether);
+        ok; // silence unused warning — expectRevert validates the revert
+        assertEq(address(bribeManager).balance, 0);
+    }
+
+    function test_AuditP4_M02_ReceiveRejectsRandomSender() public {
+        // Atacante tenta forçar ETH preso no BribeManager
+        address attacker = makeAddr("attacker");
+        vm.deal(attacker, 5 ether);
+        vm.prank(attacker);
+        vm.expectRevert(IBribeManager.NotAuthorizedCaller.selector);
+        (bool ok,) = payable(address(bribeManager)).call{value: 5 ether}("");
+        ok; // silence unused warning — expectRevert validates the revert
+        assertEq(address(bribeManager).balance, 0);
+        // Atacante ainda tem o ETH dele (não foi consumido)
+        assertEq(attacker.balance, 5 ether);
     }
 }

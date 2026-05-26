@@ -63,6 +63,9 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
 
     /// @dev Helper externo pra delegar bribe pro BribeManager. Centraliza o try/transfer pattern
     ///      e libera bytecode do contrato principal.
+    /// @notice Audit Pass 4 fix M-01: aprova EXATAMENTE grossProfit (limite superior absoluto)
+    ///         em vez de type(uint256).max. Defense em profundidade — mesmo se BribeManager tiver
+    ///         bug, máximo que pode puxar é o profit que estamos disposto a "perder" pra bribe.
     function _callBribeManager(
         address profitToken,
         uint256 grossProfit,
@@ -70,16 +73,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         IBribeManager.BribeOpType opType,
         address operator
     ) internal returns (uint256 profitConsumed) {
-        // 1) Approve BribeManager pra puxar o profitToken consumido no swap inline
-        IERC20(profitToken).forceApprove(BRIBE_MANAGER, type(uint256).max);
-
-        // 2) Call BribeManager.pay — BribeManager pullToken + swap + unwrap + coinbase.transfer.
-        //    Ele consome ETH do PRÓPRIO BribeManager (que ganha unwrap WETH dentro de si).
+        IERC20(profitToken).forceApprove(BRIBE_MANAGER, grossProfit);
         (, profitConsumed) = IBribeManager(BRIBE_MANAGER).pay(
             profitToken, grossProfit, bribe, weth, uniV3SwapRouter, opType, operator
         );
-
-        // 3) Reset approve pra zero (defense em profundidade)
         IERC20(profitToken).forceApprove(BRIBE_MANAGER, 0);
     }
 

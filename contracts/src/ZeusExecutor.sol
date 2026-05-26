@@ -583,6 +583,11 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         BackrunParams calldata params
     ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
         if (params.steps.length == 0) revert EmptySteps();
+        // Audit Pass 3 fix L-01 + L-02: rejeitar address(0) cedo (não esperar safeTransfer
+        // ou IERC20(0).balanceOf falhar com mensagem ruim).
+        if (params.profitReceiver == address(0)) revert NotAuthorized();
+        if (params.profitToken == address(0)) revert NotAuthorized();
+        if (flashloanAsset == address(0)) revert NotAuthorized();
         _validateBribeConfig(params.bribe);
 
         uint256 cap = getMaxTradeFor(flashloanAsset);
@@ -607,6 +612,11 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         LiquidationParams calldata params,
         BribeConfig calldata bribe
     ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        // Audit Pass 3 fix L-01: rejeitar address(0) cedo
+        if (params.profitReceiver == address(0)) revert NotAuthorized();
+        if (params.debtAsset == address(0)) revert NotAuthorized();
+        if (params.collateralAsset == address(0)) revert NotAuthorized();
+        if (params.user == address(0)) revert NotAuthorized();
         _validateBribeConfig(bribe);
 
         uint256 cap = getMaxTradeFor(params.debtAsset);
@@ -634,6 +644,9 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         BribeConfig calldata bribe
     ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
         if (params.comet == address(0) || params.borrower == address(0)) revert NotAuthorized();
+        // Audit Pass 3 fix L-01: rejeitar address(0) cedo
+        if (params.profitReceiver == address(0)) revert NotAuthorized();
+        if (params.collateralAsset == address(0)) revert NotAuthorized();
         _validateBribeConfig(bribe);
 
         address baseAsset = IComet(params.comet).baseToken();
@@ -663,6 +676,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
     ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
         if (params.morpho == address(0) || params.borrower == address(0)) revert NotAuthorized();
         if (params.loanToken == address(0) || params.collateralToken == address(0)) revert NotAuthorized();
+        // Audit Pass 3 fix L-01: rejeitar profitReceiver(0) cedo
+        if (params.profitReceiver == address(0)) revert NotAuthorized();
         if (params.flashloanAmount == 0) revert EmptySteps();
         _validateBribeConfig(bribe);
 
@@ -791,7 +806,8 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             revert InsufficientProfit(grossProfit, liqParams.minProfitWei);
         }
 
-        (uint256 bribeNativeWei, uint256 profitConsumed) =
+        // bribeNativeWei é emitido em BribePaid pelo _payBribe — não precisa repassar aqui.
+        (, uint256 profitConsumed) =
             _payBribe(liqParams.debtAsset, grossProfit, bribe, OperationType.LiquidationWithBribe, operator);
 
         uint256 netProfit = grossProfit - profitConsumed;
@@ -810,8 +826,6 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             collateralReceived,
             netProfit
         );
-        // Silencia warning de variável não usada quando bribe = 0
-        bribeNativeWei;
     }
 
     function _handleCompoundLiquidationWithBribeOperation(
@@ -851,7 +865,7 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         uint256 grossProfit = baseBalance - amountOwed - baseBalanceBefore;
         if (grossProfit < cp.minProfitWei) revert InsufficientProfit(grossProfit, cp.minProfitWei);
 
-        (uint256 bribeNativeWei, uint256 profitConsumed) =
+        (, uint256 profitConsumed) =
             _payBribe(asset, grossProfit, bribe, OperationType.CompoundLiquidationWithBribe, operator);
 
         uint256 netProfit = grossProfit - profitConsumed;
@@ -864,7 +878,6 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         emit CompoundLiquidationExecuted(
             operator, cp.comet, cp.borrower, cp.collateralAsset, cp.baseAmount, collateralReceived, netProfit
         );
-        bribeNativeWei;
     }
 
     function _handleMorphoLiquidationWithBribeOperation(
@@ -911,7 +924,7 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         uint256 grossProfit = loanBalance - amountOwed - loanBalanceBefore;
         if (grossProfit < mp.minProfitWei) revert InsufficientProfit(grossProfit, mp.minProfitWei);
 
-        (uint256 bribeNativeWei, uint256 profitConsumed) =
+        (, uint256 profitConsumed) =
             _payBribe(mp.loanToken, grossProfit, bribe, OperationType.MorphoLiquidationWithBribe, operator);
 
         uint256 netProfit = grossProfit - profitConsumed;
@@ -924,17 +937,22 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         emit MorphoLiquidationExecuted(
             operator, mp.borrower, mp.collateralToken, mp.loanToken, amount, collateralReceived, netProfit
         );
-        bribeNativeWei;
     }
 
     // ════════ BRIBE INTERNAL HELPERS ════════
 
     /// @notice Valida BribeConfig on-chain. Aceita bribeBps == 0 (sem bribe) como valor neutro.
+    /// @dev Audit Pass 3 fix M-03: rejeita combinação `bribeBps == 0 && minBribeWei > 0`.
+    ///      Esse caso forçaria swap com amountIn=0 (sem efeito) e reverteria tarde no
+    ///      router — feedback ruim pro caller. Melhor reverter cedo com InvalidBribeConfig.
     function _validateBribeConfig(BribeConfig memory bribe) internal pure {
         if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) {
             // Sem bribe — config neutra, OK.
             return;
         }
+        // M-03 (v7) fix: minBribeWei > 0 sem bribeBps > 0 é incoerente. minBribeWei é piso
+        // sobre o resultado percentual; sem percentual base, não há nada pra pisar.
+        if (bribe.bribeBps == 0) revert InvalidBribeConfig();
         if (bribe.bribeBps > 10_000) revert InvalidBribeConfig();
         if (bribe.bribeMaxBps == 0 || bribe.bribeMaxBps > ABSOLUTE_BRIBE_CAP_BPS) revert InvalidBribeConfig();
         if (bribe.swapSlippageBps > 1_000) revert InvalidBribeConfig();

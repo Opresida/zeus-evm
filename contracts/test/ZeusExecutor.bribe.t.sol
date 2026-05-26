@@ -266,6 +266,126 @@ contract ZeusExecutorBribeTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    //  Audit Pass 3 — fixes M-03, L-01, L-02
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @notice M-03: bribeBps == 0 && minBribeWei > 0 deve reverter (config incoerente)
+    function test_AuditP3_M03_ZeroBpsWithNonzeroFloorReverts() public {
+        BribeConfig memory bribe = BribeConfig({
+            bribeBps: 0,
+            minBribeWei: 1 ether, // floor > 0 sem percentual base
+            bribeMaxBps: 9_000,
+            swapFeeTier: 500,
+            swapSlippageBps: 50
+        });
+        _expectInvalidBribeConfig(bribe);
+    }
+
+    /// @notice M-03: bribeBps > 0 && minBribeWei > 0 ainda deve passar (combinação válida)
+    function test_AuditP3_M03_BothNonzeroIsValid() public {
+        BribeConfig memory bribe = BribeConfig({
+            bribeBps: 5_000,
+            minBribeWei: 1 ether,
+            bribeMaxBps: 9_000,
+            swapFeeTier: 500,
+            swapSlippageBps: 50
+        });
+        BackrunParams memory bp = _emptyBackrunParams(bribe);
+        bp.steps = _dummySteps();
+        vm.prank(operator);
+        // Reverte no Aave (não no validate) — config aceita
+        vm.expectRevert();
+        executor.executeFlashloanBackrun(FAKE_USDC, 100e6, bp);
+    }
+
+    /// @notice L-01: profitReceiver == address(0) deve reverter cedo em backrun
+    function test_AuditP3_L01_BackrunZeroProfitReceiverReverts() public {
+        BackrunParams memory bp = _emptyBackrunParams(_zeroBribe());
+        bp.steps = _dummySteps();
+        bp.profitReceiver = address(0);
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeFlashloanBackrun(FAKE_USDC, 100e6, bp);
+    }
+
+    /// @notice L-01: profitReceiver == address(0) em LiquidationWithBribe
+    function test_AuditP3_L01_LiquidationWithBribeZeroProfitReceiverReverts() public {
+        LiquidationParams memory liq = _emptyLiquidationParams();
+        liq.profitReceiver = address(0);
+        BribeConfig memory bribe = _zeroBribe();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeLiquidationWithBribe(liq, bribe);
+    }
+
+    /// @notice L-01: profitReceiver == address(0) em CompoundLiquidationWithBribe
+    function test_AuditP3_L01_CompoundWithBribeZeroProfitReceiverReverts() public {
+        CompoundLiquidationParams memory cp = _emptyCompoundParams();
+        cp.profitReceiver = address(0);
+        BribeConfig memory bribe = _zeroBribe();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeCompoundLiquidationWithBribe(cp, bribe);
+    }
+
+    /// @notice L-01: profitReceiver == address(0) em MorphoLiquidationWithBribe
+    function test_AuditP3_L01_MorphoWithBribeZeroProfitReceiverReverts() public {
+        MorphoLiquidationParams memory mp = _emptyMorphoParams();
+        mp.profitReceiver = address(0);
+        BribeConfig memory bribe = _zeroBribe();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeMorphoLiquidationWithBribe(mp, bribe);
+    }
+
+    /// @notice L-02: profitToken == address(0) em backrun deve reverter cedo
+    function test_AuditP3_L02_BackrunZeroProfitTokenReverts() public {
+        BackrunParams memory bp = _emptyBackrunParams(_zeroBribe());
+        bp.steps = _dummySteps();
+        bp.profitToken = address(0);
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeFlashloanBackrun(FAKE_USDC, 100e6, bp);
+    }
+
+    /// @notice L-02: flashloanAsset == address(0) em backrun deve reverter cedo
+    function test_AuditP3_L02_BackrunZeroFlashloanAssetReverts() public {
+        BackrunParams memory bp = _emptyBackrunParams(_zeroBribe());
+        bp.steps = _dummySteps();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeFlashloanBackrun(address(0), 100e6, bp);
+    }
+
+    /// @notice L-01: debtAsset == address(0) em LiquidationWithBribe
+    function test_AuditP3_L01_LiquidationWithBribeZeroDebtAssetReverts() public {
+        LiquidationParams memory liq = _emptyLiquidationParams();
+        liq.debtAsset = address(0);
+        BribeConfig memory bribe = _zeroBribe();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeLiquidationWithBribe(liq, bribe);
+    }
+
+    /// @notice L-01: user == address(0) em LiquidationWithBribe
+    function test_AuditP3_L01_LiquidationWithBribeZeroUserReverts() public {
+        LiquidationParams memory liq = _emptyLiquidationParams();
+        liq.user = address(0);
+        BribeConfig memory bribe = _zeroBribe();
+
+        vm.prank(operator);
+        vm.expectRevert(IZeusExecutor.NotAuthorized.selector);
+        executor.executeLiquidationWithBribe(liq, bribe);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════════
 

@@ -31,6 +31,7 @@ import { compositeScore } from './scoring/composite';
 import { calcAgeDays } from './scoring/poolAge';
 import { sendDiscordReport } from './output/reportDiscord';
 import { writeJsonReport } from './output/reportJson';
+import { AutoTargetsWriter } from './output/autoTargets';
 import type { ScraperReport, RankedCandidate } from './output/types';
 import { getTargetPairsForChain } from '@zeus-evm/chain-config';
 import { StateManager } from './state';
@@ -354,6 +355,13 @@ async function main() {
   const stateManager = new StateManager(env.SCRAPER_STATE_PATH, logger);
   initSafetyCache(env.SCRAPER_CACHE_DIR);
 
+  const autoTargetsWriter = new AutoTargetsWriter({
+    outputDir: env.SCRAPER_AUTO_TARGETS_DIR,
+    trackingStatePath: env.SCRAPER_AUTO_TRACKING_PATH,
+    minAutoScore: env.SCRAPER_MIN_AUTO_SCORE,
+    logger,
+  });
+
   const startedAt = Date.now();
   const cliArgs = parseArgs();
 
@@ -390,6 +398,26 @@ async function main() {
     try {
       const result = await processChain(chain, env);
       results.push(result);
+
+      // F3: escrever auto-targets pra cada chain logo após o processChain
+      // (assim, se a próxima chain falhar, esta já está persistida).
+      const autoResult = autoTargetsWriter.processChain(
+        chain.chainId,
+        chain.geckoNetwork,
+        result.topCandidates,
+      );
+      if (autoResult.newPromotions.length > 0) {
+        logger.info(
+          { chain: chain.name, newPairs: autoResult.newPromotions },
+          `⭐ NOVOS pares promovidos pro auto-targets: ${autoResult.newPromotions.join(', ')}`,
+        );
+      }
+      if (autoResult.removed.length > 0) {
+        logger.info(
+          { chain: chain.name, removed: autoResult.removed },
+          `🗑️ Pares removidos do auto-targets (sumiram >3 cycles): ${autoResult.removed.join(', ')}`,
+        );
+      }
     } catch (err) {
       logger.error(
         { chain: chain.name, err: err instanceof Error ? err.message : err },

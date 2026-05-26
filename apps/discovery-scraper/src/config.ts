@@ -43,6 +43,15 @@ const envSchema = z.object({
   /** Cache dir (token safety). Default ./state/ */
   SCRAPER_CACHE_DIR: z.string().default('state'),
 
+  // ─── Auto-targets (F3) ───
+  /** Diretório onde scraper escreve <chain>.json pra backrun-engine consumir.
+   *  Default: ../backrun-engine/auto-targets/ (path relativo). */
+  SCRAPER_AUTO_TARGETS_DIR: z.string().default('../backrun-engine/auto-targets'),
+  /** Score mínimo composite pra par ENTRAR no auto-targets (default 60). */
+  SCRAPER_MIN_AUTO_SCORE: z.coerce.number().min(0).max(100).default(60),
+  /** Path do tracking state (anti-flicker — cycles consecutivos). */
+  SCRAPER_AUTO_TRACKING_PATH: z.string().default('state/auto-targets-tracking.json'),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

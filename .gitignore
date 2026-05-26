@@ -36,3 +36,4 @@ logs/
 # Discovery scraper output
 apps/discovery-scraper/reports/
 apps/discovery-scraper/state/
+apps/backrun-engine/auto-targets/

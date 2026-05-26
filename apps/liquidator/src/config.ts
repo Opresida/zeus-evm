@@ -124,6 +124,12 @@ const envSchema = z.object({
    *  Default true (segurança). Em dryrun não tem efeito (sem wallet). */
   BLOCK_DISPATCH_ON_CRITICAL_GAS: z.coerce.boolean().default(true),
 
+  // ─── Stale position re-check (gap crítico #8) ───
+  /** Se true, antes do dispatch real, faz 1 chamada RPC extra pra confirmar que
+   *  borrower AINDA é liquidatable. Reduz gas perdido por race com outros bots.
+   *  Custo: +50ms latência por dispatch. Em dryrun não tem efeito. */
+  STALE_CHECK_ENABLED: z.coerce.boolean().default(true),
+
   // ─── EIP-1559 gas pricing (gap crítico #5) ───
   /** Priority fee (gorjeta sequencer) em gwei. Default 0.001 — Base não tem MEV-Boost,
    *  sequencer Coinbase aceita gorjetas mínimas (FCFS por timestamp).

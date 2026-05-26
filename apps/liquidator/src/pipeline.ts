@@ -33,6 +33,7 @@ import type { PositionDedupTracker } from './positionDedup';
 import type { GasReserveTracker } from './gasReserveTracker';
 import { aavePositionKey, compoundPositionKey } from './positionDedup';
 import type { EventBus } from './eventBus';
+import { isAaveStillLiquidatable, isCompoundStillLiquidatable } from './staleCheck';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -162,6 +163,33 @@ export async function runAavePipeline(
     callerAddress,
     calldata: built.data,
   });
+
+  // 3.5 Stale check — APENAS se vai submeter tx real (não em dryrun ou se sim falhou)
+  // Confirma que borrower AINDA é liquidable antes de queimar gas. ~50ms RPC.
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success && ctx.chainConfig.aave?.pool) {
+    const hfThresholdWei = BigInt(Math.floor(env.HF_LIQUIDATABLE_THRESHOLD * 1e18));
+    const staleCheck = await isAaveStillLiquidatable({
+      client: ctx.client,
+      poolAddress: ctx.chainConfig.aave.pool,
+      borrower: position.borrower,
+      hfThresholdWei,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      logger.warn(
+        {
+          borrower: position.borrower,
+          reason: staleCheck.reason,
+          elapsedMs: staleCheck.elapsedMs,
+        },
+        `⏭️  Stale position descartada: ${staleCheck.reason}`,
+      );
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `stale position: ${staleCheck.reason ?? 'no longer liquidatable'}`,
+      };
+    }
+  }
 
   // 4. Dispatcher
   return dispatch({
@@ -311,6 +339,31 @@ export async function runCompoundPipeline(
     callerAddress,
     calldata: built.data,
   });
+
+  // 3.5 Stale check Compound — Comet.isLiquidatable() é definitivo (não calcula HF off-chain)
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success) {
+    const staleCheck = await isCompoundStillLiquidatable({
+      client: ctx.client,
+      comet: position.comet,
+      borrower: position.borrower,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      logger.warn(
+        {
+          comet: position.cometName,
+          borrower: position.borrower,
+          reason: staleCheck.reason,
+          elapsedMs: staleCheck.elapsedMs,
+        },
+        `⏭️  Stale Compound position descartada: ${staleCheck.reason}`,
+      );
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `stale position: ${staleCheck.reason ?? 'no longer liquidatable'}`,
+      };
+    }
+  }
 
   // 4. Dispatcher
   return dispatch({

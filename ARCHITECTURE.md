@@ -50,37 +50,70 @@ ZEUS EVM é um **monorepo pnpm** com 3 camadas:
               └──────────────────────────────┘
 ```
 
-### Pipeline do `apps/liquidator` (Sprint 1 + 2)
+### Pipeline do `apps/liquidator` (Sprint 1 + 2 + Backend Completo)
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│ 1. DISCOVERY │ ──→ │ 2. CALCULATOR│ ──→ │ 3. SIMULATOR │ ──→ │ 4. DISPATCH  │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-  subgraph              binary search        eth_call             3 modos:
-  + Multicall3          10+5 samples         valida revert        dryrun (log)
-  HF batch              + UniV3 QuoterV2     + decoda erro        testnet (sub)
-  resolve par           + slippage check     + estima gas         mainnet (sub)
+┌──────────────────────────────────────────────────────────────────┐
+│  PIPELINE PRE-DISPATCH GATES (5 fusíveis ortogonais)             │
+├──────────────────────────────────────────────────────────────────┤
+│  Gate 1: PnL Tracker        — kill switch se loss 24h ≥ $X       │
+│  Gate 2: Failure Tracker    — cooldown se N falhas seguidas      │
+│  Gate 3: Gas Reserve        — bloqueia se balance < critical     │
+│  Gate 4: Position Dedup     — bloqueia re-submit por TTL         │
+│  Gate 5: QuoterV2           — sanity (calculator não funciona)   │
+└──────────────────────────────────────────────────────────────────┘
+                              │ (todos verde)
+                              ▼
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ 1. DISCOVERY │ ──→ │ 2. CALCULATOR│ ──→ │ 3. SIMULATOR │
+└──────────────┘     └──────────────┘     └──────────────┘
+  subgraph              binary search        eth_call
+  + Multicall3          10+5 samples         valida revert
+  HF batch              + UniV3 QuoterV2     + decoda erro
+  resolve par           + slippage check     + estima gas
   (Aave) /              + cache TTL 60s
   event scan
   (Compound)
-                                                                      │
-                                                                      ▼
-                                                              ┌──────────────┐
-                                                              │ 5. EVENT     │
-                                                              │   DECODER    │
-                                                              │              │
-                                                              │ profit REAL  │
-                                                              │ vs ESTIMADO  │
-                                                              │ → calibração │
-                                                              └──────────────┘
+                              │
+                              ▼
+                  ┌─────────────────────────┐
+                  │  Gate 6: STALE CHECK    │  ← NOVO (gap #8)
+                  │  re-checa HF on-chain   │
+                  │  (só em testnet/mainnet)│
+                  └─────────────────────────┘
+                              │
+                              ▼
+                  ┌──────────────────────────┐
+                  │ 4. DISPATCHER             │
+                  │  - GasOracle EIP-1559     │  ← NOVO (gap #5)
+                  │  - markPending (dedup)    │
+                  │  - sendTransaction        │
+                  │  - waitForReceipt         │
+                  └──────────────────────────┘
+                              │
+                              ▼
+                  ┌──────────────────────────┐
+                  │ 5. POST-PROCESS           │
+                  │  - Event decoder          │
+                  │  - PnL tracker record     │  → JSONL persist
+                  │  - Failure tracker record │
+                  │  - Dedup markConfirmed    │
+                  │  - EventBus emit          │  → Discord/webhook
+                  └──────────────────────────┘
 ```
 
-**Gates de segurança (3 fusíveis):**
-1. Discovery → reject se par não resolve
-2. Calculator → reject se profit estimado < `MIN_LIQUIDATION_PROFIT_USD`
-3. Simulator → reject se eth_call reverte (decoda custom error)
+**6 trackers internos rodando em paralelo:**
+- PnL Tracker (rolling 24h + auto kill on-chain)
+- Failure Tracker (cooldown após N falhas)
+- Position Dedup (TTL por chave composta)
+- Gas Reserve (balance monitor + alertas)
+- Gas Oracle (EIP-1559 cache por bloco)
+- EventBus (emit pra Discord/Generic/futuro WebSocket)
 
-Nada chega ao dispatch sem os 3 verdes.
+**3 modos operacionais:**
+- `dryrun`: pipeline completo SEM submit (alimenta cache + LOGA decisions teóricas)
+- `testnet`: submit em chains Sepolia
+- `mainnet`: submit em chains mainnet (requer checklist obrigatório)
 
 ---
 
@@ -163,17 +196,28 @@ zeus-evm/
 │   │           ├── compoundV3.ts          # event scan chunked (free tier safe)
 │   │           └── morpho.ts              # subgraph Messari-format (schema-fixed 2026-05-25)
 │   │
-│   └── liquidator/             # ═══ LIQUIDATOR (Sprint 1 + 2 entregue) ═══
+│   └── liquidator/             # ═══ LIQUIDATOR (Sprint 1 + 2 + Backend completo) ═══
 │       ├── package.json        # @zeus-evm/liquidator
 │       └── src/
 │           ├── index.ts                  # boot + discoveryTick + processOpportunity
-│           ├── config.ts                  # 3 modos: dryrun | testnet | mainnet + thresholds
+│           ├── config.ts                  # 3 modos + thresholds + 6 trackers config
 │           ├── chainContext.ts            # client + wallet opcional
-│           ├── pipeline.ts                # runAavePipeline + runCompoundPipeline
-│           ├── dispatcher.ts              # 3 gates + waitForReceipt + event decoder
-│           ├── eventDecoder.ts            # decode 5 eventos *Executed + delta real-vs-esperado
+│           ├── pipeline.ts                # runAavePipeline + runCompoundPipeline (6 gates)
+│           ├── dispatcher.ts              # EIP-1559 + waitForReceipt + event emit
+│           ├── pnlTracker.ts              # gap #1: rolling 24h + auto kill switch
+│           ├── failureTracker.ts          # gap #2: cooldown após N falhas seguidas
+│           ├── positionDedup.ts           # gap #3: pending/confirmed/failed por position
+│           ├── gasReserveTracker.ts       # gap #4: balance monitor + 2 thresholds
+│           ├── gasOracle.ts               # gap #5: EIP-1559 maxFee/priority + cache
+│           ├── eventBus.ts                # gap #7: emit/subscribe interno
+│           ├── events.ts                  # gap #7: 11 tipos canônicos ZEUS-typed
+│           ├── staleCheck.ts              # gap #8: re-check HF on-chain pre-submit
+│           ├── eventDecoder.ts            # decode 5 eventos *Executed + delta
 │           ├── priceUtils.ts              # wei→"$12.45" humano + USD estimate
 │           ├── slippageCache.ts           # cache TTL 60s pra UniV3 quotes
+│           ├── alerting/
+│           │   ├── discordSink.ts         # gap #7: formata embeds Discord
+│           │   └── genericWebhookSink.ts  # gap #7: POST JSON raw pra qualquer URL
 │           └── protocols/
 │               ├── aave/                  # calculator (binary search) + simulator + builder
 │               └── compound/              # ABI + cometCache + discovery + calc + sim + builder

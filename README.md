@@ -8,7 +8,7 @@
 **Chain inicial:** Base (Coinbase L2)
 **Próximas chains:** Avalanche (após validação), Polygon (avaliar), BSC (longo prazo)
 **Time:** Humberto (product) + Claude (engineering)
-**Status (snapshot 2026-05-25):** **3 protocolos integrados** (Aave V3 + Compound III + Morpho Blue) · **Sprint 1 + Sprint 2 do liquidator entregues** · **Security Audit Pass 2 com 4 fixes aplicados** · **53/53 testes Foundry** · **9/9 typecheck workspaces** · contratos v6 verified em 3 testnets:
+**Status (snapshot 2026-05-26):** **3 protocolos integrados** (Aave V3 + Compound III + Morpho Blue) · **Sprint 1 + Sprint 2 do liquidator entregues** · **Security Audit Pass 2 com 4 fixes aplicados** · **6 gaps críticos backend resolvidos** (PnL kill switch, cooldown, dedup, gas reserve, EIP-1559, event bus + alerting, stale check) · **53/53 testes Foundry** · **9/9 typecheck workspaces** · contratos v6 verified em 3 testnets:
 - Base Sepolia v6: [`0xe38298B4...`](https://sepolia.basescan.org/address/0xe38298B4d242d0D1C45696a96c4C588926Cf1139)
 - Arbitrum Sepolia v6: [`0xe48473D7...`](https://sepolia.arbiscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
 - Optimism Sepolia v6: [`0xe48473D7...`](https://sepolia-optimism.etherscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
@@ -177,6 +177,7 @@ Detalhes em [TODO.md](./TODO.md).
 | **6.5 — Sprint 3** | Morpho Blue contract entregue + subgraph schema-fix · **TS pipeline pendente** | 🟡 |
 | **Audit Pass 1+2** | `ZeusExecutor.sol` revisado · 2 HIGH + 4 MEDIUM identificados e corrigidos · 11 testes adversariais | ✅ |
 | **Liquidator MVP** | `apps/liquidator` Sprint 1 Aave + Sprint 2 Compound · discovery automática · event decoder · slippage cache · 3 modos | ✅ |
+| **Backend completo (6 gaps críticos)** | Daily loss limit · cooldown · dedup · gas reserve · EIP-1559 · event bus + Discord · stale check | ✅ |
 | **5b** | 2 semanas DRY_RUN mainnet observação calibração | ⏳ Próximo |
 | **7** | Deploy mainnet capital pequeno (cap baixo) + 4 semanas observação | ❌ Pendente |
 | **Sprint 4** | JIT Liquidity (motor #2 descorrelacionado) + Alchemy Mempool API | ❌ Pós-receita |

@@ -79,7 +79,7 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 📊 Status atual (snapshot 2026-05-25)
+## 📊 Status atual (snapshot 2026-05-26)
 
 ### ✅ Concluído
 
@@ -102,6 +102,15 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
   - Event decoder pós-tx + log humanizado `💰 $12.45 (gas $0.32, líquido $12.13)` + calibração delta real-vs-esperado
   - Slippage cache TTL 60s
   - 3 modos operacionais: `dryrun` / `testnet` / `mainnet`
+- **Backend completo — 6 gaps críticos** (`apps/liquidator/` — 2026-05-26):
+  - **Gap #1 Daily loss limit** — `pnlTracker.ts` rolling 24h JSONL + auto kill switch on-chain
+  - **Gap #2 Cooldown após N falhas** — `failureTracker.ts` 3 falhas seguidas → 5min cooldown
+  - **Gap #3 Position deduplication** — `positionDedup.ts` pending/confirmed/failed + TTL
+  - **Gap #4 Gas reserve monitoring** — `gasReserveTracker.ts` 2 thresholds + anti-spam
+  - **Gap #5 EIP-1559 gas pricing** — `gasOracle.ts` baseFee × multiplier + cache por bloco
+  - **Gap #7 Event bus + alerting** — `eventBus.ts` + Discord/Generic webhook sinks (arquitetura prepara WebSocket pro futuro mobile app)
+  - **Gap #8 Stale position re-check** — `staleCheck.ts` re-checa HF on-chain antes do submit
+  - Pipeline integrado: 5 gates pre-dispatch + EIP-1559 + tracking de wins/losses + auto kill switch + alertas externos
 - **Shared package `@zeus-evm/aave-discovery`** — reusável entre apps (logger injetável, ABIs canônicas, reserves cache, discovery completa)
 - **Total**: **53/53 testes Foundry** · 6/6 vitest · **9/9 typecheck workspaces** (incluindo packages/aave-discovery + apps/liquidator)
 
@@ -116,6 +125,19 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 **Sprint 3 Morpho pipeline TS** — discovery (com IRM enrichment on-chain) + calculator + builder + simulator pra `executeMorphoLiquidation`. Estimativa ~2 dias próxima sessão.
 
 **2 semanas DRY_RUN mainnet** — assim que Sprint 3 estiver pronto, rodar monitor + liquidator em Base mainnet em modo `dryrun` pra calibração de thresholds + slippage.
+
+**Health endpoint HTTP** — adiado até decisão de infra (Fly.io / outra). Sem orquestrador externo não tem valor agora.
+
+### 🔒 Backend readiness pra mainnet
+
+Backend está em **estado pronto pra primeira tx real** assim que: (1) Sprint 3 Morpho concluir; (2) Deploy ZeusExecutor em Base mainnet; (3) 2 semanas DRY_RUN calibrar. 6 gaps críticos resolvidos garantem operação segura:
+- Kill switch automático (PnL > limit)
+- Cooldown após cascata de erros
+- Sem re-submit em race condition (dedup)
+- Sem dispatch sem ETH (gas reserve)
+- Pricing EIP-1559 correto pra Base/Arb/OP
+- Alertas externos via Discord webhook
+- Stale check elimina race contra outros bots
 
 ### 📅 Roadmap futuro (decisões consolidadas 2026-05-25)
 

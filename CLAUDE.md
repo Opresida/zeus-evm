@@ -133,14 +133,23 @@ zeus-evm/
 │   ├── detector/           # TS — main loop: WSS → scan → filter → simulate (cross-DEX, radar passivo)
 │   ├── backtest/           # TS — replay histórico de blocos
 │   ├── monitor/            # TS — DRY_RUN: discovery Aave+Compound+Morpho (read-only)
-│   └── liquidator/         # TS — pipeline dispatch: calc → sim → build → dispatch
+│   └── liquidator/         # TS — pipeline dispatch + 10 componentes integrados
 │       ├── src/protocols/aave/      # calculator + simulator + builder Aave V3
 │       ├── src/protocols/compound/  # ABI + cometCache + discovery + calc + sim + builder Compound III
+│       ├── src/alerting/            # discordSink + genericWebhookSink (subscribers do eventBus)
+│       ├── src/pnlTracker.ts        # PnL rolling 24h + auto kill switch (gap #1)
+│       ├── src/failureTracker.ts    # Cooldown após N falhas seguidas (gap #2)
+│       ├── src/positionDedup.ts     # Dedup pending/confirmed/failed por position (gap #3)
+│       ├── src/gasReserveTracker.ts # ETH balance monitor + alertas (gap #4)
+│       ├── src/gasOracle.ts         # EIP-1559 maxFee/priorityFee + cache (gap #5)
+│       ├── src/staleCheck.ts        # Re-check HF on-chain pré-submit (gap #8)
+│       ├── src/eventBus.ts          # Event bus interno (gap #7)
+│       ├── src/events.ts            # 11 tipos canônicos ZEUS-typed
 │       ├── src/slippageCache.ts     # cache TTL 60s pra UniV3 quotes
 │       ├── src/eventDecoder.ts      # decode LiquidationExecuted post-tx + delta real vs esperado
 │       ├── src/priceUtils.ts        # wei → "$12.45" humano + USD estimate
-│       ├── src/pipeline.ts          # runAavePipeline + runCompoundPipeline
-│       └── src/dispatcher.ts        # 3 modos: dryrun | testnet | mainnet
+│       ├── src/pipeline.ts          # runAavePipeline + runCompoundPipeline (5 gates pre-dispatch)
+│       └── src/dispatcher.ts        # 3 modos: dryrun | testnet | mainnet + EIP-1559
 ├── packages/
 │   ├── chain-config/       # BASE_MAINNET + BASE_SEPOLIA + ARBITRUM + OPTIMISM + target-pairs
 │   ├── dex-adapters/       # quoteUniswapV3 + quoteAerodrome (off-chain pricing)
@@ -152,29 +161,43 @@ zeus-evm/
 
 ---
 
-## 🗺️ Estado atual (snapshot 2026-05-25)
+## 🗺️ Estado atual (snapshot 2026-05-26)
 
 ### ✅ Pronto
-- **Fases 0-5a**: Setup + ZeusExecutor + Detector + Flashloan Aave + Track A+B + Deploy testnet (ver histórico TODO.md)
-- **Trilha 1 (Liquidações Aave V3)**: contrato + monitor + 4 fork tests — $8.643 profit em fork
-- **Sprint 1 Aave V3 multi-chain**: 3 chains testnet armed (Base/Arb/OP Sepolia)
-- **Sprint 3 Morpho subgraph fix** (2026-05-25): schema-fix Messari-format, 200 positions ativas reais detectadas em Base mainnet
-- **Compound chunking** (2026-05-25): `eth_getLogs` em janelas de 9999 blocos pra free tier dRPC
-- **Redeploy ZeusExecutor v6** (2026-05-25): 3 chains, todas verified, com Aave + Compound + Morpho
-- **Security Audit Pass 1 + Pass 2** (2026-05-25): 2 HIGH + 4 MEDIUM identificados e **CORRIGIDOS** (H-01 Morpho approval bounded+reset, H-02 maxTradePerToken map, M-01 pre-existing balance snapshot, M-02 flashloanAmount explícito). 11 novos testes adversariais
-- **Liquidator Sprint 1 Aave V3** (2026-05-25): novo `apps/liquidator/` com pipeline completo (calculator binary search + simulator eth_call + builder calldata + dispatcher 3 modos)
-- **Discovery automática Aave V3** (2026-05-25): subgraph → Multicall3 HF → resolve par dominante (collateral/debt). Live em Base mainnet: 29 at-risk detectados
-- **Event decoder + log humanizado USD** (2026-05-25): captura profit real pós-tx, log `💰 $12.45 (gas $0.32, líquido $12.13) | 🎯 calibrado` + delta real-vs-esperado
-- **Shared discovery package** (2026-05-25): `@zeus-evm/aave-discovery` workspace package, reusável entre apps
-- **Liquidator Sprint 2 Compound III** (2026-05-25): pipeline completo Compound (5+8 collaterals cacheados Base mainnet, discovery via event scan chunked, `quoteCollateral` on-chain)
-- **Slippage cache TTL 60s** (2026-05-25): wrapper sobre `quoteUniswapV3` com métricas hit/miss
-- **Bug fix calculator**: clamp `Math.max(1, floor)` evita `BigInt(NaN)` quando MIN_DEBT_USD < 1
-- **Pipeline refactor calc-first** (2026-05-25): calculator roda mesmo sem executor — alimenta cache + LOGA decision teórica em DRY_RUN mainnet
-- **Total**: **53/53 Foundry tests** · **9/9 typecheck workspaces** (incluindo packages/aave-discovery + apps/liquidator)
+
+**Camada smart contract (entregue 2026-05-25):**
+- Fases 0-5a, Trilha 1, Sprint 1 Aave multi-chain, Sprint 3 Morpho contract
+- Security Audit Pass 1+2 + 4 fixes (H-01, H-02, M-01, M-02)
+- ZeusExecutor v6 deployado e verified em 3 chains testnet (Base/Arb/OP Sepolia)
+- 53/53 Foundry tests
+
+**Camada off-chain liquidator (entregue 2026-05-25 + 2026-05-26):**
+
+*Pipeline core (2026-05-25):*
+- Sprint 1 Aave V3 + Sprint 2 Compound III completos
+- Discovery automática Aave V3 (subgraph + Multicall3 + resolver par dominante)
+- Event decoder + log humanizado USD
+- Shared package `@zeus-evm/aave-discovery`
+- Slippage cache TTL 60s + bug fix NaN no calculator
+- Pipeline refactor calc-first (calculator roda mesmo sem executor)
+
+*Backend completo — 6 gaps críticos (entregue 2026-05-26):*
+- **#1 Daily loss limit + auto kill switch** — `pnlTracker.ts` rolling 24h + persistência JSONL + on-chain kill helper
+- **#2 Cooldown após N falhas seguidas** — `failureTracker.ts` 3 falhas → 5min cooldown
+- **#3 Position deduplication** — `positionDedup.ts` pending/confirmed/failed por chave composta + TTL
+- **#4 Gas reserve monitoring** — `gasReserveTracker.ts` 2 thresholds (warn/critical) + anti-spam
+- **#5 EIP-1559 gas pricing** — `gasOracle.ts` baseFee × multiplier + cache por bloco
+- **#7 Event bus + alerting** — `eventBus.ts` + `discordSink.ts` + `genericWebhookSink.ts` (arquitetura preparada pra futuro WebSocket mobile app)
+- **#8 Stale position re-check** — `staleCheck.ts` antes do submit (re-checa HF on-chain)
+
+*Status do liquidator agora:* **10 componentes integrados em pipeline** com 5 gates pre-dispatch (kill / cooldown / gas / dedup / quoter) + stale check pre-submit. Cobertura Aave V3 + Compound III nas 3 chains.
+
+- **Total**: **53/53 Foundry tests** · **9/9 typecheck workspaces**
 
 ### 🟡 Em andamento (próxima sessão)
-- **Sprint 3 Morpho pipeline TS** — discovery + calculator + builder + simulator + IRM enrichment on-chain
+- **Sprint 3 Morpho pipeline TS** — discovery + calculator + builder + simulator + IRM enrichment on-chain (~2 dias)
 - 2 semanas DRY_RUN mainnet observação calibração
+- Health endpoint HTTP — adiado até decisão de infra (Fly.io / outra)
 
 ### 📅 Roadmap pós-Sprint 3 (decidido 2026-05-25)
 - **Fase 7**: Deploy executor em Base mainnet + 4 semanas observação capital pequeno

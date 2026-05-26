@@ -38,6 +38,10 @@ const envSchema = z.object({
   DISCORD_WEBHOOK_URL: optionalUrl(),
   /** Pasta onde salvar JSON snapshots. Default ./reports/ */
   SCRAPER_REPORTS_DIR: z.string().default('reports'),
+  /** State file path (controle remoto). Default ./state/scraper-state.json */
+  SCRAPER_STATE_PATH: z.string().default('state/scraper-state.json'),
+  /** Cache dir (token safety). Default ./state/ */
+  SCRAPER_CACHE_DIR: z.string().default('state'),
 
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
@@ -47,22 +51,18 @@ export type ScraperEnv = z.infer<typeof envSchema>;
 /**
  * Chains suportadas pelo scraper. Mapeia chainId → identificador GeckoTerminal.
  *
- * Adicionar nova chain = 1 linha aqui. Pares descobertos do scraper podem ser
- * promovidos pra target-pairs.ts da chain (F3 entrega o approval flow).
+ * `poolPages` define quanta profundidade (cada page = 20 pools, ordenados por TVL desc):
+ *   - Chains com backrun ATIVO (Base + Optimism): 15 pages = top 300 pools (deep scan)
+ *   - Chains apenas intel (Arb + Polygon + Avalanche): 5 pages = top 100 pools
  *
- * Chains incluídas refletem o roadmap do ZEUS:
- *   - Base (8453): chain primária, backrun + liquidator ativos
- *   - Optimism (10): expansão F1 — backrun com Velodrome
- *   - Arbitrum (42161): expansão futura — pares no Camelot/Ramses
- *   - Polygon (137): expansão futura — Aave V3 + Compound III
- *   - Avalanche (43114): expansão futura — Aave V3 only
+ * Quando ativarmos backrun em outra chain, mudamos a chain pra deep scan (15 pages).
  */
 export const SUPPORTED_CHAINS = [
-  { chainId: 8453, name: 'Base', geckoNetwork: 'base' },
-  { chainId: 10, name: 'OP Mainnet', geckoNetwork: 'optimism' },
-  { chainId: 42161, name: 'Arbitrum', geckoNetwork: 'arbitrum' },
-  { chainId: 137, name: 'Polygon', geckoNetwork: 'polygon_pos' },
-  { chainId: 43114, name: 'Avalanche', geckoNetwork: 'avax' },
+  { chainId: 8453, name: 'Base', geckoNetwork: 'base', poolPages: 15, isBackrunActive: true },
+  { chainId: 10, name: 'OP Mainnet', geckoNetwork: 'optimism', poolPages: 15, isBackrunActive: true },
+  { chainId: 42161, name: 'Arbitrum', geckoNetwork: 'arbitrum', poolPages: 5, isBackrunActive: false },
+  { chainId: 137, name: 'Polygon', geckoNetwork: 'polygon_pos', poolPages: 5, isBackrunActive: false },
+  { chainId: 43114, name: 'Avalanche', geckoNetwork: 'avax', poolPages: 5, isBackrunActive: false },
 ] as const;
 
 export type SupportedChain = (typeof SUPPORTED_CHAINS)[number];

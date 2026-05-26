@@ -28,6 +28,7 @@ import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import type { PnlTracker } from './pnlTracker';
+import type { FailureTracker } from './failureTracker';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -38,19 +39,30 @@ export interface PipelineDeps {
   contractCapByDebtAsset: Map<string, bigint>;
   /** PnL tracker — registra wins/losses + aciona kill switch automático. */
   pnlTracker?: PnlTracker;
+  /** Failure tracker — pausa bot após N falhas consecutivas. */
+  failureTracker?: FailureTracker;
 }
 
 export async function runAavePipeline(
   position: AaveLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker } = deps;
 
   // Gate kill switch: se PnL tracker está triggered, abortar antes de qualquer trabalho
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
       status: 'reverted_pre_dispatch',
       reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}`,
+    };
+  }
+
+  // Gate cooldown: se failure tracker está em cooldown, abortar
+  if (failureTracker?.inCooldown()) {
+    const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `cooldown ativo, retomada em ${remainingS}s`,
     };
   }
 
@@ -145,6 +157,7 @@ export async function runAavePipeline(
     profitAssetSymbol: position.debtAssetSymbol,
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
     pnlTracker,
+    failureTracker,
     protocol: 'aave-v3',
   });
 }
@@ -157,12 +170,20 @@ export async function runCompoundPipeline(
   position: CompoundLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
-  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker } = deps;
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker } = deps;
 
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
       status: 'reverted_pre_dispatch',
       reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}`,
+    };
+  }
+
+  if (failureTracker?.inCooldown()) {
+    const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `cooldown ativo, retomada em ${remainingS}s`,
     };
   }
 
@@ -261,6 +282,7 @@ export async function runCompoundPipeline(
     profitAssetSymbol: position.baseTokenSymbol,
     ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
     pnlTracker,
+    failureTracker,
     protocol: 'compound-v3',
   });
 }

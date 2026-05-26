@@ -98,6 +98,14 @@ const envSchema = z.object({
    *  Em dryrun fica sempre false (não submete nada). */
   AUTO_KILL_SWITCH_ENABLED: z.coerce.boolean().default(true),
 
+  // ─── Cooldown após N falhas seguidas (gap crítico #2) ───
+  /** Número de falhas CONSECUTIVAS pra ativar cooldown automático.
+   *  Sucesso reseta o contador. Falhas pre-dispatch (gate simulação) NÃO contam. */
+  MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().positive().default(3),
+  /** Duração do cooldown em segundos quando MAX_CONSECUTIVE_FAILURES é atingido.
+   *  Default 5min — tempo pra calibração entre tentativas. */
+  COOLDOWN_DURATION_SEC: z.coerce.number().int().positive().default(300),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

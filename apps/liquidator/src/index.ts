@@ -35,6 +35,7 @@ import {
 import { discoverCompoundLiquidatablePositions } from './protocols/compound/discovery';
 import { slippageCache } from './slippageCache';
 import { PnlTracker } from './pnlTracker';
+import { FailureTracker } from './failureTracker';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
 
@@ -60,6 +61,8 @@ interface LiquidatorState {
   compoundCometCache?: CompoundCometCache;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
+  /** Failure tracker — cooldown após N falhas consecutivas */
+  failureTracker: FailureTracker;
 }
 
 /**
@@ -102,6 +105,21 @@ export async function boot(): Promise<LiquidatorState> {
       `🚨 KILL SWITCH JÁ ATIVO na boot — dispatches futuros bloqueados. Use manualReset() apenas após auditoria.`,
     );
   }
+
+  // Failure Tracker — contagem consecutiva pra cooldown automático
+  const failureTracker = new FailureTracker({
+    maxConsecutiveFailures: env.MAX_CONSECUTIVE_FAILURES,
+    cooldownDurationMs: env.COOLDOWN_DURATION_SEC * 1000,
+    logger,
+  });
+
+  logger.info(
+    {
+      maxFailures: env.MAX_CONSECUTIVE_FAILURES,
+      cooldownSec: env.COOLDOWN_DURATION_SEC,
+    },
+    `🛡️ Failure tracker pronto — cooldown ${env.COOLDOWN_DURATION_SEC}s após ${env.MAX_CONSECUTIVE_FAILURES} falhas consecutivas`,
+  );
 
   logger.info(
     {
@@ -202,6 +220,7 @@ export async function boot(): Promise<LiquidatorState> {
     aaveReservesCache,
     compoundCometCache,
     pnlTracker,
+    failureTracker,
   };
 }
 
@@ -219,6 +238,7 @@ export async function processOpportunity(
     callerAddress: state.callerAddress,
     contractCapByDebtAsset: state.contractCapByDebtAsset,
     pnlTracker: state.pnlTracker,
+    failureTracker: state.failureTracker,
   });
 }
 
@@ -235,6 +255,7 @@ export async function processCompoundOpportunity(
     callerAddress: state.callerAddress,
     contractCapByDebtAsset: state.contractCapByDebtAsset,
     pnlTracker: state.pnlTracker,
+    failureTracker: state.failureTracker,
   });
 }
 
@@ -333,6 +354,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
 
   // PnL stats do tick + kill switch check
   const pnlStats = state.pnlTracker.stats();
+  const failureStats = state.failureTracker.stats();
   // Se tracker virou triggered durante este tick (e não foi acionado ANTES), disparar kill on-chain
   if (
     pnlStats.killSwitchTriggered &&
@@ -386,8 +408,12 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
       pnlLossesUsd: pnlStats.lossesUsd.toFixed(2),
       pnlWinsUsd: pnlStats.winsUsd.toFixed(2),
       killSwitch: pnlStats.killSwitchTriggered ? 'TRIGGERED' : 'ok',
+      consecutiveFailures: `${failureStats.consecutiveFailures}/${failureStats.maxAllowed}`,
+      cooldown: failureStats.inCooldown
+        ? `${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s`
+        : 'ok',
     },
-    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)})`,
+    `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''}`,
   );
 }
 

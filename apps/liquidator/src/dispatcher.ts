@@ -18,6 +18,7 @@ import type { DispatchOutcome } from './types';
 import { decodeLiquidationEvent, profitDeltaBps } from './eventDecoder';
 import { estimateUsd, formatWei, gasCostUsd } from './priceUtils';
 import type { PnlTracker, PnlEvent } from './pnlTracker';
+import type { FailureTracker } from './failureTracker';
 
 type AnyPublicClient = PublicClient<any, any>;
 type AnyWalletClient = WalletClient<any, any, any>;
@@ -49,6 +50,8 @@ export interface DispatchInput {
   ethUsdPrice: number;
   /** PnL tracker pra registrar wins/losses e acionar kill switch automático. */
   pnlTracker?: PnlTracker;
+  /** Failure tracker pra contar falhas consecutivas e ativar cooldown. */
+  failureTracker?: FailureTracker;
   /** Protocolo da operação — pra registrar no PnL event. */
   protocol?: PnlEvent['protocol'];
 }
@@ -76,6 +79,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     profitAssetSymbol,
     ethUsdPrice,
     pnlTracker,
+    failureTracker,
     protocol,
   } = input;
 
@@ -130,6 +134,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         protocol,
         reason: `reverted on-chain at block ${receipt.blockNumber}`,
       });
+      // Contagem de falha consecutiva — cooldown automático após N falhas
+      failureTracker?.recordFailure(`reverted on-chain ${txHash}`);
       logger.error(
         {
           ...summary,
@@ -200,6 +206,18 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           reason: `confirmed but net negative (profit=$${(profitUsd ?? 0).toFixed(2)}, gas=$${gasUsdCost.toFixed(2)})`,
         });
       }
+    }
+
+    // Contagem consecutiva: net positivo reseta, net negativo conta como falha
+    if (netProfitUsd !== undefined && failureTracker) {
+      if (netProfitUsd > 0) {
+        failureTracker.recordSuccess();
+      } else if (netProfitUsd < 0) {
+        failureTracker.recordFailure(`confirmed but net negative ($${netProfitUsd.toFixed(2)})`);
+      }
+    } else if (failureTracker) {
+      // Confirmed sem net calculável (token desconhecido pra USD) — tratamos como success
+      failureTracker.recordSuccess();
     }
 
     return {

@@ -295,7 +295,8 @@ async function main() {
   );
 
   const results: ScraperReport['results'] = [];
-  for (const chain of chains) {
+  for (let i = 0; i < chains.length; i++) {
+    const chain = chains[i]!;
     try {
       const result = await processChain(chain, env);
       results.push(result);
@@ -304,6 +305,11 @@ async function main() {
         { chain: chain.name, err: err instanceof Error ? err.message : err },
         `Falha processando ${chain.name}`,
       );
+    }
+    // Pausa entre chains pra resetar rate limit GeckoTerminal (free tier 30 req/min)
+    if (i < chains.length - 1) {
+      logger.info({ nextChain: chains[i + 1]?.name }, '⏸️ Pausa 5s entre chains...');
+      await new Promise((res) => setTimeout(res, 5_000));
     }
   }
 

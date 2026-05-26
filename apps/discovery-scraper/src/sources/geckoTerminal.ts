@@ -82,8 +82,13 @@ export async function fetchPools(params: GeckoTerminalParams): Promise<GeckoPool
           { status: res.status, page, network: params.network },
           `GeckoTerminal HTTP ${res.status} na page=${page}`,
         );
-        // 429 = rate limit. Aborta tudo, deixa caller reagir.
-        if (res.status === 429) break;
+        // 429 = rate limit. Sleep mais longo e retry uma vez antes de desistir.
+        if (res.status === 429) {
+          logger?.info({ page, network: params.network }, '⏸️ Rate limited, esperando 30s...');
+          await sleep(30_000);
+          page--; // retry essa página
+          continue;
+        }
         continue;
       }
 

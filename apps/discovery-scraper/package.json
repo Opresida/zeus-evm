@@ -8,6 +8,9 @@
     "start": "tsx src/index.ts",
     "run:base": "tsx src/index.ts --chain base",
     "run:optimism": "tsx src/index.ts --chain optimism",
+    "run:arbitrum": "tsx src/index.ts --chain arbitrum",
+    "run:polygon": "tsx src/index.ts --chain polygon",
+    "run:avalanche": "tsx src/index.ts --chain avalanche",
     "run:all": "tsx src/index.ts --all",
     "typecheck": "tsc --noEmit"
   },

@@ -46,11 +46,23 @@ export type ScraperEnv = z.infer<typeof envSchema>;
 
 /**
  * Chains suportadas pelo scraper. Mapeia chainId → identificador GeckoTerminal.
- * Quando adicionar Polygon/Avalanche, basta entrar uma linha aqui.
+ *
+ * Adicionar nova chain = 1 linha aqui. Pares descobertos do scraper podem ser
+ * promovidos pra target-pairs.ts da chain (F3 entrega o approval flow).
+ *
+ * Chains incluídas refletem o roadmap do ZEUS:
+ *   - Base (8453): chain primária, backrun + liquidator ativos
+ *   - Optimism (10): expansão F1 — backrun com Velodrome
+ *   - Arbitrum (42161): expansão futura — pares no Camelot/Ramses
+ *   - Polygon (137): expansão futura — Aave V3 + Compound III
+ *   - Avalanche (43114): expansão futura — Aave V3 only
  */
 export const SUPPORTED_CHAINS = [
   { chainId: 8453, name: 'Base', geckoNetwork: 'base' },
   { chainId: 10, name: 'OP Mainnet', geckoNetwork: 'optimism' },
+  { chainId: 42161, name: 'Arbitrum', geckoNetwork: 'arbitrum' },
+  { chainId: 137, name: 'Polygon', geckoNetwork: 'polygon_pos' },
+  { chainId: 43114, name: 'Avalanche', geckoNetwork: 'avax' },
 ] as const;
 
 export type SupportedChain = (typeof SUPPORTED_CHAINS)[number];

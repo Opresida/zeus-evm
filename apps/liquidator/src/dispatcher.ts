@@ -66,8 +66,9 @@ export interface DispatchInput {
   dedupTracker?: PositionDedupTracker;
   /** Chave única da position pra dedup (ex: "base:aave-v3:0xabc..."). */
   positionKey?: string;
-  /** Protocolo da operação — pra registrar no PnL event. */
-  protocol?: PnlEvent['protocol'];
+  /** Protocolo da operação — pra registrar no PnL event.
+   *  Restrito a protocolos de liquidação (sem 'backrun' que é outro app). */
+  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue';
   /** Event bus pra emitir eventos tipados (webhook/WebSocket futuro). */
   eventBus?: EventBus;
   /** Borrower address (pra emitir nos eventos de tx). */

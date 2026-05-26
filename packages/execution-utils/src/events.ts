@@ -28,7 +28,11 @@ export type ZeusEvent =
   | FailureCooldownExpiredEvent
   | GasReserveAlertEvent
   | GasReserveRecoveredEvent
-  | DiscoveryTickCompletedEvent;
+  | DiscoveryTickCompletedEvent
+  | WhaleSwapDetectedEvent
+  | BackrunOpportunityFoundEvent
+  | BackrunDispatchedEvent
+  | BackrunRejectedEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -133,4 +137,63 @@ export interface DiscoveryTickCompletedEvent extends BaseEvent {
   dryrun: number;
   rejected: number;
   elapsedMs: number;
+}
+
+// ─── Backrun engine events ──────────────────────────────────────────────
+// O backrun-engine consome WhaleSwapDetectedEvent (emitido pelo detector
+// quando vê um swap whale na mempool) e emite os outros 3 conforme o
+// pipeline avança (oportunidade encontrada → dispatch / rejection).
+
+/** DEX onde o swap whale foi observado. */
+export type WhaleSwapVenue = 'uniswap-v3' | 'aerodrome' | 'unknown';
+
+export interface WhaleSwapDetectedEvent extends BaseEvent {
+  type: 'whale.swap_detected';
+  severity: 'info';
+  /** Tx hash da pending tx do whale (mempool). */
+  pendingTxHash: `0x${string}`;
+  /** DEX/venue do swap. */
+  venue: WhaleSwapVenue;
+  /** Token de entrada do swap whale (vendido). */
+  tokenIn: Address;
+  /** Token de saída do swap whale (comprado). */
+  tokenOut: Address;
+  /** Quantidade de entrada (em wei do tokenIn). */
+  amountIn: string;
+  /** Estimativa em USD do tamanho do swap (pra threshold "whale"). */
+  amountInUsd: number;
+  /** Router/pool address envolvido. */
+  router: Address;
+  /** Sender do swap (origin) — quando disponível na pending tx. */
+  sender: Address | null;
+}
+
+export interface BackrunOpportunityFoundEvent extends BaseEvent {
+  type: 'backrun.opportunity_found';
+  severity: 'info';
+  pendingTxHash: `0x${string}`;
+  pairId: string;
+  buyVenue: string;
+  sellVenue: string;
+  expectedProfitUsd: number;
+  estimatedSlippageBps: number;
+}
+
+export interface BackrunDispatchedEvent extends BaseEvent {
+  type: 'backrun.dispatched';
+  severity: 'info';
+  pendingTxHash: `0x${string}`;
+  pairId: string;
+  flashloanAmountWei: string;
+  expectedProfitUsd: number;
+  /** Tx hash do nosso backrun (não da whale tx). Null em dryrun. */
+  ourTxHash: `0x${string}` | null;
+}
+
+export interface BackrunRejectedEvent extends BaseEvent {
+  type: 'backrun.rejected';
+  severity: 'info';
+  pendingTxHash: `0x${string}`;
+  reason: string;
+  stage: 'decode' | 'plan' | 'simulate' | 'profit_below_threshold' | 'gas_too_high' | 'other';
 }

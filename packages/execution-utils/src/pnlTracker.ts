@@ -35,7 +35,8 @@ export interface PnlEvent {
   amountUsd: number;
   txHash?: `0x${string}`;
   chain?: string;
-  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue';
+  /** Origem da operação. Suporta liquidator (3 protocolos) + backrun. */
+  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'backrun';
   reason?: string;
 }
 
@@ -141,7 +142,7 @@ export class PnlTracker {
 
   recordWin(
     amountUsd: number,
-    meta: { txHash: `0x${string}`; chain: string; protocol: PnlEvent['protocol'] },
+    meta: { txHash: `0x${string}`; chain: string; protocol?: PnlEvent['protocol'] },
   ): void {
     if (amountUsd <= 0) return;
     this.append({ timestamp: Date.now(), type: 'win', amountUsd, ...meta });

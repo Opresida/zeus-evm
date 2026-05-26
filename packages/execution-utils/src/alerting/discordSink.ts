@@ -37,6 +37,10 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'gas.alert': '⛽',
   'gas.recovered': '✅',
   'discovery.tick_completed': '🔄',
+  'whale.swap_detected': '🐋',
+  'backrun.opportunity_found': '🎯',
+  'backrun.dispatched': '⚡',
+  'backrun.rejected': '🟡',
 };
 
 interface DiscordEmbed {
@@ -190,6 +194,60 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
           { name: 'Dispatched', value: String(event.dispatched), inline: true },
           { name: 'Dryrun', value: String(event.dryrun), inline: true },
           { name: 'Rejected', value: String(event.rejected), inline: true },
+        ],
+        footer,
+      };
+
+    case 'whale.swap_detected':
+      return {
+        title: `${emoji} Whale Swap (${event.venue})`,
+        description: `**$${event.amountInUsd.toFixed(0)}** swap detectado na mempool`,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'tokenIn', value: shortAddress(event.tokenIn), inline: true },
+          { name: 'tokenOut', value: shortAddress(event.tokenOut), inline: true },
+          { name: 'Pending tx', value: `\`${event.pendingTxHash}\``, inline: false },
+        ],
+        footer,
+      };
+
+    case 'backrun.opportunity_found':
+      return {
+        title: `${emoji} Backrun Opportunity`,
+        description: `**$${event.expectedProfitUsd.toFixed(2)}** projetado em ${event.pairId}`,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'Buy', value: event.buyVenue, inline: true },
+          { name: 'Sell', value: event.sellVenue, inline: true },
+          { name: 'Slippage', value: `${(event.estimatedSlippageBps / 100).toFixed(2)}%`, inline: true },
+          { name: 'Whale tx', value: `\`${event.pendingTxHash}\``, inline: false },
+        ],
+        footer,
+      };
+
+    case 'backrun.dispatched':
+      return {
+        title: `${emoji} Backrun Submitted`,
+        description: `**$${event.expectedProfitUsd.toFixed(2)}** esperado · ${event.pairId}`,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'Our tx', value: event.ourTxHash ? `\`${event.ourTxHash}\`` : '(dryrun)', inline: false },
+          { name: 'Whale tx', value: `\`${event.pendingTxHash}\``, inline: false },
+        ],
+        footer,
+      };
+
+    case 'backrun.rejected':
+      return {
+        title: `${emoji} Backrun Rejected (${event.stage})`,
+        description: event.reason,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'Whale tx', value: `\`${event.pendingTxHash}\``, inline: false },
         ],
         footer,
       };

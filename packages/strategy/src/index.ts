@@ -14,6 +14,22 @@ export {
   type FilterResult,
 } from './opportunities/filters';
 
+// Backrun (dislocation arb)
+export {
+  estimatePriceImpact,
+  planBackrun,
+  findPairForWhale,
+  validateBackrunProfit,
+  type WhaleSwap,
+  type WhaleSwapVenue,
+  type BackrunOpportunity,
+  type PriceImpactInput,
+  type PriceImpactResult,
+  type BackrunPlanParams,
+  type ValidateBackrunParams,
+  type ValidateBackrunResult,
+} from './opportunities/backrun';
+
 // Executor (calldata + simulation)
 export { ZEUS_EXECUTOR_ABI } from './executor/abi';
 export {

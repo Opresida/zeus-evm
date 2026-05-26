@@ -70,6 +70,11 @@ export type {
   GasReserveAlertEvent,
   GasReserveRecoveredEvent,
   DiscoveryTickCompletedEvent,
+  WhaleSwapDetectedEvent,
+  WhaleSwapVenue,
+  BackrunOpportunityFoundEvent,
+  BackrunDispatchedEvent,
+  BackrunRejectedEvent,
 } from './events';
 
 // ─── Event Decoder ───
@@ -100,3 +105,14 @@ export {
   createGenericWebhookSink,
   type GenericWebhookSinkOpts,
 } from './alerting/genericWebhookSink';
+
+// ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───
+export {
+  subscribeWhaleSwaps,
+  emitSyntheticWhale,
+  classifyVenue,
+  decodeSwapCalldata,
+  type KnownRouters,
+  type DecodedSwap,
+  type WhaleSwapSubscriptionParams,
+} from './mempool/whaleSwapSubscription';

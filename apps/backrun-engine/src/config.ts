@@ -1,0 +1,105 @@
+/**
+ * Backrun-engine env schema.
+ *
+ * Reusa chaves do liquidator quando possível (mesma wallet, mesmo executor),
+ * adiciona específicas de mempool/backrun.
+ */
+
+import { config as loadDotenv } from 'dotenv';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadDotenv({ path: resolve(__dirname, '../../../.env') });
+loadDotenv();
+
+const optionalString = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
+const optionalUrl = () => z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional());
+const optionalAddress = () =>
+  z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional());
+
+/**
+ * Backrun engine roda em 3 modos análogos ao liquidator:
+ *   - dryrun: pipeline completo SEM submeter tx
+ *   - testnet: submete em Sepolia (gas testnet)
+ *   - mainnet: submete em mainnet (gas real)
+ */
+const backrunMode = z.enum(['dryrun', 'testnet', 'mainnet']);
+
+const envSchema = z.object({
+  // ─── Mode + chain ───
+  BACKRUN_MODE: backrunMode.default('dryrun'),
+  CHAIN_ID: z.coerce.number().int().positive().default(8453),
+
+  // RPC URLs
+  BASE_RPC_HTTP: optionalUrl(),
+  BASE_RPC_WS: optionalUrl(),
+  /** Alchemy mempool WSS — exige plano Growth+ (alchemy_pendingTransactions).
+   *  Quando vazio, o subscription roda em PLACEHOLDER mode (sem feed real). */
+  ALCHEMY_MEMPOOL_WSS_URL: optionalUrl(),
+
+  // ─── Wallet (mesma do liquidator — reusa) ───
+  EXECUTOR_PRIVATE_KEY: optionalString(),
+  EXECUTOR_BOT_ADDRESS: optionalAddress(),
+
+  // ─── ZeusExecutor address (chain-active) ───
+  EXECUTOR_CONTRACT_ADDRESS: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_BASE: optionalAddress(),
+
+  // ─── Backrun-específico ───
+  /** Threshold em USD pra considerar um swap "whale" (default $50k).
+   *  Abaixo disso, ignoramos — provavelmente não move preço o suficiente. */
+  BACKRUN_MIN_SWAP_USD: z.coerce.number().positive().default(50_000),
+  /** Profit mínimo USD do nosso backrun pra valer o gas. */
+  MIN_BACKRUN_PROFIT_USD: z.coerce.number().positive().default(2),
+  /** Cap máximo do flashloan em USD (proteção sizing). */
+  MAX_BACKRUN_FLASHLOAN_USD: z.coerce.number().positive().default(50_000),
+  /** Min flashloan size em USD pra evitar dust. */
+  MIN_BACKRUN_FLASHLOAN_USD: z.coerce.number().positive().default(100),
+  /** Slippage máximo tolerado nos swaps (bps). */
+  MAX_SLIPPAGE_BPS: z.coerce.number().int().min(1).max(1000).default(50),
+  /** Gas estimate em USD pra Base. */
+  GAS_COST_USD_ESTIMATE: z.coerce.number().positive().default(0.5),
+  /** Preço ETH/USD pra estimar gasCost. */
+  ETH_USD_PRICE_ESTIMATE: z.coerce.number().positive().default(3000),
+  /** Sample size do planner (nº de amountIn candidatos). */
+  BACKRUN_SAMPLE_SIZE: z.coerce.number().int().positive().default(8),
+
+  // ─── Daily loss limit (reusa do liquidator) ───
+  DAILY_LOSS_LIMIT_USD: z.coerce.number().positive().default(100),
+  PNL_LOG_FILE: z.string().default('logs/backrun-pnl.jsonl'),
+
+  // ─── Cooldown ───
+  MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().positive().default(3),
+  COOLDOWN_DURATION_SEC: z.coerce.number().int().positive().default(300),
+
+  // ─── EIP-1559 gas pricing ───
+  GAS_PRIORITY_FEE_GWEI: z.coerce.number().positive().default(0.001),
+  GAS_MAX_FEE_MULTIPLIER: z.coerce.number().positive().default(2),
+
+  // ─── Alerting ───
+  DISCORD_WEBHOOK_URL: optionalUrl(),
+  GENERIC_WEBHOOK_URL: optionalUrl(),
+  DISCORD_SEVERITIES: z.string().default('warn,critical'),
+  GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+});
+
+export type BackrunEnv = z.infer<typeof envSchema>;
+export type BackrunMode = z.infer<typeof backrunMode>;
+
+let cached: BackrunEnv | undefined;
+
+export function loadConfig(): BackrunEnv {
+  if (cached) return cached;
+  const result = envSchema.safeParse(process.env);
+  if (!result.success) {
+    console.error('[backrun-engine/config] Variáveis inválidas:');
+    console.error(result.error.format());
+    throw new Error('Config invalid — fix .env');
+  }
+  cached = result.data;
+  return cached;
+}

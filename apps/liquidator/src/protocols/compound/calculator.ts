@@ -25,7 +25,7 @@ import type {
   LiquidationDecision,
 } from '../../types';
 import { logger } from '../../logger';
-import { cachedQuoteUniswapV3 } from '../../slippageCache';
+import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
 import { COMET_ABI } from './abi';
 
 type AnyPublicClient = PublicClient<any, any>;

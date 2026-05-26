@@ -27,12 +27,15 @@ import { calculateOptimalCompoundLiquidation } from './protocols/compound/calcul
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
-import type { PnlTracker } from './pnlTracker';
-import type { FailureTracker } from './failureTracker';
-import type { PositionDedupTracker } from './positionDedup';
-import type { GasReserveTracker } from './gasReserveTracker';
-import { aavePositionKey, compoundPositionKey } from './positionDedup';
-import type { EventBus } from './eventBus';
+import {
+  aavePositionKey,
+  compoundPositionKey,
+  type PnlTracker,
+  type FailureTracker,
+  type PositionDedupTracker,
+  type GasReserveTracker,
+  type EventBus,
+} from '@zeus-evm/execution-utils';
 import { isAaveStillLiquidatable, isCompoundStillLiquidatable } from './staleCheck';
 
 export interface PipelineDeps {
@@ -53,7 +56,7 @@ export interface PipelineDeps {
   /** Event bus pra emitir eventos tipados (webhook/alerts). */
   eventBus?: EventBus;
   /** Gas oracle EIP-1559 pra pricing correto on Base/Arb/OP. */
-  gasOracle?: import('./gasOracle').GasOracle;
+  gasOracle?: import('@zeus-evm/execution-utils').GasOracle;
 }
 
 export async function runAavePipeline(

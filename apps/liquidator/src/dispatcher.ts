@@ -15,13 +15,19 @@ import type { Address, Hex, WalletClient, PublicClient } from 'viem';
 import { logger } from './logger';
 import type { LiquidatorMode } from './config';
 import type { DispatchOutcome } from './types';
-import { decodeLiquidationEvent, profitDeltaBps } from './eventDecoder';
-import { estimateUsd, formatWei, gasCostUsd } from './priceUtils';
-import type { PnlTracker, PnlEvent } from './pnlTracker';
-import type { FailureTracker } from './failureTracker';
-import type { PositionDedupTracker } from './positionDedup';
-import type { EventBus } from './eventBus';
-import type { GasOracle } from './gasOracle';
+import {
+  decodeLiquidationEvent,
+  profitDeltaBps,
+  estimateUsd,
+  formatWei,
+  gasCostUsd,
+  type PnlTracker,
+  type PnlEvent,
+  type FailureTracker,
+  type PositionDedupTracker,
+  type EventBus,
+  type GasOracle,
+} from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
 
 type AnyPublicClient = PublicClient<any, any>;

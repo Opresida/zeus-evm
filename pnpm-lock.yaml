@@ -130,6 +130,9 @@ importers:
       '@zeus-evm/dex-adapters':
         specifier: workspace:*
         version: link:../../packages/dex-adapters
+      '@zeus-evm/execution-utils':
+        specifier: workspace:*
+        version: link:../../packages/execution-utils
       '@zeus-evm/strategy':
         specifier: workspace:*
         version: link:../../packages/strategy
@@ -243,6 +246,28 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@22.19.19)
+
+  packages/execution-utils:
+    dependencies:
+      '@zeus-evm/aave-discovery':
+        specifier: workspace:*
+        version: link:../aave-discovery
+      '@zeus-evm/dex-adapters':
+        specifier: workspace:*
+        version: link:../dex-adapters
+      '@zeus-evm/strategy':
+        specifier: workspace:*
+        version: link:../strategy
+      viem:
+        specifier: 'catalog:'
+        version: 2.50.4(typescript@5.9.3)(zod@3.25.76)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.19
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
 
   packages/shared-types:
     dependencies:

@@ -33,17 +33,19 @@ import {
   type CompoundCometCache,
 } from './protocols/compound/comets';
 import { discoverCompoundLiquidatablePositions } from './protocols/compound/discovery';
-import { slippageCache } from './slippageCache';
-import { PnlTracker } from './pnlTracker';
-import { FailureTracker } from './failureTracker';
-import { PositionDedupTracker } from './positionDedup';
-import { GasReserveTracker } from './gasReserveTracker';
+import {
+  slippageCache,
+  PnlTracker,
+  FailureTracker,
+  PositionDedupTracker,
+  GasReserveTracker,
+  EventBus,
+  GasOracle,
+  createDiscordSink,
+  createGenericWebhookSink,
+  type Severity,
+} from '@zeus-evm/execution-utils';
 import { triggerKillSwitchOnChain } from './dispatcher';
-import { EventBus } from './eventBus';
-import { GasOracle } from './gasOracle';
-import { createDiscordSink } from './alerting/discordSink';
-import { createGenericWebhookSink } from './alerting/genericWebhookSink';
-import type { Severity } from './events';
 import { resolve as resolvePath } from 'node:path';
 import { parseEther } from 'viem';
 

@@ -45,6 +45,7 @@ import { AutoTargetsWriter } from './output/autoTargets';
 import type { ScraperReport, RankedCandidate } from './output/types';
 import { getTargetPairsForChain } from '@zeus-evm/chain-config';
 import { StateManager } from './state';
+import { startHealthServer } from './httpServer';
 
 interface AggregatedPair {
   pairKey: string;
@@ -427,6 +428,18 @@ async function main() {
   initSafetyCache(env.SCRAPER_CACHE_DIR);
   initCompetitionCache(env.SCRAPER_CACHE_DIR);
 
+  // F5: health server opt-in. Quando ativo, processo fica vivo após o run
+  // (modo daemon) e UptimeRobot pode pingar /health periodicamente.
+  if (env.HEALTH_SERVER_ENABLED) {
+    startHealthServer({
+      port: env.HEALTH_SERVER_PORT,
+      host: env.HEALTH_SERVER_HOST,
+      stateManager,
+      reportsDir: env.SCRAPER_REPORTS_DIR,
+      logger,
+    });
+  }
+
   const autoTargetsWriter = new AutoTargetsWriter({
     outputDir: env.SCRAPER_AUTO_TARGETS_DIR,
     trackingStatePath: env.SCRAPER_AUTO_TRACKING_PATH,
@@ -569,6 +582,17 @@ async function main() {
     { elapsedMs: report.elapsedMs, totalChains: results.length },
     `🏁 Scraper concluído em ${(report.elapsedMs / 1000).toFixed(1)}s`,
   );
+
+  // Modo daemon (F5): mantém server up + agenda próxima execução via setTimeout.
+  // Modo CLI (default): exit 0.
+  if (env.HEALTH_SERVER_ENABLED) {
+    logger.info(
+      { schedule: stateManager.get().schedule, nextRun: stateManager.get().nextRunAt },
+      '🟢 Daemon mode ativo — processo continua rodando pra health checks + próxima execução',
+    );
+    // Server já está rodando no início do main(); só não chama exit.
+    return;
+  }
 
   process.exit(0);
 }

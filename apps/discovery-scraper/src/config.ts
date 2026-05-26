@@ -55,6 +55,15 @@ const envSchema = z.object({
   /** Cache dir (token safety). Default ./state/ */
   SCRAPER_CACHE_DIR: z.string().default('state'),
 
+  // ─── Health server (F5) ───
+  /** Se true, sobe HTTP server em loopback pra /health + controle remoto.
+   *  Pra deploy em servidor: ATIVAR. Pra runs CLI únicos: deixar false. */
+  HEALTH_SERVER_ENABLED: z.coerce.boolean().default(false),
+  /** Porta do health server. Default 7878. */
+  HEALTH_SERVER_PORT: z.coerce.number().int().min(1024).max(65535).default(7878),
+  /** Host bind. Default 127.0.0.1 (loopback). Use '0.0.0.0' pra expor (atrás de proxy). */
+  HEALTH_SERVER_HOST: z.string().default('127.0.0.1'),
+
   // ─── Competition tracking (F4) ───
   /** Se true, scaneia logs on-chain pra medir densidade de bots por par.
    *  Adiciona ~2-3 min ao sweep total (cache 6h amortiza). Default true. */

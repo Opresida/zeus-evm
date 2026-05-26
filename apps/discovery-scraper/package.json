@@ -12,6 +12,7 @@
     "run:polygon": "tsx src/index.ts --chain polygon",
     "run:avalanche": "tsx src/index.ts --chain avalanche",
     "run:all": "tsx src/index.ts --all",
+    "backtest": "tsx src/cliBacktest.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

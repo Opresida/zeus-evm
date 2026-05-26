@@ -21,6 +21,7 @@ import type { PnlTracker, PnlEvent } from './pnlTracker';
 import type { FailureTracker } from './failureTracker';
 import type { PositionDedupTracker } from './positionDedup';
 import type { EventBus } from './eventBus';
+import type { GasOracle } from './gasOracle';
 import type { LiquidatorMode as MMode } from './config';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -67,6 +68,8 @@ export interface DispatchInput {
   borrower?: Address;
   /** Chain ativa pra contexto dos eventos. */
   chain?: string;
+  /** Gas oracle EIP-1559 — fornece maxFee/maxPriority corretos por bloco. */
+  gasOracle?: GasOracle;
 }
 
 /**
@@ -99,6 +102,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     eventBus,
     borrower,
     chain,
+    gasOracle,
   } = input;
 
   const chainName = chain ?? (typeof summary.chain === 'string' ? summary.chain : 'unknown');
@@ -140,16 +144,32 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     return { status: 'reverted_pre_dispatch', reason: 'wallet missing in non-dryrun mode' };
   }
 
-  // Submete
+  // Submete com EIP-1559 fees (Base/Arb/OP usam EIP-1559)
   try {
-    logger.info({ ...summary, mode }, `🚀 SUBMETENDO tx (${mode})...`);
-    const txHash = await wallet.sendTransaction({
+    // Busca fees do oracle (cacheado por bloco). Se oracle ausente, viem usa default.
+    const fees = gasOracle ? await gasOracle.getFees(client) : null;
+
+    const txParams: Record<string, unknown> = {
       account,
       to,
       data,
-      // chain é resolvida via wallet.chain
       chain: wallet.chain ?? null,
-    } as any);
+    };
+    if (fees) {
+      txParams.maxFeePerGas = fees.maxFeePerGas;
+      txParams.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+      logger.debug(
+        {
+          maxFeeGwei: (Number(fees.maxFeePerGas) / 1e9).toFixed(4),
+          priorityGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+          baseFeeGwei: (Number(fees.baseFeePerGas) / 1e9).toFixed(4),
+        },
+        `⛽ EIP-1559 fees aplicados`,
+      );
+    }
+
+    logger.info({ ...summary, mode }, `🚀 SUBMETENDO tx (${mode})...`);
+    const txHash = await wallet.sendTransaction(txParams as any);
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
 

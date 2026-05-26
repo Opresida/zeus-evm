@@ -51,6 +51,8 @@ export interface PipelineDeps {
   gasReserveTracker?: GasReserveTracker;
   /** Event bus pra emitir eventos tipados (webhook/alerts). */
   eventBus?: EventBus;
+  /** Gas oracle EIP-1559 pra pricing correto on Base/Arb/OP. */
+  gasOracle?: import('./gasOracle').GasOracle;
 }
 
 export async function runAavePipeline(
@@ -194,6 +196,7 @@ export async function runAavePipeline(
     eventBus: deps.eventBus,
     borrower: position.borrower,
     chain: ctx.chainConfig.name,
+    gasOracle: deps.gasOracle,
   });
 }
 
@@ -343,5 +346,6 @@ export async function runCompoundPipeline(
     eventBus: deps.eventBus,
     borrower: position.borrower,
     chain: ctx.chainConfig.name,
+    gasOracle: deps.gasOracle,
   });
 }

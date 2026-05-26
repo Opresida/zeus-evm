@@ -40,6 +40,7 @@ import { PositionDedupTracker } from './positionDedup';
 import { GasReserveTracker } from './gasReserveTracker';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { EventBus } from './eventBus';
+import { GasOracle } from './gasOracle';
 import { createDiscordSink } from './alerting/discordSink';
 import { createGenericWebhookSink } from './alerting/genericWebhookSink';
 import type { Severity } from './events';
@@ -76,6 +77,8 @@ interface LiquidatorState {
   gasReserveTracker: GasReserveTracker;
   /** Event bus — emite eventos tipados pra webhooks/sinks externos */
   eventBus: EventBus;
+  /** Gas oracle EIP-1559 — pricing correto pra Base/Arb/OP */
+  gasOracle: GasOracle;
 }
 
 /**
@@ -264,6 +267,20 @@ export async function boot(): Promise<LiquidatorState> {
     }
   }
 
+  // Gas Oracle EIP-1559 — pricing correto pra Base/Arb/OP/L2s modernas
+  const gasOracle = new GasOracle({
+    priorityFeeGwei: env.GAS_PRIORITY_FEE_GWEI,
+    maxFeeMultiplier: env.GAS_MAX_FEE_MULTIPLIER,
+    logger,
+  });
+  logger.info(
+    {
+      priorityFeeGwei: env.GAS_PRIORITY_FEE_GWEI,
+      maxFeeMultiplier: env.GAS_MAX_FEE_MULTIPLIER,
+    },
+    `⛽ Gas oracle EIP-1559 pronto — priority=${env.GAS_PRIORITY_FEE_GWEI}gwei, multiplier=${env.GAS_MAX_FEE_MULTIPLIER}x`,
+  );
+
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
 
@@ -326,6 +343,7 @@ export async function boot(): Promise<LiquidatorState> {
     dedupTracker,
     gasReserveTracker,
     eventBus,
+    gasOracle,
   };
 }
 
@@ -356,6 +374,7 @@ export async function processOpportunity(
     dedupTracker: state.dedupTracker,
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
+    gasOracle: state.gasOracle,
   });
 }
 
@@ -376,6 +395,7 @@ export async function processCompoundOpportunity(
     dedupTracker: state.dedupTracker,
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
+    gasOracle: state.gasOracle,
   });
 }
 

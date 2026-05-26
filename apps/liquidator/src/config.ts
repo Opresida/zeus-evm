@@ -124,6 +124,15 @@ const envSchema = z.object({
    *  Default true (segurança). Em dryrun não tem efeito (sem wallet). */
   BLOCK_DISPATCH_ON_CRITICAL_GAS: z.coerce.boolean().default(true),
 
+  // ─── EIP-1559 gas pricing (gap crítico #5) ───
+  /** Priority fee (gorjeta sequencer) em gwei. Default 0.001 — Base não tem MEV-Boost,
+   *  sequencer Coinbase aceita gorjetas mínimas (FCFS por timestamp).
+   *  Aumentar pra 0.01-0.1 se observar tx ficando pendente OR pra ganhar race em mainnet. */
+  GAS_PRIORITY_FEE_GWEI: z.coerce.number().positive().default(0.001),
+  /** Multiplier do baseFee pra calcular maxFee. Default 2x absorve spike de 100% no
+   *  baseFee entre blocos. Aumentar pra 3-5x em mainnet com volatilidade de gas alta. */
+  GAS_MAX_FEE_MULTIPLIER: z.coerce.number().positive().default(2),
+
   // ─── Alerting (event bus + webhooks) ───
   /** URL do webhook Discord pra alertas formatados (embeds). Vazio = sink Discord não ativa.
    *  Criar webhook em canal SEU privado: Server > Integrations > Webhooks > New */

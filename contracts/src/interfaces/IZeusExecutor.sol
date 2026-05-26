@@ -44,10 +44,59 @@ struct LiquidationParams {
 
 /// @notice Discriminator pro callback executeOperation diferenciar tipo de operação
 enum OperationType {
-    Arbitrage,            // 0 — flashloan pra arb cross-DEX
-    Liquidation,          // 1 — flashloan pra liquidação Aave V3
-    CompoundLiquidation,  // 2 — flashloan pra liquidação Compound III (absorb + buyCollateral)
-    MorphoLiquidation     // 3 — flashloan pra liquidação Morpho Blue (markets isolados)
+    Arbitrage,                    // 0 — flashloan pra arb cross-DEX
+    Liquidation,                  // 1 — flashloan pra liquidação Aave V3
+    CompoundLiquidation,          // 2 — flashloan pra liquidação Compound III (absorb + buyCollateral)
+    MorphoLiquidation,            // 3 — flashloan pra liquidação Morpho Blue (markets isolados)
+    FlashloanBackrun,             // 4 — flashloan pra backrun de dislocation cross-DEX (com bribe)
+    LiquidationWithBribe,         // 5 — Aave V3 liquidation + coinbase bribe
+    CompoundLiquidationWithBribe, // 6 — Compound III liquidation + coinbase bribe
+    MorphoLiquidationWithBribe    // 7 — Morpho Blue liquidation + coinbase bribe
+}
+
+/// @notice Configuração de bribe pra `block.coinbase.transfer` em bundles privados.
+/// @dev O bribe é pago em native token (ETH/MATIC/AVAX) — se o profit token for
+///      ERC-20, o contrato faz swap inline `profitToken → WETH → unwrap → coinbase`.
+///      Quando profitToken == WETH, basta o unwrap (custo extra zero).
+///
+///      Validação: bribe < profit (sempre), `bribe <= profit * bribeMaxBps / 10_000`
+///      (proteção runtime), `minBribeWei <= bribe` (floor pra leilões caros).
+///
+///      Em chains FCFS sequencer (Base/Arb/OP), `block.coinbase` é o sequencer.
+///      Em Ethereum L1 com Flashbots, é o builder/validator. Sempre funciona — o
+///      relay redireciona se necessário.
+struct BribeConfig {
+    /// @notice % do profit (em bps) pra pagar como bribe. 0 = sem bribe.
+    /// Ex: 5000 = 50% do profit vai pro coinbase.
+    uint256 bribeBps;
+    /// @notice Floor absoluto em wei NATIVE token. Se profit*bribeBps/10000 < esse valor,
+    /// o bribe é elevado pra esse mínimo (desde que ainda haja profit suficiente).
+    uint256 minBribeWei;
+    /// @notice Cap absoluto em bps do profit (proteção runtime). Ex: 9500 = bribe nunca
+    /// passa de 95% do profit. Bot pode passar `bribeBps > bribeMaxBps`; o contrato
+    /// trunca pra `bribeMaxBps`. Garante que sempre sobra algo pro profitReceiver.
+    uint256 bribeMaxBps;
+    /// @notice Fee tier do pool UniV3 usado pro swap inline profitToken→WETH (quando
+    /// profitToken != WETH). Ignorado se profitToken == WETH ou bribeBps == 0.
+    /// Valores válidos: 100, 500, 3000, 10000.
+    uint24 swapFeeTier;
+    /// @notice Slippage máximo tolerado no swap inline (bps). Ex: 50 = 0.5%.
+    /// Ignorado quando profitToken == WETH.
+    uint256 swapSlippageBps;
+}
+
+/// @notice Parâmetros da operação de backrun de dislocation cross-DEX.
+/// @dev Reusa a estrutura genérica de arbitragem (steps + profitToken) e adiciona
+///      `BribeConfig` pro pagamento ao sequencer/builder via bundle privado.
+///      Diferente de `executeFlashloanArbitrage` apenas em:
+///        - Bribe obrigatório no fluxo (mas bribeBps pode ser 0 — vira flashloan arb normal)
+///        - Discriminator dedicado pra log/observabilidade
+struct BackrunParams {
+    SwapStep[] steps;            // sequência de swaps (compra DEX_oposto → venda DEX_whale)
+    uint256 minProfitWei;        // profit mínimo em profitToken APÓS deduzir o bribe
+    address profitToken;         // token em que o lucro fica no fim (tipicamente flashloanAsset)
+    address profitReceiver;      // pra onde enviar o lucro residual
+    BribeConfig bribe;           // configuração de bribe pro coinbase
 }
 
 /// @notice Parâmetros de uma liquidação Morpho Blue
@@ -135,6 +184,33 @@ interface IZeusExecutor {
         uint256 profit
     );
 
+    /// @notice Emitido em qualquer operação que paga bribe ao coinbase.
+    /// @param initiator quem chamou (bot operator)
+    /// @param opType discriminator pra correlacionar com o evento principal (FlashloanBackrun, *WithBribe)
+    /// @param coinbase endereço que recebeu o bribe (block.coinbase ou override)
+    /// @param bribeNativeWei valor em native token transferido
+    /// @param grossProfit profit em profitToken ANTES do bribe (em wei do profitToken)
+    /// @param netProfit profit em profitToken APÓS deduzir o equivalente swapped pro bribe
+    event BribePaid(
+        address indexed initiator,
+        OperationType indexed opType,
+        address indexed coinbase,
+        uint256 bribeNativeWei,
+        uint256 grossProfit,
+        uint256 netProfit
+    );
+
+    /// @notice Emitido quando uma operação backrun completa (profit confirmado pós-bribe).
+    event BackrunExecuted(
+        address indexed initiator,
+        address indexed flashloanAsset,
+        address indexed profitToken,
+        uint256 flashloanAmount,
+        uint256 grossProfit,
+        uint256 bribeNativeWei,
+        uint256 netProfit
+    );
+
     event Killed();
     event Revived();
     event MaxTradeWeiUpdated(uint256 oldValue, uint256 newValue);
@@ -154,6 +230,17 @@ interface IZeusExecutor {
     error TradeTooLarge(uint256 amount, uint256 max);
     error EmptySteps();
     error InvalidCaller();
+
+    /// @notice Bribe ultrapassaria o profit disponível (ou cap configurado).
+    error BribeExceedsProfit(uint256 bribeNativeRequested, uint256 profitNativeAvailable);
+    /// @notice Bribe config inválida (bribeBps > bribeMaxBps, ou bribeMaxBps > 10000, etc).
+    error InvalidBribeConfig();
+    /// @notice Pre-condição do swap inline pro bribe falhou (slippage, pool sem liquidez).
+    error BribeSwapFailed();
+    /// @notice WETH address não configurado (não dá pra fazer swap inline pra bribe).
+    error WethNotConfigured();
+    /// @notice UniV3 SwapRouter02 não configurado (não dá pra fazer swap inline).
+    error SwapRouterNotConfigured();
 
     // ════════ ARBITRAGE ENTRYPOINTS ════════
 
@@ -200,6 +287,45 @@ interface IZeusExecutor {
     ///      d. profit residual em loanToken vai pro profitReceiver
     function executeMorphoLiquidation(MorphoLiquidationParams calldata params) external;
 
+    // ════════ BACKRUN + LIQUIDATIONS COM BRIBE (V7) ════════
+
+    /// @notice Modalidade 6: backrun de dislocation cross-DEX via flashloan + bribe ao coinbase
+    /// @dev Fluxo atômico:
+    ///   1. flashloan(flashloanAsset, flashloanAmount) do Aave V3
+    ///   2. callback executeOperation:
+    ///      a. _executeSwaps(params.steps) — compra em DEX oposto + venda em DEX do whale
+    ///      b. valida profit >= minProfitWei (após considerar bribe)
+    ///      c. se bribeBps > 0: swap profit→WETH inline se necessário, unwrap, coinbase.transfer
+    ///      d. repay flashloan + 0.05% fee
+    ///      e. profit líquido (em profitToken) vai pro profitReceiver
+    ///   Quando profitToken == WETH, swap inline é skipado (só unwrap).
+    function executeFlashloanBackrun(
+        address flashloanAsset,
+        uint256 flashloanAmount,
+        BackrunParams calldata params
+    ) external;
+
+    /// @notice Variante de executeLiquidation que paga bribe ao coinbase via swap inline.
+    /// @dev Útil quando dispatch via bundle privado (Flashbots/Atlas) precisa competir
+    ///      em liquidations contestadas. Bribe sai do profit em USDC (ou debtAsset) via
+    ///      swap inline pra WETH → unwrap → coinbase.transfer.
+    function executeLiquidationWithBribe(
+        LiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external;
+
+    /// @notice Variante de executeCompoundLiquidation com bribe.
+    function executeCompoundLiquidationWithBribe(
+        CompoundLiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external;
+
+    /// @notice Variante de executeMorphoLiquidation com bribe.
+    function executeMorphoLiquidationWithBribe(
+        MorphoLiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external;
+
     // ════════ ADMIN (owner only) ════════
 
     function kill() external;
@@ -219,4 +345,14 @@ interface IZeusExecutor {
     function isOperator(address account) external view returns (bool);
 
     function rescueToken(address token, uint256 amount, address to) external;
+
+    /// @notice Define endereço do WETH da chain ativa (usado no swap inline pra bribe).
+    /// @dev Quando token=address(0), desabilita capacidade de bribe (volta a comportamento v6).
+    function setWeth(address weth) external;
+    function weth() external view returns (address);
+
+    /// @notice Define endereço do UniV3 SwapRouter02 usado no swap inline pra bribe.
+    /// @dev Quando swapRouter=address(0), apenas profitToken==WETH consegue bribe.
+    function setUniV3SwapRouter(address swapRouter) external;
+    function uniV3SwapRouter() external view returns (address);
 }

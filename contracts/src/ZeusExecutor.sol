@@ -7,13 +7,34 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, CompoundLiquidationParams, MorphoLiquidationParams, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
+import {IZeusExecutor, SwapStep, ArbitrageParams, LiquidationParams, CompoundLiquidationParams, MorphoLiquidationParams, BackrunParams, BribeConfig, DexType, OperationType} from "./interfaces/IZeusExecutor.sol";
 import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
 import {IPool} from "./interfaces/aave/IPool.sol";
 import {IComet} from "./interfaces/compound/IComet.sol";
 import {IMorpho, MarketParams} from "./interfaces/morpho/IMorpho.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
+
+/// @notice Interface mínima WETH9 — usada pra unwrap antes do coinbase.transfer.
+interface IWETH9 {
+    function deposit() external payable;
+    function withdraw(uint256 amount) external;
+    function balanceOf(address account) external view returns (uint256);
+}
+
+/// @notice Interface UniV3 SwapRouter02 inline (igual UniswapV3Lib mas reusada aqui pro swap pra bribe).
+interface IUniV3SwapRouter {
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+}
 
 /// @title ZeusExecutor — Atomic arbitrage executor on EVM
 /// @notice Entry point único pra arbitragens atômicas:
@@ -46,6 +67,20 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
 
     /// @notice Override do Pausable pra UX clara via boolean dedicado
     bool private _killed;
+
+    /// @notice Endereço WETH da chain. Setado via setWeth() pelo owner.
+    /// @dev Usado pra: (a) unwrap antes de coinbase.transfer; (b) destino do swap inline
+    ///      quando profitToken != WETH. Quando address(0), bribe via swap fica indisponível
+    ///      (apenas profitToken == WETH ainda funciona, mas o caso comum precisa do WETH addr).
+    address public weth;
+
+    /// @notice Endereço UniV3 SwapRouter02 da chain. Setado via setUniV3SwapRouter() pelo owner.
+    /// @dev Usado pra swap inline `profitToken → WETH` quando profitToken != WETH no fluxo de bribe.
+    address public uniV3SwapRouter;
+
+    /// @notice Cap do bribe em bps (10000 = 100%). Hardcoded ceiling — owner não pode
+    /// configurar bribe acima de 9900 (99%). Garante que sempre sobra ao menos 1% pro receiver.
+    uint256 internal constant ABSOLUTE_BRIBE_CAP_BPS = 9_900;
 
     // ════════ CONSTRUCTOR ════════
 
@@ -258,6 +293,14 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
             _handleCompoundLiquidationOperation(asset, amount, premium, inner);
         } else if (opType == OperationType.MorphoLiquidation) {
             _handleMorphoLiquidationOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.FlashloanBackrun) {
+            _handleFlashloanBackrun(asset, amount, premium, inner);
+        } else if (opType == OperationType.LiquidationWithBribe) {
+            _handleLiquidationWithBribeOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.CompoundLiquidationWithBribe) {
+            _handleCompoundLiquidationWithBribeOperation(asset, amount, premium, inner);
+        } else if (opType == OperationType.MorphoLiquidationWithBribe) {
+            _handleMorphoLiquidationWithBribeOperation(asset, amount, premium, inner);
         } else {
             revert InvalidCaller(); // OperationType desconhecido
         }
@@ -531,6 +574,484 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         );
     }
 
+    // ════════ BACKRUN + LIQUIDATIONS COM BRIBE (V7) ════════
+
+    /// @inheritdoc IZeusExecutor
+    function executeFlashloanBackrun(
+        address flashloanAsset,
+        uint256 flashloanAmount,
+        BackrunParams calldata params
+    ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        if (params.steps.length == 0) revert EmptySteps();
+        _validateBribeConfig(params.bribe);
+
+        uint256 cap = getMaxTradeFor(flashloanAsset);
+        if (flashloanAmount > cap) revert TradeTooLarge(flashloanAmount, cap);
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.FlashloanBackrun,
+            abi.encode(params, msg.sender)
+        );
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            flashloanAsset,
+            flashloanAmount,
+            encodedParams,
+            0
+        );
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function executeLiquidationWithBribe(
+        LiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        _validateBribeConfig(bribe);
+
+        uint256 cap = getMaxTradeFor(params.debtAsset);
+        if (params.debtToCover > cap) revert TradeTooLarge(params.debtToCover, cap);
+
+        uint256 debtBalanceBefore = IERC20(params.debtAsset).balanceOf(address(this));
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.LiquidationWithBribe,
+            abi.encode(params, bribe, msg.sender, debtBalanceBefore)
+        );
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            params.debtAsset,
+            params.debtToCover,
+            encodedParams,
+            0
+        );
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function executeCompoundLiquidationWithBribe(
+        CompoundLiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        if (params.comet == address(0) || params.borrower == address(0)) revert NotAuthorized();
+        _validateBribeConfig(bribe);
+
+        address baseAsset = IComet(params.comet).baseToken();
+        uint256 cap = getMaxTradeFor(baseAsset);
+        if (params.baseAmount > cap) revert TradeTooLarge(params.baseAmount, cap);
+
+        uint256 baseBalanceBefore = IERC20(baseAsset).balanceOf(address(this));
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.CompoundLiquidationWithBribe,
+            abi.encode(params, bribe, msg.sender, baseBalanceBefore)
+        );
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            baseAsset,
+            params.baseAmount,
+            encodedParams,
+            0
+        );
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function executeMorphoLiquidationWithBribe(
+        MorphoLiquidationParams calldata params,
+        BribeConfig calldata bribe
+    ) external override onlyOperator whenNotPaused whenAlive nonReentrant {
+        if (params.morpho == address(0) || params.borrower == address(0)) revert NotAuthorized();
+        if (params.loanToken == address(0) || params.collateralToken == address(0)) revert NotAuthorized();
+        if (params.flashloanAmount == 0) revert EmptySteps();
+        _validateBribeConfig(bribe);
+
+        uint256 cap = getMaxTradeFor(params.loanToken);
+        if (params.flashloanAmount > cap) revert TradeTooLarge(params.flashloanAmount, cap);
+
+        uint256 loanBalanceBefore = IERC20(params.loanToken).balanceOf(address(this));
+
+        bytes memory encodedParams = abi.encode(
+            OperationType.MorphoLiquidationWithBribe,
+            abi.encode(params, bribe, msg.sender, loanBalanceBefore)
+        );
+
+        IPool(AAVE_V3_POOL).flashLoanSimple(
+            address(this),
+            params.loanToken,
+            params.flashloanAmount,
+            encodedParams,
+            0
+        );
+    }
+
+    // ════════ INTERNAL HANDLERS (V7) ════════
+
+    function _handleFlashloanBackrun(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (BackrunParams memory bp, address operator) = abi.decode(inner, (BackrunParams, address));
+
+        // Snapshot pre-arb do profitToken. Se profitToken == flashloanAsset, descontamos
+        // o flashloan amount pra evitar contar como saldo prévio.
+        uint256 balanceBefore = IERC20(bp.profitToken).balanceOf(address(this));
+        if (bp.profitToken == asset) {
+            balanceBefore = balanceBefore > amount ? balanceBefore - amount : 0;
+        }
+
+        _executeSwaps(bp.steps);
+
+        uint256 balanceAfter = IERC20(bp.profitToken).balanceOf(address(this));
+        uint256 amountOwed = amount + premium;
+        uint256 assetBalance = IERC20(asset).balanceOf(address(this));
+        if (assetBalance < amountOwed) revert FlashloanRepayShortfall(assetBalance, amountOwed);
+
+        // Profit gross (ANTES do bribe). Mesma lógica do _handleArbitrageOperation —
+        // se profitToken == asset, considera o flashloan owed.
+        uint256 grossProfit;
+        if (bp.profitToken == asset) {
+            uint256 effectiveBalance = balanceAfter >= amountOwed ? balanceAfter - amountOwed : 0;
+            if (effectiveBalance < balanceBefore + bp.minProfitWei) {
+                revert InsufficientProfit(
+                    effectiveBalance > balanceBefore ? effectiveBalance - balanceBefore : 0,
+                    bp.minProfitWei
+                );
+            }
+            grossProfit = effectiveBalance - balanceBefore;
+        } else {
+            if (balanceAfter < balanceBefore + bp.minProfitWei) {
+                revert InsufficientProfit(
+                    balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0,
+                    bp.minProfitWei
+                );
+            }
+            grossProfit = balanceAfter - balanceBefore;
+        }
+
+        // Bribe (swap inline + unwrap + coinbase.transfer)
+        (uint256 bribeNativeWei, uint256 profitConsumed) =
+            _payBribe(bp.profitToken, grossProfit, bp.bribe, OperationType.FlashloanBackrun, operator);
+
+        // Net profit em profitToken (após subtrair o que foi consumido pelo swap pra bribe)
+        uint256 netProfit = grossProfit - profitConsumed;
+
+        // minProfitWei é checado contra NET (não gross) — garantia honesta de profit
+        if (netProfit < bp.minProfitWei) revert InsufficientProfit(netProfit, bp.minProfitWei);
+
+        // Transfere net profit pro receiver (somente o residual em profitToken)
+        if (bp.profitReceiver != address(this) && netProfit > 0) {
+            IERC20(bp.profitToken).safeTransfer(bp.profitReceiver, netProfit);
+        }
+
+        emit BackrunExecuted(operator, asset, bp.profitToken, amount, grossProfit, bribeNativeWei, netProfit);
+    }
+
+    function _handleLiquidationWithBribeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (LiquidationParams memory liqParams, BribeConfig memory bribe, address operator, uint256 debtBalanceBefore) =
+            abi.decode(inner, (LiquidationParams, BribeConfig, address, uint256));
+
+        if (asset != liqParams.debtAsset) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(liqParams.collateralAsset).balanceOf(address(this));
+
+        IERC20(liqParams.debtAsset).forceApprove(AAVE_V3_POOL, liqParams.debtToCover);
+
+        IPool(AAVE_V3_POOL).liquidationCall(
+            liqParams.collateralAsset,
+            liqParams.debtAsset,
+            liqParams.user,
+            liqParams.debtToCover,
+            false
+        );
+
+        uint256 collateralReceived = IERC20(liqParams.collateralAsset).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1);
+
+        if (liqParams.swapSteps.length > 0) {
+            _executeSwaps(liqParams.swapSteps);
+        }
+
+        uint256 amountOwed = amount + premium;
+        uint256 debtAssetBalance = IERC20(liqParams.debtAsset).balanceOf(address(this));
+        uint256 minRequiredBalance = amountOwed + debtBalanceBefore;
+        if (debtAssetBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(debtAssetBalance, minRequiredBalance);
+        }
+
+        uint256 grossProfit = debtAssetBalance - amountOwed - debtBalanceBefore;
+        if (grossProfit < liqParams.minProfitWei) {
+            revert InsufficientProfit(grossProfit, liqParams.minProfitWei);
+        }
+
+        (uint256 bribeNativeWei, uint256 profitConsumed) =
+            _payBribe(liqParams.debtAsset, grossProfit, bribe, OperationType.LiquidationWithBribe, operator);
+
+        uint256 netProfit = grossProfit - profitConsumed;
+        if (netProfit < liqParams.minProfitWei) revert InsufficientProfit(netProfit, liqParams.minProfitWei);
+
+        if (liqParams.profitReceiver != address(this) && netProfit > 0) {
+            IERC20(liqParams.debtAsset).safeTransfer(liqParams.profitReceiver, netProfit);
+        }
+
+        emit LiquidationExecuted(
+            operator,
+            liqParams.user,
+            liqParams.collateralAsset,
+            liqParams.debtAsset,
+            liqParams.debtToCover,
+            collateralReceived,
+            netProfit
+        );
+        // Silencia warning de variável não usada quando bribe = 0
+        bribeNativeWei;
+    }
+
+    function _handleCompoundLiquidationWithBribeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (CompoundLiquidationParams memory cp, BribeConfig memory bribe, address operator, uint256 baseBalanceBefore) =
+            abi.decode(inner, (CompoundLiquidationParams, BribeConfig, address, uint256));
+
+        if (asset != IComet(cp.comet).baseToken()) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(cp.collateralAsset).balanceOf(address(this));
+
+        address[] memory accounts = new address[](1);
+        accounts[0] = cp.borrower;
+        IComet(cp.comet).absorb(address(this), accounts);
+
+        IERC20(asset).forceApprove(cp.comet, cp.baseAmount);
+        IComet(cp.comet).buyCollateral(cp.collateralAsset, cp.minCollateralReceived, cp.baseAmount, address(this));
+
+        uint256 collateralReceived = IERC20(cp.collateralAsset).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1);
+
+        if (cp.swapSteps.length > 0) {
+            _executeSwaps(cp.swapSteps);
+        }
+
+        uint256 amountOwed = amount + premium;
+        uint256 baseBalance = IERC20(asset).balanceOf(address(this));
+        uint256 minRequiredBalance = amountOwed + baseBalanceBefore;
+        if (baseBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(baseBalance, minRequiredBalance);
+        }
+
+        uint256 grossProfit = baseBalance - amountOwed - baseBalanceBefore;
+        if (grossProfit < cp.minProfitWei) revert InsufficientProfit(grossProfit, cp.minProfitWei);
+
+        (uint256 bribeNativeWei, uint256 profitConsumed) =
+            _payBribe(asset, grossProfit, bribe, OperationType.CompoundLiquidationWithBribe, operator);
+
+        uint256 netProfit = grossProfit - profitConsumed;
+        if (netProfit < cp.minProfitWei) revert InsufficientProfit(netProfit, cp.minProfitWei);
+
+        if (cp.profitReceiver != address(this) && netProfit > 0) {
+            IERC20(asset).safeTransfer(cp.profitReceiver, netProfit);
+        }
+
+        emit CompoundLiquidationExecuted(
+            operator, cp.comet, cp.borrower, cp.collateralAsset, cp.baseAmount, collateralReceived, netProfit
+        );
+        bribeNativeWei;
+    }
+
+    function _handleMorphoLiquidationWithBribeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
+        (MorphoLiquidationParams memory mp, BribeConfig memory bribe, address operator, uint256 loanBalanceBefore) =
+            abi.decode(inner, (MorphoLiquidationParams, BribeConfig, address, uint256));
+
+        if (asset != mp.loanToken) revert InvalidCaller();
+
+        uint256 collateralBefore = IERC20(mp.collateralToken).balanceOf(address(this));
+
+        IERC20(mp.loanToken).forceApprove(mp.morpho, amount);
+
+        MarketParams memory marketParams = MarketParams({
+            loanToken: mp.loanToken,
+            collateralToken: mp.collateralToken,
+            oracle: mp.oracle,
+            irm: mp.irm,
+            lltv: mp.lltv
+        });
+
+        IMorpho(mp.morpho).liquidate(marketParams, mp.borrower, mp.seizedAssets, mp.repaidShares, "");
+
+        IERC20(mp.loanToken).forceApprove(mp.morpho, 0);
+
+        uint256 collateralReceived = IERC20(mp.collateralToken).balanceOf(address(this)) - collateralBefore;
+        if (collateralReceived == 0) revert InsufficientProfit(0, 1);
+
+        if (mp.swapSteps.length > 0) {
+            _executeSwaps(mp.swapSteps);
+        }
+
+        uint256 amountOwed = amount + premium;
+        uint256 loanBalance = IERC20(mp.loanToken).balanceOf(address(this));
+        uint256 minRequiredBalance = amountOwed + loanBalanceBefore;
+        if (loanBalance < minRequiredBalance) {
+            revert FlashloanRepayShortfall(loanBalance, minRequiredBalance);
+        }
+
+        uint256 grossProfit = loanBalance - amountOwed - loanBalanceBefore;
+        if (grossProfit < mp.minProfitWei) revert InsufficientProfit(grossProfit, mp.minProfitWei);
+
+        (uint256 bribeNativeWei, uint256 profitConsumed) =
+            _payBribe(mp.loanToken, grossProfit, bribe, OperationType.MorphoLiquidationWithBribe, operator);
+
+        uint256 netProfit = grossProfit - profitConsumed;
+        if (netProfit < mp.minProfitWei) revert InsufficientProfit(netProfit, mp.minProfitWei);
+
+        if (mp.profitReceiver != address(this) && netProfit > 0) {
+            IERC20(mp.loanToken).safeTransfer(mp.profitReceiver, netProfit);
+        }
+
+        emit MorphoLiquidationExecuted(
+            operator, mp.borrower, mp.collateralToken, mp.loanToken, amount, collateralReceived, netProfit
+        );
+        bribeNativeWei;
+    }
+
+    // ════════ BRIBE INTERNAL HELPERS ════════
+
+    /// @notice Valida BribeConfig on-chain. Aceita bribeBps == 0 (sem bribe) como valor neutro.
+    function _validateBribeConfig(BribeConfig memory bribe) internal pure {
+        if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) {
+            // Sem bribe — config neutra, OK.
+            return;
+        }
+        if (bribe.bribeBps > 10_000) revert InvalidBribeConfig();
+        if (bribe.bribeMaxBps == 0 || bribe.bribeMaxBps > ABSOLUTE_BRIBE_CAP_BPS) revert InvalidBribeConfig();
+        if (bribe.swapSlippageBps > 1_000) revert InvalidBribeConfig();
+    }
+
+    /// @notice Paga bribe ao coinbase via swap inline `profitToken → WETH → unwrap → transfer`.
+    ///         Quando profitToken == WETH, skipa o swap (só unwrap + transfer).
+    /// @dev Retorna (bribeNativeWei, profitTokenConsumed) — quanto WETH foi transferido pro
+    ///      coinbase e quanto do `grossProfit` em profitToken foi consumido pra fazer isso.
+    ///      Quando bribeBps == 0 e minBribeWei == 0, retorna (0, 0) sem fazer nada.
+    function _payBribe(
+        address profitToken,
+        uint256 grossProfit,
+        BribeConfig memory bribe,
+        OperationType opType,
+        address operator
+    ) internal returns (uint256 bribeNativeWei, uint256 profitTokenConsumed) {
+        // Sem bribe configurado → no-op
+        if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) {
+            return (0, 0);
+        }
+
+        // Clamp bribeBps contra bribeMaxBps (proteção runtime — bot pode passar valor agressivo
+        // mas o contrato trunca pro cap configurado).
+        uint256 effectiveBps = bribe.bribeBps > bribe.bribeMaxBps ? bribe.bribeMaxBps : bribe.bribeBps;
+
+        // Calcula bribe em profitToken: profit * bps / 10000, com floor minBribeWei (em NATIVE).
+        // Como minBribeWei é em native (WETH unwrap), precisamos converter via swap quote.
+        // Pra simplificar: bribeProfitTarget = grossProfit * effectiveBps / 10000 (em profitToken).
+        // Se isso swap-results em algo abaixo do minBribeWei (native), elevamos depois.
+        uint256 bribeProfitTarget = (grossProfit * effectiveBps) / 10_000;
+
+        // Hard guard: bribe não pode exceder profit
+        if (bribeProfitTarget == 0 && bribe.minBribeWei == 0) return (0, 0);
+        if (bribeProfitTarget >= grossProfit) revert BribeExceedsProfit(bribeProfitTarget, grossProfit);
+
+        // Fast path: profitToken == WETH → só unwrap + transfer (sem swap)
+        if (profitToken == weth) {
+            if (weth == address(0)) revert WethNotConfigured();
+            // Se bribeProfitTarget < minBribeWei, eleva (desde que cabe no profit)
+            uint256 bribeWeth = bribeProfitTarget < bribe.minBribeWei ? bribe.minBribeWei : bribeProfitTarget;
+            if (bribeWeth >= grossProfit) revert BribeExceedsProfit(bribeWeth, grossProfit);
+            // Unwrap WETH → ETH dentro deste contrato (recebe via receive())
+            IWETH9(weth).withdraw(bribeWeth);
+            _transferBribeToCoinbase(bribeWeth, opType, operator, grossProfit, grossProfit - bribeWeth);
+            return (bribeWeth, bribeWeth);
+        }
+
+        // Slow path: swap inline profitToken → WETH via UniV3
+        if (weth == address(0)) revert WethNotConfigured();
+        if (uniV3SwapRouter == address(0)) revert SwapRouterNotConfigured();
+        if (bribe.swapFeeTier == 0) revert InvalidBribeConfig();
+
+        // Approve swap router
+        IERC20(profitToken).forceApprove(uniV3SwapRouter, bribeProfitTarget);
+
+        // Slippage min: aceitamos no mínimo (1 - swapSlippageBps/10000) do quote ideal.
+        // Como não temos quote on-chain barato, usamos slippage como % do amountIn.
+        // ⚠️ Limitação: sem quoter integrado, minOut é estimado conservadoramente. Bot
+        //    deve simular off-chain e passar swapSlippageBps adequado. Pra MVP, set
+        //    minOut = 0 e confiamos no `BribeExceedsProfit` + `minBribeWei` floor.
+        uint256 wethReceived;
+        try IUniV3SwapRouter(uniV3SwapRouter).exactInputSingle(
+            IUniV3SwapRouter.ExactInputSingleParams({
+                tokenIn: profitToken,
+                tokenOut: weth,
+                fee: bribe.swapFeeTier,
+                recipient: address(this),
+                amountIn: bribeProfitTarget,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            })
+        ) returns (uint256 out) {
+            wethReceived = out;
+        } catch {
+            // Reset approve antes de propagar
+            IERC20(profitToken).forceApprove(uniV3SwapRouter, 0);
+            revert BribeSwapFailed();
+        }
+
+        // Reset approve
+        IERC20(profitToken).forceApprove(uniV3SwapRouter, 0);
+
+        // Floor minBribeWei: se swap rendeu menos que o piso, é leilão muito caro pra ser viável
+        // com esse profit. Em vez de inflar bribe (que já consumiu profitToken), revertemos —
+        // bot deve ter passado bribeBps maior pra match com o piso.
+        if (wethReceived < bribe.minBribeWei) revert BribeExceedsProfit(bribe.minBribeWei, wethReceived);
+
+        // Unwrap WETH → ETH
+        IWETH9(weth).withdraw(wethReceived);
+
+        _transferBribeToCoinbase(
+            wethReceived,
+            opType,
+            operator,
+            grossProfit,
+            grossProfit - bribeProfitTarget
+        );
+
+        return (wethReceived, bribeProfitTarget);
+    }
+
+    /// @dev Helper isolado pra emitir evento + transferir. Coinbase é sempre `block.coinbase`.
+    function _transferBribeToCoinbase(
+        uint256 bribeNativeWei,
+        OperationType opType,
+        address operator,
+        uint256 grossProfit,
+        uint256 netProfit
+    ) internal {
+        address payable cb = payable(block.coinbase);
+        // Use call em vez de transfer pra evitar gas-stipend issues em coinbase contract
+        (bool ok,) = cb.call{value: bribeNativeWei}("");
+        if (!ok) revert BribeSwapFailed();
+        emit BribePaid(operator, opType, cb, bribeNativeWei, grossProfit, netProfit);
+    }
+
     // ════════ INTERNAL SWAP EXECUTOR ════════
 
     function _executeSwaps(SwapStep[] memory steps) internal {
@@ -617,6 +1138,16 @@ contract ZeusExecutor is IZeusExecutor, IFlashLoanSimpleReceiver, Ownable2Step, 
         if (to == address(0)) revert NotAuthorized();
         IERC20(token).safeTransfer(to, amount);
         emit TokenRescued(token, amount, to);
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function setWeth(address newWeth) external override onlyOwner {
+        weth = newWeth;
+    }
+
+    /// @inheritdoc IZeusExecutor
+    function setUniV3SwapRouter(address newRouter) external override onlyOwner {
+        uniV3SwapRouter = newRouter;
     }
 
     // ════════ PAUSABLE (extra layer além do kill switch) ════════

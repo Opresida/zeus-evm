@@ -18,6 +18,7 @@ import { loadConfig } from './config';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
 import { runAavePipeline, runCompoundPipeline } from './pipeline';
+import { AavePriceOracle } from './protocols/aave/oracle';
 import type {
   AaveLiquidatablePosition,
   CompoundLiquidatablePosition,
@@ -81,6 +82,8 @@ interface LiquidatorState {
   eventBus: EventBus;
   /** Gas oracle EIP-1559 — pricing correto pra Base/Arb/OP */
   gasOracle: GasOracle;
+  /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator. */
+  aaveOracle: AavePriceOracle;
 }
 
 /**
@@ -283,6 +286,17 @@ export async function boot(): Promise<LiquidatorState> {
     `⛽ Gas oracle EIP-1559 pronto — priority=${env.GAS_PRIORITY_FEE_GWEI}gwei, multiplier=${env.GAS_MAX_FEE_MULTIPLIER}x`,
   );
 
+  // Aave V3 PriceOracle — fonte canônica de preços USD pra calculator
+  // (B-1, B-2, B-3 do audit 2026-05-26: antes assumia stable-peg em tudo).
+  if (!ctx.chainConfig.aave?.oracle) {
+    throw new Error(`chain ${ctx.chainConfig.name} sem Aave oracle configurado`);
+  }
+  const aaveOracle = new AavePriceOracle(ctx.client, ctx.chainConfig.aave.oracle);
+  logger.info(
+    { oracle: ctx.chainConfig.aave.oracle, chain: ctx.chainConfig.name },
+    `🔮 Aave PriceOracle pronto`,
+  );
+
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
 
@@ -346,6 +360,7 @@ export async function boot(): Promise<LiquidatorState> {
     gasReserveTracker,
     eventBus,
     gasOracle,
+    aaveOracle,
   };
 }
 
@@ -377,6 +392,7 @@ export async function processOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    aaveOracle: state.aaveOracle,
   });
 }
 
@@ -398,6 +414,7 @@ export async function processCompoundOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    aaveOracle: state.aaveOracle,
   });
 }
 

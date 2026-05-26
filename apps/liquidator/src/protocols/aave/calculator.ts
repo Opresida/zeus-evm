@@ -9,12 +9,15 @@
  *      → upperBound = min(os 3)
  *   2. Sample logarítmico: 10 amounts entre lower (10 USD) e upper
  *   3. Pra cada amount L, calcular profit_líquido(L):
- *      profit = swap_output(L × (1+bonus)) − L − L×0.0005 − gas
+ *      profit = swap_output(L × (1+bonus) × oraclePriceRatio) − L − L×0.0005 − gas
  *   4. Refinar: 5 amounts em torno do melhor da fase 2
  *   5. Validar profit > MIN_LIQUIDATION_PROFIT_USD → senão descarta
  *
+ * Conversões USD: usam Aave V3 PriceOracle (oracle.ts). Antes assumia stable-peg
+ * (B-1, B-2, B-3 do audit 2026-05-26).
+ *
  * Latência típica: ~750ms (15 calls × ~50ms) em RPC normal. Com cache de slippage curves
- * por pool, cai pra ~150-250ms. Por enquanto sem cache.
+ * por pool + cache de oracle prices by-block, cai pra ~150-250ms.
  */
 
 import type { Address, PublicClient } from 'viem';
@@ -29,6 +32,7 @@ import type {
 } from '../../types';
 import { logger } from '../../logger';
 import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
+import { AavePriceOracle, convertWeiByPrice, usdToWei, weiToUsd } from './oracle';
 
 type AnyPublicClient = PublicClient<any, any>;
 
@@ -39,12 +43,18 @@ const UNI_V3_FEE_TIERS = [500, 3000, 100, 10000];
 const AAVE_FLASHLOAN_PREMIUM_BPS = 5n; // 0.05%
 const BPS_DENOMINATOR = 10_000n;
 
+// Safe range pra log-sample em Number — evita Number.MAX_SAFE_INTEGER overflow (B-5 fix)
+const SAFE_NUMBER_BITS = 50n; // 2^50 ≈ 1.1e15, abaixo de MAX_SAFE_INTEGER (2^53)
+const SAFE_NUMBER_MAX = 1n << SAFE_NUMBER_BITS;
+
 export interface AaveCalculatorOpts {
   env: LiquidatorEnv;
   client: AnyPublicClient;
   quoterAddress: Address;
   /** Cap on-chain via getMaxTradeFor(debtAsset). Override do protocolCap se menor. */
   contractCapWei: bigint;
+  /** Aave PriceOracle pra conversões USD-corretas (debt/collateral/gas). */
+  oracle: AavePriceOracle;
 }
 
 /**
@@ -55,26 +65,42 @@ export async function calculateOptimalLiquidation(
   position: AaveLiquidatablePosition,
   opts: AaveCalculatorOpts,
 ): Promise<LiquidationOutcome> {
-  const { env, client, quoterAddress, contractCapWei } = opts;
+  const { env, client, quoterAddress, contractCapWei, oracle } = opts;
+
+  // 0) Pré-busca preços (batched). Cache by-block evita N calls.
+  const prices = await oracle.getAssetsPrices([position.debtAsset, position.collateralAsset]);
+  const debtPrice = prices.get(position.debtAsset.toLowerCase());
+  const collateralPrice = prices.get(position.collateralAsset.toLowerCase());
+  if (!debtPrice || debtPrice === 0n) {
+    return { ok: false, reason: `oracle não retornou preço pra debt ${position.debtAssetSymbol}` };
+  }
+  if (!collateralPrice || collateralPrice === 0n) {
+    return { ok: false, reason: `oracle não retornou preço pra collateral ${position.collateralAssetSymbol}` };
+  }
 
   // 1) Cap superior = mínimo dos 3 caps
   const protocolCap = (position.totalDebtWei * BigInt(Math.floor(env.AAVE_CLOSE_FACTOR * 10_000))) / 10_000n;
   const upperBound = protocolCap < contractCapWei ? protocolCap : contractCapWei;
-  // Mínimo absoluto configurável (env.MIN_DEBT_USD). Default 100 = $100 pra produção.
-  // Clamp em >= 1 unidade pra evitar div-by-zero no sample logarítmico (BigInt(NaN)).
-  const minDebtMultiplier = BigInt(Math.max(1, Math.floor(env.MIN_DEBT_USD)));
-  const minDebtWei = minDebtMultiplier * 10n ** BigInt(position.debtAssetDecimals);
+  // Mínimo absoluto configurável (env.MIN_DEBT_USD).
+  // Converte USD → debt wei via oracle (B-3 fix).
+  const minDebtWei = usdToWei(Math.max(1, env.MIN_DEBT_USD), debtPrice, position.debtAssetDecimals);
+  if (minDebtWei === 0n) {
+    return { ok: false, reason: 'minDebtWei calculado como 0 (oracle inválido)' };
+  }
   if (upperBound < minDebtWei) {
     return { ok: false, reason: `upperBound ${upperBound} < $${env.MIN_DEBT_USD} mínimo (${minDebtWei})` };
   }
 
-  // 2) Sample logarítmico — 10 pontos entre min e upper
+  // 2) Sample logarítmico — 10 pontos entre min e upper.
+  // Escala downscale_shift até caber em Number safe range (B-5 fix).
   const sampledProfits: Array<{ L: bigint; profit: bigint; slippageBps: number }> = [];
-  const upperFloat = Number(upperBound);
-  const lowerFloat = Number(minDebtWei);
+  const { lo, hi, shift } = scaleToSafeRange(minDebtWei, upperBound);
+  const upperFloat = Number(hi);
+  const lowerFloat = Number(lo);
   for (let i = 0; i < 10; i++) {
-    const L = BigInt(Math.floor(lowerFloat * Math.pow(upperFloat / lowerFloat, i / 9)));
-    const sim = await simulateProfit(L, position, opts);
+    let L = BigInt(Math.floor(lowerFloat * Math.pow(upperFloat / lowerFloat, i / 9)));
+    if (shift > 0n) L = L << shift;
+    const sim = await simulateProfit(L, position, opts, debtPrice, collateralPrice);
     if (sim !== null) sampledProfits.push({ L, ...sim });
   }
 
@@ -95,7 +121,7 @@ export async function calculateOptimalLiquidation(
       const offset = (BigInt(i) * 2n * window) / 4n;
       const L = best.L > window + offset ? best.L - window + offset : minDebtWei;
       if (L > upperBound) continue;
-      const sim = await simulateProfit(L, position, opts);
+      const sim = await simulateProfit(L, position, opts, debtPrice, collateralPrice);
       if (sim !== null && sim.profit > best.profit) {
         best = { L, ...sim };
       }
@@ -103,7 +129,8 @@ export async function calculateOptimalLiquidation(
   }
 
   // 5) Sanity: profit cobre MIN_LIQUIDATION_PROFIT_USD?
-  const minProfitWei = BigInt(env.MIN_LIQUIDATION_PROFIT_USD) * 10n ** BigInt(position.debtAssetDecimals);
+  // Converte threshold USD → debt wei via oracle (B-3 fix, era assume stable).
+  const minProfitWei = usdToWei(env.MIN_LIQUIDATION_PROFIT_USD, debtPrice, position.debtAssetDecimals);
   if (best.profit < minProfitWei) {
     return {
       ok: false,
@@ -111,10 +138,13 @@ export async function calculateOptimalLiquidation(
     };
   }
 
+  // expectedProfitUsd real via oracle (B-1 fix)
+  const profitUsd = weiToUsd(best.profit, debtPrice, position.debtAssetDecimals);
+
   const decision: LiquidationDecision = {
     flashloanAmount: best.L,
     expectedProfitWei: best.profit,
-    expectedProfitUsd: Number(best.profit) / 10 ** position.debtAssetDecimals,
+    expectedProfitUsd: profitUsd,
     estimatedSlippageBps: best.slippageBps,
     minProfitWei: (best.profit * 7n) / 10n, // 70% do esperado como floor (margem de segurança)
   };
@@ -123,9 +153,10 @@ export async function calculateOptimalLiquidation(
     {
       borrower: position.borrower,
       flashloanWei: best.L.toString(),
-      flashloanUsd: decision.expectedProfitUsd.toFixed(2),
-      profitUsd: decision.expectedProfitUsd.toFixed(2),
+      profitUsd: profitUsd.toFixed(2),
       slippageBps: best.slippageBps,
+      debtPriceUsd: (Number(debtPrice) / 1e8).toFixed(4),
+      collateralPriceUsd: (Number(collateralPrice) / 1e8).toFixed(4),
     },
     `💡 Decision: liquidate ${position.borrower.slice(0, 10)} flashloan=${formatWei(best.L, position.debtAssetDecimals)} ${position.debtAssetSymbol}`,
   );
@@ -141,23 +172,22 @@ async function simulateProfit(
   L: bigint,
   position: AaveLiquidatablePosition,
   opts: AaveCalculatorOpts,
+  debtPrice: bigint,
+  collateralPrice: bigint,
 ): Promise<{ profit: bigint; slippageBps: number } | null> {
-  // Quanto collateral receberíamos? L × (1 + bonus)
-  // Mas L é em debtAsset e collateralReceived é em collateralAsset wei
-  // → precisamos do oracle price pra conversão correta.
-  //
-  // Aproximação MVP (caminho A): assume stable-peg em ambos. Refinar via oracle on-chain
-  // antes de mainnet (TODO documentado).
-  //
-  // collateralReceived_em_collateralAsset_wei = L × (1+bonus) × 10^(decimalsCollateral-decimalsDebt)
+  // Quanto collateral receberíamos? L × (1 + bonus) — em USD value.
+  // Convertendo correto via oracle (B-2 fix):
+  //   collateralReceived = convertWeiByPrice(L × (1+bonus), debtPrice → collateralPrice)
   const bonusFactor = BPS_DENOMINATOR + BigInt(position.liquidationBonusBps);
-  const decimalDiff = position.collateralAssetDecimals - position.debtAssetDecimals;
-  let collateralReceived = (L * bonusFactor) / BPS_DENOMINATOR;
-  if (decimalDiff > 0) {
-    collateralReceived = collateralReceived * 10n ** BigInt(decimalDiff);
-  } else if (decimalDiff < 0) {
-    collateralReceived = collateralReceived / 10n ** BigInt(-decimalDiff);
-  }
+  const debtWithBonus = (L * bonusFactor) / BPS_DENOMINATOR;
+  const collateralReceived = convertWeiByPrice(
+    debtWithBonus,
+    debtPrice,
+    position.debtAssetDecimals,
+    collateralPrice,
+    position.collateralAssetDecimals,
+  );
+  if (collateralReceived === 0n) return null;
 
   // Try múltiplos fee tiers (via cache), pega o melhor amountOut
   let bestQuote: Quote | null = null;
@@ -184,13 +214,13 @@ async function simulateProfit(
 
   // profit_líquido = swap_output − L − flashloan_fee − gas_cost
   const flashloanFee = (L * AAVE_FLASHLOAN_PREMIUM_BPS) / BPS_DENOMINATOR;
-  const gasCostWei = BigInt(Math.floor(opts.env.GAS_COST_USD_ESTIMATE)) *
-    10n ** BigInt(position.debtAssetDecimals); // assume gas em USD ≈ debt asset USD
+  // gas cost em USD → debt wei via oracle (B-3 fix). Antes assumia 1 unit = $1.
+  const gasCostWei = usdToWei(opts.env.GAS_COST_USD_ESTIMATE, debtPrice, position.debtAssetDecimals);
 
-  // Slippage = (expected - actual) / expected em bps. Expected = L × (1+bonus) (paridade ideal).
-  const expectedNoSlippage = (L * bonusFactor) / BPS_DENOMINATOR;
-  const slippageBps = expectedNoSlippage > bestQuote.amountOut
-    ? Number(((expectedNoSlippage - bestQuote.amountOut) * BPS_DENOMINATOR) / expectedNoSlippage)
+  // Slippage = (expected - actual) / expected em bps.
+  // Expected ideal = `debtWithBonus` em debt wei (paridade USD perfeita pelo oracle).
+  const slippageBps = debtWithBonus > bestQuote.amountOut
+    ? Number(((debtWithBonus - bestQuote.amountOut) * BPS_DENOMINATOR) / debtWithBonus)
     : 0;
 
   // Slippage tolerance check
@@ -201,6 +231,24 @@ async function simulateProfit(
     : 0n;
 
   return { profit, slippageBps };
+}
+
+/**
+ * Escala lo/hi pra caber em Number.MAX_SAFE_INTEGER (~2^53) preservando ratio
+ * pra log-sampling. Shift bits via `>>` (bigint), depois `<<` no resultado.
+ *
+ * Fix B-5: cap fallback 10^20 e flashloans grandes (1000 ETH = 10^21) excediam
+ * MAX_SAFE_INTEGER → `Number(upperBound)` virava Infinity → BigInt(NaN) throw.
+ */
+function scaleToSafeRange(lo: bigint, hi: bigint): { lo: bigint; hi: bigint; shift: bigint } {
+  let shift = 0n;
+  while (hi > SAFE_NUMBER_MAX) {
+    hi = hi >> 10n;
+    lo = lo >> 10n;
+    shift += 10n;
+    if (lo === 0n) lo = 1n;
+  }
+  return { lo, hi, shift };
 }
 
 function formatWei(wei: bigint, decimals: number): string {

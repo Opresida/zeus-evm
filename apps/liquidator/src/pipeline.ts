@@ -22,6 +22,7 @@ import type {
 } from './types';
 import type { BribeConfig } from '@zeus-evm/strategy';
 import { calculateOptimalLiquidation } from './protocols/aave/calculator';
+import { AavePriceOracle } from './protocols/aave/oracle';
 import { buildLiquidationTx } from './protocols/aave/builder';
 import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
@@ -59,6 +60,8 @@ export interface PipelineDeps {
   eventBus?: EventBus;
   /** Gas oracle EIP-1559 pra pricing correto on Base/Arb/OP. */
   gasOracle?: import('@zeus-evm/execution-utils').GasOracle;
+  /** Aave V3 PriceOracle — usado pra conversões USD-corretas no calculator. */
+  aaveOracle: AavePriceOracle;
 }
 
 /**
@@ -178,13 +181,27 @@ export async function runAavePipeline(
   // 1. Calculator — roda SEMPRE, mesmo sem executor deployado.
   // Em DRY_RUN sem executor, queremos LOGAR a decision teórica (profit/slippage estimado)
   // pra calibração das 2 semanas de observação.
-  const cap = contractCapByDebtAsset.get(position.debtAsset.toLowerCase())
-    ?? BigInt(10 ** 20); // fallback alto se ainda não cacheado (não bloqueia)
+  // B-5 fix: cap deve estar cacheado no boot. Sem cap em modo real é config error.
+  // Calculator já tem scaleToSafeRange pra lidar com BigInts gigantes via shift bits.
+  let cap = contractCapByDebtAsset.get(position.debtAsset.toLowerCase());
+  if (!cap) {
+    if (env.LIQUIDATOR_MODE !== 'dryrun') {
+      logger.error(
+        { debtAsset: position.debtAsset, mode: env.LIQUIDATOR_MODE },
+        '🛑 contractCap não cacheado pra debt asset — bloqueando dispatch (boot bug)',
+      );
+      return { status: 'reverted_pre_dispatch', reason: 'contractCap missing for debt asset' };
+    }
+    // Em dryrun, fallback conservador de $1M em wei do debt asset (assume stable peg
+    // como APROXIMAÇÃO — só pra logar decisão teórica).
+    cap = 1_000_000n * 10n ** BigInt(position.debtAssetDecimals);
+  }
   const outcome = await calculateOptimalLiquidation(position, {
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
     contractCapWei: cap,
+    oracle: deps.aaveOracle,
   });
 
   if (!outcome.ok) {
@@ -359,12 +376,24 @@ export async function runCompoundPipeline(
   }
 
   // 1. Calculator — roda sempre pra LOGAR decision teórica + alimentar cache
-  const cap = contractCapByDebtAsset.get(position.baseToken.toLowerCase()) ?? BigInt(10 ** 20);
+  // B-5 fix: cap obrigatório em modo real (config error se faltar); dryrun usa fallback.
+  let cap = contractCapByDebtAsset.get(position.baseToken.toLowerCase());
+  if (!cap) {
+    if (env.LIQUIDATOR_MODE !== 'dryrun') {
+      logger.error(
+        { baseToken: position.baseToken, mode: env.LIQUIDATOR_MODE },
+        '🛑 contractCap não cacheado pra base token — bloqueando dispatch (boot bug)',
+      );
+      return { status: 'reverted_pre_dispatch', reason: 'contractCap missing for base token' };
+    }
+    cap = 1_000_000n * 10n ** BigInt(position.baseTokenDecimals);
+  }
   const outcome = await calculateOptimalCompoundLiquidation(position, {
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
     contractCapWei: cap,
+    oracle: deps.aaveOracle,
   });
 
   if (!outcome.ok) {

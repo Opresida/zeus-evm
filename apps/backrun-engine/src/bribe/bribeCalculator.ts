@@ -41,6 +41,13 @@ export interface BribeCalcInput {
   gasWarLevel: GasWarLevel;
   /** Sinais brutos pra log/debug. */
   signals?: GasWarSignals;
+  /**
+   * Floor de slippage off-chain calculado via Quoter (Audit Pass 4 H-01 protection).
+   * Quando passado, `minBribeWei = max(floorUsdWei, swapSlippageFloorWei)`.
+   * Quando ausente, usa apenas floor USD (vulnerável a sandwich se profitToken != WETH).
+   * Calcular via `computeBribeSlippageFloor` de `@zeus-evm/execution-utils`.
+   */
+  swapSlippageFloorWei?: bigint;
 }
 
 export type BribeDecision =
@@ -82,6 +89,25 @@ export class BribeCalculator {
     if (this.hardCapBps > ABSOLUTE_BRIBE_MAX_BPS) {
       throw new Error(`hardCapBps=${this.hardCapBps} > ${ABSOLUTE_BRIBE_MAX_BPS} (contract cap)`);
     }
+  }
+
+  /**
+   * Peek do bpsBase da tabela pra um gasWarLevel. Útil pra caller computar
+   * `bribeProfitTarget` antes de chamar `decide()` (necessário pra obter
+   * o slippage floor via Quoter).
+   */
+  getBpsForLevel(level: GasWarLevel): number {
+    return BRIBE_TABLE[level].bpsBase;
+  }
+
+  /** Fee tier UniV3 default usado no swap inline da BribeManager. */
+  getDefaultSwapFeeTier(): number {
+    return this.defaultSwapFeeTier;
+  }
+
+  /** Slippage bps default. */
+  getDefaultSwapSlippageBps(): bigint {
+    return this.defaultSwapSlippageBps;
   }
 
   /**
@@ -129,8 +155,12 @@ export class BribeCalculator {
       this.hardCapBps,
     );
 
-    // Floor em wei NATIVE token
-    const minBribeWei = this._usdToWei(tableEntry.minFloorUsd);
+    // Floor em wei NATIVE token = max(USD floor, slippage floor off-chain).
+    // Slippage floor protege swap inline UniV3 da BribeManager contra sandwich
+    // (Audit Pass 4 H-01). USD floor garante competitividade mínima do leilão.
+    const usdFloorWei = this._usdToWei(tableEntry.minFloorUsd);
+    const slippageFloorWei = input.swapSlippageFloorWei ?? 0n;
+    const minBribeWei = usdFloorWei > slippageFloorWei ? usdFloorWei : slippageFloorWei;
 
     const bribe: BribeConfig = {
       bribeBps: BigInt(bribeBpsApplied),

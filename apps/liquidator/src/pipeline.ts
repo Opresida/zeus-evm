@@ -31,6 +31,7 @@ import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import {
   aavePositionKey,
   compoundPositionKey,
+  computeBribeSlippageFloor,
   type PnlTracker,
   type FailureTracker,
   type PositionDedupTracker,
@@ -61,21 +62,68 @@ export interface PipelineDeps {
 }
 
 /**
- * Constrói BribeConfig estático baseado nas env vars. Retorna undefined quando
- * BRIBE_ENABLED=false (mantém comportamento v6 sem mudanças).
+ * Constrói BribeConfig com `minBribeWei` calculado off-chain pra proteger contra
+ * sandwich do swap inline UniV3 da BribeManager (Audit Pass 4 H-01).
+ *
+ * Quando `BRIBE_ENABLED=false` ou profit < threshold → retorna undefined (sem bribe).
+ * Quando profitToken == WETH → minBribeWei = 0 (fast path não faz swap).
+ * Quando profitToken != WETH → quote profitToken→WETH e seta floor = quote × (1 − slippage).
+ * Se quote falha (sem liquidez no pool) → loga warn e retorna undefined (submete sem bribe
+ * em vez de submeter inseguro com minBribeWei=0).
  *
  * Pra MVP do liquidator, usa BPS fixo (default 50%). Tabela escalonada por
  * gas war fica no backrun-engine onde a competição é mais brutal.
  */
-function bribeFromEnv(env: LiquidatorEnv, profitUsd: number): BribeConfig | undefined {
+async function buildBribeWithSlippageFloor(
+  env: LiquidatorEnv,
+  ctx: LiquidatorChainContext,
+  profitToken: Address,
+  profitTokenDecimals: number,
+  expectedProfitWei: bigint,
+  profitUsd: number,
+): Promise<BribeConfig | undefined> {
   if (!env.BRIBE_ENABLED) return undefined;
   if (profitUsd < env.BRIBE_MIN_PROFIT_USD) return undefined;
+
+  const bribeBps = BigInt(env.BRIBE_DEFAULT_BPS);
+  const swapSlippageBps = BigInt(env.BRIBE_SWAP_SLIPPAGE_BPS);
+
+  const quoterAddress = ctx.chainConfig.uniswapV3?.quoterV2;
+  const wethAddress = ctx.chainConfig.tokens.WETH;
+  if (!quoterAddress || !wethAddress) {
+    logger.warn(
+      { chain: ctx.chainConfig.name },
+      '⚠️  Bribe: sem quoter ou WETH na chainConfig — submetendo sem bribe',
+    );
+    return undefined;
+  }
+
+  const floor = await computeBribeSlippageFloor({
+    client: ctx.client,
+    quoterAddress,
+    weth: wethAddress,
+    profitToken,
+    profitTokenDecimals,
+    expectedProfitWei,
+    bribeBps,
+    swapFeeTier: env.BRIBE_SWAP_FEE_TIER,
+    slippageBps: swapSlippageBps,
+  });
+
+  if (!floor.ok) {
+    logger.warn(
+      { profitToken, reason: floor.reason },
+      `⚠️  Bribe slippage floor falhou (${floor.reason}) — submetendo sem bribe`,
+    );
+    return undefined;
+  }
+
   return {
-    bribeBps: BigInt(env.BRIBE_DEFAULT_BPS),
-    minBribeWei: 0n, // sem floor pra liquidator MVP
+    bribeBps,
+    minBribeWei: floor.minBribeWei,
     bribeMaxBps: BigInt(env.BRIBE_HARD_CAP_BPS),
     swapFeeTier: env.BRIBE_SWAP_FEE_TIER,
-    swapSlippageBps: BigInt(env.BRIBE_SWAP_SLIPPAGE_BPS),
+    swapSlippageBps,
   };
 }
 
@@ -166,7 +214,15 @@ export async function runAavePipeline(
   }
 
   // 2. Builder — opt-in pra bribe via env (v7)
-  const aaveBribe = bribeFromEnv(env, decision.expectedProfitUsd);
+  // minBribeWei calculado off-chain via Quoter (proteção sandwich pós H-01)
+  const aaveBribe = await buildBribeWithSlippageFloor(
+    env,
+    ctx,
+    position.debtAsset as Address,
+    position.debtAssetDecimals,
+    decision.expectedProfitWei,
+    decision.expectedProfitUsd,
+  );
   const built = buildLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
     chainConfig: ctx.chainConfig,

@@ -95,6 +95,13 @@ export {
   cachedQuoteUniswapV3,
 } from './slippageCache';
 
+// ─── Bribe Slippage Floor (Audit Pass 4 H-01 protection) ───
+export {
+  computeBribeSlippageFloor,
+  type BribeSlippageFloorParams,
+  type BribeSlippageFloorResult,
+} from './bribeSlippageFloor';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

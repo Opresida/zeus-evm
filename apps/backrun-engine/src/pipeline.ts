@@ -30,6 +30,7 @@ import {
   type BackrunOpportunity,
 } from '@zeus-evm/strategy';
 import {
+  computeBribeSlippageFloor,
   type EventBus,
   type PnlTracker,
   type FailureTracker,
@@ -199,7 +200,9 @@ export async function processWhaleSwap(
   };
   eventBus.emit(oppEvent);
 
-  // Decide bribe ANTES de validar (precisa de bribe correto na simulação)
+  // Decide bribe ANTES de validar (precisa de bribe correto na simulação).
+  // Computa slippage floor off-chain via Quoter pra proteger contra sandwich
+  // do swap inline UniV3 da BribeManager (Audit Pass 4 H-01).
   let bribe: import('@zeus-evm/strategy').BribeConfig | undefined;
   if (bribeCalculator) {
     const gasWar = gasWarDetector?.classify({
@@ -207,10 +210,35 @@ export async function processWhaleSwap(
       recentFailures: failureTracker.stats().consecutiveFailures,
     }) ?? { level: 'normal' as const, signals: undefined };
 
+    // Calcula slippage floor antes do decide() (precisa do bribeBps pra estimar target).
+    // profitToken == pair.tokenA (mesma moeda do flashloan, onde profit aparece).
+    let swapSlippageFloorWei: bigint | undefined;
+    const bribeBpsForLevel = bribeCalculator.getBpsForLevel(gasWar.level);
+    const floor = await computeBribeSlippageFloor({
+      client: chainCtx.client,
+      quoterAddress: chainCtx.uniswapV3Quoter,
+      weth: chainCtx.chainConfig.tokens.WETH,
+      profitToken: pair.tokenA,
+      profitTokenDecimals: pair.decimalsA,
+      expectedProfitWei: opp.profitWei,
+      bribeBps: BigInt(bribeBpsForLevel),
+      swapFeeTier: bribeCalculator.getDefaultSwapFeeTier(),
+      slippageBps: bribeCalculator.getDefaultSwapSlippageBps(),
+    });
+    if (floor.ok) {
+      swapSlippageFloorWei = floor.minBribeWei;
+    } else {
+      logger.warn(
+        { profitToken: pair.tokenA, reason: floor.reason },
+        `⚠️  Bribe slippage floor falhou (${floor.reason}) — usando apenas floor USD`,
+      );
+    }
+
     const decision = bribeCalculator.decide({
       expectedNetProfitUsd: opp.profitUsd,
       gasWarLevel: gasWar.level,
       signals: gasWar.signals,
+      swapSlippageFloorWei,
     });
 
     if (decision.skip) {

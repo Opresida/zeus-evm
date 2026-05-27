@@ -21,13 +21,18 @@ import {
   estimateUsd,
   formatWei,
   gasCostUsd,
+  decodeLastSwap,
+  decodeBribeEvent,
   type PnlTracker,
   type PnlEvent,
   type FailureTracker,
   type PositionDedupTracker,
   type EventBus,
   type GasOracle,
+  type PnlReconciler,
+  type FailureCollector,
 } from '@zeus-evm/execution-utils';
+import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -77,6 +82,16 @@ export interface DispatchInput {
   chain?: string;
   /** Gas oracle EIP-1559 — fornece maxFee/maxPriority corretos por bloco. */
   gasOracle?: GasOracle;
+  /** PnL reconciler — gera análise expected vs realized rica + attribution. */
+  pnlReconciler?: PnlReconciler;
+  /** Failure collector — persiste failures com schema rico em JSONL. */
+  failureCollector?: FailureCollector;
+  /** Expected gas USD do calculator (pra reconciliation drift). */
+  expectedGasUsd?: number;
+  /** Expected swap output do calculator (pra slippage real cálculo). */
+  expectedSwapOutputWei?: bigint;
+  /** Opportunity id (borrower address) pra cross-ref no schema. */
+  opportunityId?: string;
 }
 
 /**
@@ -197,6 +212,30 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         protocol,
         reason: `reverted on-chain at block ${receipt.blockNumber}`,
       });
+
+      // FailureCollector: schema rico pra análise post-mortem
+      if (input.failureCollector && protocol) {
+        input.failureCollector.record({
+          id: generateFailureId(Date.now()),
+          timestamp: Date.now(),
+          chain: chainName ?? 'Base',
+          mode,
+          protocol,
+          category: 'reverted_on_chain',
+          category_confidence: 0.95,
+          our_tx_hash: txHash,
+          our_gas_used: receipt.gasUsed.toString(),
+          our_gas_usd_lost: revertGasUsd,
+          our_tx_index: receipt.transactionIndex,
+          block_number: receipt.blockNumber.toString(),
+          opportunity_id: input.opportunityId,
+          expected_profit_usd: input.expectedProfitWei > 0n
+            ? estimateUsd(profitAssetSymbol, input.expectedProfitWei, profitAssetDecimals, ethUsdPrice)
+            : undefined,
+          payload: { revert_reason: 'on-chain revert', block_hash: receipt.blockHash },
+        });
+      }
+
       // Contagem de falha consecutiva — cooldown automático após N falhas
       failureTracker?.recordFailure(`reverted on-chain ${txHash}`);
       // Dedup: marca como failed (bloqueia retry por TTL)
@@ -305,6 +344,47 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     // Dedup: marca como confirmed (bloqueia retry da mesma position por TTL curto)
     if (dedupTracker && positionKey) {
       dedupTracker.markConfirmed(positionKey, txHash);
+    }
+
+    // PnL Reconciliation — schema rico expected vs realized + attribution
+    if (input.pnlReconciler && protocol) {
+      try {
+        const decodedSwap = decodeLastSwap(receipt.logs);
+        const decodedBribe = decodeBribeEvent(receipt.logs);
+        const realBribeUsd = decodedBribe
+          ? (Number(decodedBribe.bribe_native_wei) / 1e18) * ethUsdPrice
+          : undefined;
+
+        input.pnlReconciler.reconcile({
+          chain: chainName ?? 'Base',
+          protocol,
+          tx_hash: txHash,
+          block_number: receipt.blockNumber,
+          expected_profit_wei: input.expectedProfitWei,
+          expected_profit_usd: input.expectedProfitWei > 0n
+            ? estimateUsd(profitAssetSymbol, input.expectedProfitWei, profitAssetDecimals, ethUsdPrice) ?? 0
+            : 0,
+          expected_swap_output_wei: input.expectedSwapOutputWei,
+          expected_gas_usd: input.expectedGasUsd,
+          realized_profit_wei: realProfit,
+          realized_profit_usd: profitUsd ?? 0,
+          realized_gas_units_used: receipt.gasUsed,
+          realized_gas_usd: gasUsdCost,
+          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          realized_swap_output_wei: decodedSwap?.amount_out,
+          realized_bribe_wei_paid: decodedBribe?.bribe_native_wei,
+          realized_bribe_usd_paid: realBribeUsd,
+          eth_usd_price: ethUsdPrice,
+          opportunity_id: input.opportunityId,
+          finality_status: 'soft', // 1 conf — pode promover pra 'finalized' depois via FinalityTracker
+        });
+      } catch (err) {
+        // Reconciliation não pode derrubar o bot
+        logger.warn(
+          { err: err instanceof Error ? err.message : err, txHash },
+          'PnlReconciler: erro reconciliando (drop silencioso)',
+        );
+      }
     }
 
     // Event bus: emite evento de confirmação pra alertas externos

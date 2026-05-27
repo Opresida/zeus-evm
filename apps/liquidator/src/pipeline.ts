@@ -38,6 +38,8 @@ import {
   type PositionDedupTracker,
   type GasReserveTracker,
   type EventBus,
+  type PnlReconciler,
+  type FailureCollector,
 } from '@zeus-evm/execution-utils';
 import { isAaveStillLiquidatable, isCompoundStillLiquidatable } from './staleCheck';
 
@@ -62,6 +64,12 @@ export interface PipelineDeps {
   gasOracle?: import('@zeus-evm/execution-utils').GasOracle;
   /** Aave V3 PriceOracle — usado pra conversões USD-corretas no calculator. */
   aaveOracle: AavePriceOracle;
+  /** PnL Reconciler (Item 10) — gera análise rica expected vs realized. */
+  pnlReconciler?: PnlReconciler;
+  /** Failure Collector (Item 4) — schema rico pra failures persistidos JSONL. */
+  failureCollector?: FailureCollector;
+  /** AutoPauseManager (Item 12 H10) — gate pré-dispatch agregado. */
+  autoPauseManager?: import('@zeus-evm/execution-utils').AutoPauseManager;
 }
 
 /**
@@ -158,6 +166,14 @@ export async function runAavePipeline(
     return {
       status: 'reverted_pre_dispatch',
       reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)`,
+    };
+  }
+
+  // Gate AutoPauseManager (Item 12 H10) — agrega sinais de health (staleness, process, reorg, etc)
+  if (deps.autoPauseManager?.shouldPause()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `auto-pause active: ${deps.autoPauseManager.summary()}`,
     };
   }
 
@@ -324,6 +340,10 @@ export async function runAavePipeline(
     borrower: position.borrower,
     chain: ctx.chainConfig.name,
     gasOracle: deps.gasOracle,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
+    expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
+    opportunityId: position.borrower,
   });
 }
 
@@ -356,6 +376,14 @@ export async function runCompoundPipeline(
     return {
       status: 'reverted_pre_dispatch',
       reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)`,
+    };
+  }
+
+  // Gate AutoPauseManager (Item 12 H10) — agrega sinais de health
+  if (deps.autoPauseManager?.shouldPause()) {
+    return {
+      status: 'reverted_pre_dispatch',
+      reason: `auto-pause active: ${deps.autoPauseManager.summary()}`,
     };
   }
 
@@ -513,5 +541,9 @@ export async function runCompoundPipeline(
     borrower: position.borrower,
     chain: ctx.chainConfig.name,
     gasOracle: deps.gasOracle,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
+    expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
+    opportunityId: position.borrower,
   });
 }

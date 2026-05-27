@@ -45,6 +45,15 @@ import {
   TimeseriesStore,
   EventIngester,
   startHealthServer,
+  PnlReconciler,
+  FailureCollector,
+  FinalityTracker,
+  BlockStalenessCheck,
+  ProcessCheck,
+  AutoPauseManager,
+  SenderRegistry,
+  BlockHistoryScanner,
+  Tracer,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -92,6 +101,24 @@ interface LiquidatorState {
   intelligenceStore: TimeseriesStore;
   /** EventIngester — coleta automática de eventos pro dataset histórico. */
   eventIngester: EventIngester;
+  /** PnL Reconciler (Item 10) — expected vs realized + attribution. */
+  pnlReconciler: PnlReconciler;
+  /** FailureCollector (Item 4) — schema rico em JSONL. */
+  failureCollector: FailureCollector;
+  /** FinalityTracker (Item 9) — detecção de reorg. */
+  finalityTracker: FinalityTracker;
+  /** BlockStalenessCheck (Item 12 H3). */
+  blockStalenessCheck: BlockStalenessCheck;
+  /** ProcessCheck (Item 12 H7). */
+  processCheck: ProcessCheck;
+  /** AutoPauseManager (Item 12 H10). */
+  autoPauseManager: AutoPauseManager;
+  /** SenderRegistry (Item 5) — perfis de competidores. */
+  senderRegistry: SenderRegistry;
+  /** BlockHistoryScanner (Item 5 F2) — popula registry em background. */
+  blockHistoryScanner: BlockHistoryScanner;
+  /** Tracer (Item 16B OB1) — spans correlacionados via trace_id. */
+  tracer: Tracer;
 }
 
 /**
@@ -323,6 +350,104 @@ export async function boot(): Promise<LiquidatorState> {
   });
   eventIngester.start();
 
+  // ── PnL Reconciler (Item 10) ──
+  const pnlReconciler = new PnlReconciler({
+    baseDir: resolvePath('logs', 'pnl-reconciliations'),
+    logger,
+  });
+  logger.info('📊 PnlReconciler pronto');
+
+  // ── FailureCollector (Item 4) ──
+  const failureCollector = new FailureCollector({
+    baseDir: resolvePath('logs', 'failures'),
+    logger,
+  });
+  logger.info('📋 FailureCollector pronto');
+
+  // ── Tracer (Item 16B OB1) ──
+  const tracer = new Tracer({
+    serviceName: 'liquidator',
+    logger,
+  });
+
+  // ── AutoPauseManager (Item 12 H10) ──
+  const autoPauseManager = new AutoPauseManager({ logger });
+
+  // ── FinalityTracker (Item 9 R1) ──
+  const finalityTracker = new FinalityTracker({ client: ctx.client, logger });
+  finalityTracker.onReorg((ev) => {
+    // Em reorg crítico (depth >=3 ou circuit breaker), pausa dispatches
+    if (ev.depth >= 3 || finalityTracker.isCircuitBreakerActive()) {
+      autoPauseManager.setReason(
+        'reorg',
+        'critical',
+        `reorg depth=${ev.depth} ancestor=${ev.commonAncestorBlock}`,
+      );
+      // Auto-clear após 5min
+      setTimeout(() => autoPauseManager.clearReason('reorg'), 5 * 60 * 1000).unref();
+    }
+    // Invalida slippage cache (oracle cache by-block já se autoinvalida via fresh fetch)
+    slippageCache.pruneExpired();
+  });
+  finalityTracker.start();
+  logger.info('🔗 FinalityTracker iniciado');
+
+  // ── BlockStalenessCheck (Item 12 H3) ──
+  const blockStalenessCheck = new BlockStalenessCheck({
+    client: ctx.client,
+    logger,
+  });
+  blockStalenessCheck.onStatusChange((r) => {
+    if (r.status === 'critical') {
+      autoPauseManager.setReason('block_staleness', 'critical', `${r.age_seconds.toFixed(0)}s sem bloco`);
+    } else {
+      autoPauseManager.clearReason('block_staleness');
+    }
+  });
+  blockStalenessCheck.start();
+
+  // ── ProcessCheck (Item 12 H7) ──
+  const processCheck = new ProcessCheck({ logger });
+  processCheck.onStatusChange((p) => {
+    if (p.status === 'critical') {
+      autoPauseManager.setReason(
+        'process',
+        'critical',
+        `mem ${p.memory_mb.rss.toFixed(0)}MB lag ${p.event_loop_lag_ms.toFixed(0)}ms`,
+      );
+    } else {
+      autoPauseManager.clearReason('process');
+    }
+  });
+  processCheck.start();
+
+  // ── SenderRegistry + BlockHistoryScanner (Item 5 F1+F2) ──
+  const senderRegistry = new SenderRegistry({
+    baseDir: resolvePath('logs', 'competitors'),
+    logger,
+  });
+  const scannerTargets = {
+    aave_v3_pool: ctx.chainConfig.aave?.pool,
+    compound_comets: [
+      ctx.chainConfig.compoundV3?.cUSDCv3,
+      ctx.chainConfig.compoundV3?.cWETHv3,
+    ].filter((a): a is Address => !!a && a !== '0x0000000000000000000000000000000000000000'),
+    morpho_blue: ctx.chainConfig.morpho?.morphoBlue,
+    uniswap_v3_routers: [
+      ctx.chainConfig.uniswapV3?.swapRouter02,
+      ctx.chainConfig.uniswapV3?.universalRouter,
+    ].filter((a): a is Address => !!a),
+    aerodrome_router: ctx.chainConfig.aerodrome?.router,
+  };
+  const blockHistoryScanner = new BlockHistoryScanner({
+    client: ctx.client,
+    registry: senderRegistry,
+    targets: scannerTargets,
+    logger,
+  });
+  blockHistoryScanner.start();
+  logger.info({ targets: Object.keys(scannerTargets).length }, '🔭 BlockHistoryScanner iniciado em background');
+
   // Health server — Item 12 H8+H11 (/healthz + /readyz pro UptimeRobot)
   if (env.HEALTH_SERVER_ENABLED) {
     startHealthServer({
@@ -338,6 +463,13 @@ export async function boot(): Promise<LiquidatorState> {
         gasReserveTracker,
         intelligenceStore,
         eventIngester,
+        autoPauseManager,
+        finalityTracker,
+        blockStalenessCheck,
+        processCheck,
+        senderRegistry,
+        blockHistoryScanner,
+        pnlReconciler,
         mode: env.LIQUIDATOR_MODE,
       }),
     });
@@ -406,6 +538,15 @@ export async function boot(): Promise<LiquidatorState> {
     aaveOracle,
     intelligenceStore,
     eventIngester,
+    pnlReconciler,
+    failureCollector,
+    finalityTracker,
+    blockStalenessCheck,
+    processCheck,
+    autoPauseManager,
+    senderRegistry,
+    blockHistoryScanner,
+    tracer,
   };
 }
 
@@ -429,6 +570,13 @@ function buildLiquidatorReadinessReport(deps: {
   gasReserveTracker: GasReserveTracker;
   intelligenceStore: TimeseriesStore;
   eventIngester: EventIngester;
+  autoPauseManager: AutoPauseManager;
+  finalityTracker: FinalityTracker;
+  blockStalenessCheck: BlockStalenessCheck;
+  processCheck: ProcessCheck;
+  senderRegistry: SenderRegistry;
+  blockHistoryScanner: BlockHistoryScanner;
+  pnlReconciler: PnlReconciler;
   mode: string;
 }): ReadinessReport {
   const pnlStats = deps.pnlTracker.stats();
@@ -437,6 +585,12 @@ function buildLiquidatorReadinessReport(deps: {
   const gasStats = deps.gasReserveTracker.stats();
   const intelStats = deps.intelligenceStore.stats();
   const ingestStats = deps.eventIngester.getStats();
+  const pauseStatus = deps.autoPauseManager.status();
+  const finalityStats = deps.finalityTracker.stats();
+  const staleness = deps.blockStalenessCheck.getStatus();
+  const procHealth = deps.processCheck.getStatus();
+  const scannerStats = deps.blockHistoryScanner.getStats();
+  const reconStats = deps.pnlReconciler.stats();
 
   const checks: Record<string, import('@zeus-evm/execution-utils').ComponentCheck> = {
     pnl: {
@@ -476,19 +630,58 @@ function buildLiquidatorReadinessReport(deps: {
       eventsIngested: ingestStats.eventsIngested,
       eventsDropped: ingestStats.eventsDropped,
     },
+    block_staleness: {
+      ok: staleness.status !== 'critical',
+      reason: staleness.status,
+      ageSec: staleness.age_seconds.toFixed(1),
+      latestBlock: staleness.latest_block_number?.toString(),
+    },
+    process: {
+      ok: procHealth.status !== 'critical',
+      reason: procHealth.status,
+      memoryRssMb: procHealth.memory_mb.rss.toFixed(0),
+      eventLoopLagMs: procHealth.event_loop_lag_ms.toFixed(1),
+      uptimeSec: procHealth.uptime_sec,
+    },
+    finality: {
+      ok: !finalityStats.circuitBreakerActive,
+      reason: finalityStats.circuitBreakerActive ? 'reorg circuit breaker active' : undefined,
+      trackedBlocks: finalityStats.trackedBlocks,
+      reorgsLifetime: finalityStats.reorgsLifetime,
+      reorgsInWindow: finalityStats.reorgsInWindow,
+    },
+    competitor_scanner: {
+      ok: scannerStats.errors < 20,
+      blocksProcessed: scannerStats.blocks_processed,
+      uniqueSenders: scannerStats.unique_senders,
+      txsMatched: scannerStats.txs_matched_targets,
+    },
+    pnl_reconciler: {
+      ok: true,
+      totalReconciliations: reconStats.totalReconciliations,
+      netDeltaUsd: reconStats.netDeltaUsd.toFixed(2),
+      avgDriftBps: reconStats.avgDriftBps,
+      withinNormalBand: reconStats.withinNormalBandCount,
+    },
+    auto_pause: {
+      ok: !pauseStatus.hard_pause,
+      reason: pauseStatus.paused ? deps.autoPauseManager.summary() : undefined,
+      activeReasons: pauseStatus.reasons.length,
+    },
   };
 
   // Agregar status global
-  const critical = Object.values(checks).some((c) => !c.ok && c.reason);
-  const degraded = Object.values(checks).some((c) => !c.ok);
+  const anyCritical = pauseStatus.hard_pause || pnlStats.killSwitchTriggered || staleness.status === 'critical' || procHealth.status === 'critical';
+  const anyDegraded = Object.values(checks).some((c) => !c.ok);
 
   return {
-    status: critical && pnlStats.killSwitchTriggered ? 'critical' : degraded ? 'degraded' : 'ok',
+    status: anyCritical ? 'critical' : anyDegraded ? 'degraded' : 'ok',
     checks,
-    dispatchesPaused: pnlStats.killSwitchTriggered || failureStats.inCooldown,
+    dispatchesPaused: pauseStatus.paused || pnlStats.killSwitchTriggered || failureStats.inCooldown,
     pausedReasons: [
       ...(pnlStats.killSwitchTriggered ? [`kill_switch: ${pnlStats.killSwitchReason}`] : []),
       ...(failureStats.inCooldown ? [`cooldown ${failureStats.cooldownRemainingMs}ms`] : []),
+      ...pauseStatus.reasons.map((r) => `${r.source}: ${r.message}`),
       ...(deps.mode === 'dryrun' ? ['dryrun (no dispatches submitted)'] : []),
     ],
   };
@@ -514,6 +707,9 @@ export async function processOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     aaveOracle: state.aaveOracle,
+    pnlReconciler: state.pnlReconciler,
+    failureCollector: state.failureCollector,
+    autoPauseManager: state.autoPauseManager,
   });
 }
 
@@ -536,6 +732,9 @@ export async function processCompoundOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     aaveOracle: state.aaveOracle,
+    pnlReconciler: state.pnlReconciler,
+    failureCollector: state.failureCollector,
+    autoPauseManager: state.autoPauseManager,
   });
 }
 

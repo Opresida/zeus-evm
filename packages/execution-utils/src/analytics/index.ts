@@ -17,7 +17,7 @@
 export {
   type FailureEvent,
   type FailureCategory,
-  type FailureStats,
+  type FailureAnalyticsStats,
   generateFailureId,
 } from './failureSchema';
 

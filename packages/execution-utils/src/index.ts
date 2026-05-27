@@ -134,9 +134,24 @@ export {
   type FailureCollectorOpts,
   type FailureEvent,
   type FailureCategory,
-  type FailureStats,
+  type FailureAnalyticsStats,
   generateFailureId,
 } from './analytics';
+
+// ─── Finality + Reorg Protection (Item 9 R1+R2) ───
+export {
+  FinalityTracker,
+  TxStateMachine,
+  type FinalityTrackerOpts,
+  type FinalityStats,
+  type BlockSnapshot,
+  type ReorgEvent,
+  type ReorgListener,
+  type TxStateMachineOpts,
+  type ConfirmationPolicy,
+  type TxState,
+  type TxEntry,
+} from './finality';
 
 // ─── Alerting Sinks ───
 export {

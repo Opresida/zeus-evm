@@ -102,7 +102,7 @@ export interface FailureEvent {
 /**
  * Stats agregados sobre falhas coletadas — pro Discord daily digest.
  */
-export interface FailureStats {
+export interface FailureAnalyticsStats {
   total: number;
   byCategory: Record<FailureCategory, number>;
   totalUsdLost: number;

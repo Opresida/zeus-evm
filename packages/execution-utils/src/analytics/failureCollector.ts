@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { LoggerLike } from '@zeus-evm/aave-discovery';
-import type { FailureEvent, FailureStats, FailureCategory } from './failureSchema';
+import type { FailureEvent, FailureAnalyticsStats, FailureCategory } from './failureSchema';
 
 export interface FailureCollectorOpts {
   /** Diretório base de logs. Default 'logs/failures'. */
@@ -91,7 +91,7 @@ export class FailureCollector {
   /**
    * Stats agregados rolling 24h pra Discord daily digest.
    */
-  stats(): FailureStats {
+  stats(): FailureAnalyticsStats {
     this._pruneOldEntries();
 
     const byCategory: Record<FailureCategory, number> = {} as Record<FailureCategory, number>;

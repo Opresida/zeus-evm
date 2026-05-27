@@ -68,6 +68,8 @@ import {
   buildFailureDigest,
   formatFailureMarkdown,
   sendFailureDigestToDiscord,
+  ChainlinkStalenessChecker,
+  PauseDetector,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -111,6 +113,10 @@ interface LiquidatorState {
   gasOracle: GasOracle;
   /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator. */
   aaveOracle: AavePriceOracle;
+  /** Chainlink staleness checker (Grupo B) — gate pre-dispatch contra oracle stale. */
+  stalenessChecker?: ChainlinkStalenessChecker;
+  /** PauseDetector (Grupo B) — gate pre-dispatch contra protocol pausado upstream. */
+  pauseDetector?: PauseDetector;
   /** Historical intelligence store (DuckDB) — Item 15 do checklist 16-items. */
   intelligenceStore: TimeseriesStore;
   /** EventIngester — coleta automática de eventos pro dataset histórico. */
@@ -347,6 +353,30 @@ export async function boot(): Promise<LiquidatorState> {
     { oracle: ctx.chainConfig.aave.oracle, chain: ctx.chainConfig.name },
     `🔮 Aave PriceOracle pronto`,
   );
+
+  // Chainlink staleness checker (Grupo B) — gate pre-dispatch
+  const stalenessChecker = env.ORACLE_STALENESS_CHECK_ENABLED
+    ? new ChainlinkStalenessChecker(ctx.client, {
+        defaultThresholdSec: env.ORACLE_STALENESS_THRESHOLD_SEC,
+      })
+    : undefined;
+  if (stalenessChecker) {
+    logger.info(
+      { thresholdSec: env.ORACLE_STALENESS_THRESHOLD_SEC },
+      '⏰ ChainlinkStalenessChecker armado (gate pre-dispatch)',
+    );
+  }
+
+  // PauseDetector (Grupo B) — gate pre-dispatch contra protocol pausado
+  const pauseDetector = env.PAUSE_DETECTOR_ENABLED
+    ? new PauseDetector(ctx.client, { cacheTtlBlocks: env.PAUSE_DETECTOR_CACHE_BLOCKS })
+    : undefined;
+  if (pauseDetector) {
+    logger.info(
+      { cacheTtlBlocks: env.PAUSE_DETECTOR_CACHE_BLOCKS },
+      '⏸️  PauseDetector armado (gate pre-dispatch contra Aave/Comet paused)',
+    );
+  }
 
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
@@ -669,6 +699,8 @@ export async function boot(): Promise<LiquidatorState> {
     eventBus,
     gasOracle,
     aaveOracle,
+    stalenessChecker,
+    pauseDetector,
     intelligenceStore,
     eventIngester,
     pnlReconciler,
@@ -1003,6 +1035,8 @@ export async function processOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    stalenessChecker: state.stalenessChecker,
+    pauseDetector: state.pauseDetector,
   });
 }
 
@@ -1029,6 +1063,8 @@ export async function processCompoundOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    stalenessChecker: state.stalenessChecker,
+    pauseDetector: state.pauseDetector,
   });
 }
 

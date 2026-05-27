@@ -226,6 +226,18 @@ const envSchema = z.object({
   /** Hora UTC pra disparar weekly digest. Default 14h UTC. */
   COMPETITOR_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(14),
 
+  // ─── Oracle Staleness Check (Grupo B) ───
+  /** Habilita gate pre-dispatch de oracle staleness. */
+  ORACLE_STALENESS_CHECK_ENABLED: z.coerce.boolean().default(true),
+  /** Threshold default em segundos. Chainlink Base ETH/USD update a cada ~1h. */
+  ORACLE_STALENESS_THRESHOLD_SEC: z.coerce.number().int().min(60).max(86400).default(3600),
+
+  // ─── Pause Detector (Grupo B) ───
+  /** Habilita gate pre-dispatch contra Aave Pool.paused / Comet.isAbsorbPaused. */
+  PAUSE_DETECTOR_ENABLED: z.coerce.boolean().default(true),
+  /** TTL do cache de pause state em blocos (~12s/bloco em Base). Default 3. */
+  PAUSE_DETECTOR_CACHE_BLOCKS: z.coerce.number().int().min(1).max(20).default(3),
+
   // ─── Failure Reporter (Item 4 A8 — weekly Markdown digest) ───
   /** Habilita weekly failure digest. */
   FAILURE_REPORTER_ENABLED: z.coerce.boolean().default(true),

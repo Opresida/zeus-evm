@@ -33,6 +33,8 @@ import {
   aavePositionKey,
   compoundPositionKey,
   computeBribeSlippageFloor,
+  ChainlinkStalenessChecker,
+  PauseDetector,
   type PnlTracker,
   type FailureTracker,
   type PositionDedupTracker,
@@ -72,6 +74,10 @@ export interface PipelineDeps {
   autoPauseManager?: import('@zeus-evm/execution-utils').AutoPauseManager;
   /** Tracer (Item 16B OB1) — spans pra correlação. */
   tracer?: import('@zeus-evm/execution-utils').Tracer;
+  /** Chainlink staleness checker (Grupo B) — gate pre-dispatch contra oracle stale. */
+  stalenessChecker?: ChainlinkStalenessChecker;
+  /** Pause detector (Grupo B) — gate pre-dispatch contra protocol pausado upstream. */
+  pauseDetector?: PauseDetector;
 }
 
 /**
@@ -205,6 +211,45 @@ async function _runAavePipelineInner(
       status: 'reverted_pre_dispatch',
       reason: `auto-pause active: ${deps.autoPauseManager.summary()}`,
     };
+  }
+
+  // Gate oracle staleness (Grupo B) — Chainlink updatedAt > threshold = abort
+  if (deps.stalenessChecker) {
+    const stale = await deps.stalenessChecker.checkAaveAssetsStaleness(
+      ctx.chainConfig.aave.oracle,
+      [position.debtAsset, position.collateralAsset],
+    );
+    for (const [asset, result] of stale.entries()) {
+      if (result.status === 'stale' || result.status === 'invalid') {
+        logger.warn(
+          { asset, status: result.status, age: result.age_seconds, threshold: result.threshold_seconds, reason: result.reason },
+          `⏰ Oracle staleness gate: ${result.status}`,
+        );
+        return {
+          status: 'reverted_pre_dispatch',
+          reason: `oracle ${result.status} for ${asset} (age=${result.age_seconds}s, threshold=${result.threshold_seconds}s)`,
+        };
+      }
+    }
+  }
+
+  // Gate pause detection upstream (Grupo B) — protocol pausado = abort
+  if (deps.pauseDetector) {
+    const pause = await deps.pauseDetector.checkAaveLiquidation(
+      ctx.chainConfig.aave.pool,
+      position.debtAsset,
+      position.collateralAsset,
+    );
+    if (pause.paused) {
+      logger.warn(
+        { reason: pause.reason, block: pause.checked_at_block.toString() },
+        `⏸️  Aave pause gate: ${pause.reason}`,
+      );
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `aave paused: ${pause.reason}`,
+      };
+    }
   }
 
   // Gate dedup
@@ -438,6 +483,41 @@ async function _runCompoundPipelineInner(
       status: 'reverted_pre_dispatch',
       reason: `auto-pause active: ${deps.autoPauseManager.summary()}`,
     };
+  }
+
+  // Gate oracle staleness (Grupo B) — checa baseToken + collateralAsset Chainlink feeds
+  if (deps.stalenessChecker) {
+    const stale = await deps.stalenessChecker.checkAaveAssetsStaleness(
+      ctx.chainConfig.aave.oracle,
+      [position.baseToken, position.collateralAsset],
+    );
+    for (const [asset, result] of stale.entries()) {
+      if (result.status === 'stale' || result.status === 'invalid') {
+        logger.warn(
+          { asset, status: result.status, age: result.age_seconds, threshold: result.threshold_seconds, reason: result.reason },
+          `⏰ Oracle staleness gate (Compound): ${result.status}`,
+        );
+        return {
+          status: 'reverted_pre_dispatch',
+          reason: `oracle ${result.status} for ${asset} (age=${result.age_seconds}s)`,
+        };
+      }
+    }
+  }
+
+  // Gate pause detection upstream (Grupo B) — Comet.isAbsorbPaused
+  if (deps.pauseDetector) {
+    const pause = await deps.pauseDetector.checkCometAbsorbPause(position.comet);
+    if (pause.paused) {
+      logger.warn(
+        { reason: pause.reason, comet: position.comet },
+        `⏸️  Comet absorb pause gate: ${pause.reason}`,
+      );
+      return {
+        status: 'reverted_pre_dispatch',
+        reason: `comet paused: ${pause.reason}`,
+      };
+    }
   }
 
   // Gate dedup: position composta com (comet, borrower) pra Compound

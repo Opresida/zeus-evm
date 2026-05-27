@@ -302,6 +302,24 @@ export {
   type GenericWebhookSinkOpts,
 } from './alerting/genericWebhookSink';
 
+// ─── Oracle Staleness (Grupo B — multi-chain Chainlink) ───
+export {
+  ChainlinkStalenessChecker,
+  CHAINLINK_AGGREGATOR_V3_ABI,
+  AAVE_ORACLE_GET_SOURCE_ABI,
+  type StalenessCheckResult,
+  type ChainlinkStalenessOpts,
+} from './oracle';
+
+// ─── Protocol Pause Detection (Grupo B — multi-chain Aave/Compound) ───
+export {
+  PauseDetector,
+  AAVE_POOL_PAUSED_ABI,
+  COMET_PAUSED_ABI,
+  type PauseCheckResult,
+  type PauseDetectorOpts,
+} from './protocols';
+
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───
 export {
   subscribeWhaleSwaps,

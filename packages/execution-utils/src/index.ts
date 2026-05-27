@@ -161,10 +161,11 @@ export {
   generateFailureId,
 } from './analytics';
 
-// ─── Finality + Reorg Protection (Item 9 R1+R2) ───
+// ─── Finality + Reorg Protection (Item 9 R1+R2+R3) ───
 export {
   FinalityTracker,
   TxStateMachine,
+  CacheInvalidator,
   type FinalityTrackerOpts,
   type FinalityStats,
   type BlockSnapshot,
@@ -174,6 +175,9 @@ export {
   type ConfirmationPolicy,
   type TxState,
   type TxEntry,
+  type CacheInvalidatorOpts,
+  type CacheFlushFn,
+  type InvalidationStats,
 } from './finality';
 
 // ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───
@@ -192,9 +196,11 @@ export {
   type MetricType,
 } from './observability';
 
-// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5+P7) ───
+// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5+P6+P7) ───
 export {
   PnlReconciler,
+  PnlAggregator,
+  WINDOW_MS,
   attribute,
   suggestAction,
   decodeLastSwap,
@@ -214,6 +220,10 @@ export {
   type DecodedSwapReceipt,
   type DecodedBribe,
   type DigestOptions,
+  type PnlAggregatorOpts,
+  type AggregationDimension,
+  type AggregationResult,
+  type WindowName,
 } from './pnl';
 
 // ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4+F9) ───
@@ -240,6 +250,11 @@ export {
   type ActivityPatternOpts,
   type ActivityPattern,
   type CompetitorDigestOptions,
+  BuilderAttributionTracker,
+  KNOWN_BUILDERS,
+  lookupBuilder,
+  type BuilderAttributionOpts,
+  type BuilderStats,
 } from './competitors';
 
 // ─── Alerting Sinks ───

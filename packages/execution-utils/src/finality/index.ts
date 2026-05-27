@@ -28,3 +28,10 @@ export {
   type TxState,
   type TxEntry,
 } from './txStateMachine';
+
+export {
+  CacheInvalidator,
+  type CacheInvalidatorOpts,
+  type CacheFlushFn,
+  type InvalidationStats,
+} from './cacheInvalidator';

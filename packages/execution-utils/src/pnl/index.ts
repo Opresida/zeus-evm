@@ -54,3 +54,12 @@ export {
   sendToDiscord,
   type DigestOptions,
 } from './pnlReporter';
+
+export {
+  PnlAggregator,
+  WINDOW_MS,
+  type PnlAggregatorOpts,
+  type AggregationDimension,
+  type AggregationResult,
+  type WindowName,
+} from './pnlAggregator';

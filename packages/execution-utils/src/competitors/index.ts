@@ -56,3 +56,11 @@ export {
   sendCompetitorDigestToDiscord,
   type CompetitorDigestOptions,
 } from './competitorReporter';
+
+export {
+  BuilderAttributionTracker,
+  KNOWN_BUILDERS,
+  lookupBuilder,
+  type BuilderAttributionOpts,
+  type BuilderStats,
+} from './builderAttributionTracker';

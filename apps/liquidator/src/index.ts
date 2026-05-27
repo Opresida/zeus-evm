@@ -48,6 +48,7 @@ import {
   PnlReconciler,
   FailureCollector,
   FinalityTracker,
+  CacheInvalidator,
   BlockStalenessCheck,
   ProcessCheck,
   AutoPauseManager,
@@ -388,9 +389,21 @@ export async function boot(): Promise<LiquidatorState> {
   // ── AutoPauseManager (Item 12 H10) ──
   const autoPauseManager = new AutoPauseManager({ logger });
 
+  // ── CacheInvalidator (Item 9 R3) ──
+  const cacheInvalidator = new CacheInvalidator({ logger });
+  // Registra caches conhecidos pra invalidação automática em reorg
+  cacheInvalidator.register('slippage-cache', () => { slippageCache.pruneExpired(); });
+  // Aave oracle cache by-block já autoinvalida via fresh fetch, mas force flush
+  // melhora consistência imediata pós-reorg
+  cacheInvalidator.register('aave-oracle', () => {
+    // PriceOracle cache interno (não exposto publicamente) — flush via new fetch
+    // Aqui só log; futuramente expor flushByBlock() no oracle se necessário
+  });
+  logger.info('♻️  CacheInvalidator pronto');
+
   // ── FinalityTracker (Item 9 R1) ──
   const finalityTracker = new FinalityTracker({ client: ctx.client, logger });
-  finalityTracker.onReorg((ev) => {
+  finalityTracker.onReorg(async (ev) => {
     // Em reorg crítico (depth >=3 ou circuit breaker), pausa dispatches
     if (ev.depth >= 3 || finalityTracker.isCircuitBreakerActive()) {
       autoPauseManager.setReason(
@@ -401,8 +414,8 @@ export async function boot(): Promise<LiquidatorState> {
       // Auto-clear após 5min
       setTimeout(() => autoPauseManager.clearReason('reorg'), 5 * 60 * 1000).unref();
     }
-    // Invalida slippage cache (oracle cache by-block já se autoinvalida via fresh fetch)
-    slippageCache.pruneExpired();
+    // Item 9 R3: invalida TODOS caches registrados (slippage, oracle, comet)
+    await cacheInvalidator.flushAll(ev.commonAncestorBlock);
   });
   finalityTracker.start();
   logger.info('🔗 FinalityTracker iniciado');

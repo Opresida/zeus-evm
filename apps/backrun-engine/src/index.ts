@@ -21,10 +21,13 @@ import {
   GasOracle,
   TimeseriesStore,
   EventIngester,
+  startHealthServer,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
   type WhaleSwapDetectedEvent,
+  type ReadinessReport,
+  type ComponentCheck,
 } from '@zeus-evm/execution-utils';
 import type { Severity } from '@zeus-evm/execution-utils';
 import type { Address, Hex } from 'viem';
@@ -86,6 +89,24 @@ async function main() {
     maxFeeMultiplier: env.GAS_MAX_FEE_MULTIPLIER,
     logger,
   });
+
+  // Health server — Item 12 H8+H11 (/healthz + /readyz)
+  if (env.HEALTH_SERVER_ENABLED) {
+    startHealthServer({
+      serviceName: 'backrun-engine',
+      port: env.HEALTH_SERVER_PORT,
+      host: env.HEALTH_SERVER_HOST,
+      version: 'v8.2',
+      logger,
+      readinessProvider: () => buildBackrunReadinessReport({
+        pnlTracker,
+        failureTracker,
+        intelligenceStore,
+        eventIngester,
+        mode: env.BACKRUN_MODE,
+      }),
+    });
+  }
 
   // Sinks (alerting) — só ativa se URL setada
   if (env.DISCORD_WEBHOOK_URL) {
@@ -222,6 +243,60 @@ function whaleFromEvent(event: WhaleSwapDetectedEvent) {
     tokenOutDecimals: 18,
     observedAtBlock: 0n,
     detectedAt: Date.now(),
+  };
+}
+
+/**
+ * Constrói snapshot de readiness pro health endpoint `/readyz`.
+ */
+function buildBackrunReadinessReport(deps: {
+  pnlTracker: PnlTracker;
+  failureTracker: FailureTracker;
+  intelligenceStore: TimeseriesStore;
+  eventIngester: EventIngester;
+  mode: string;
+}): ReadinessReport {
+  const pnlStats = deps.pnlTracker.stats();
+  const failureStats = deps.failureTracker.stats();
+  const intelStats = deps.intelligenceStore.stats();
+  const ingestStats = deps.eventIngester.getStats();
+
+  const checks: Record<string, ComponentCheck> = {
+    pnl: {
+      ok: !pnlStats.killSwitchTriggered,
+      netPnlUsd24h: pnlStats.netPnlUsd,
+      wins24h: pnlStats.wins,
+      losses24h: pnlStats.losses,
+    },
+    failure: {
+      ok: !failureStats.inCooldown,
+      reason: failureStats.inCooldown ? `cooldown ${failureStats.cooldownRemainingMs}ms` : undefined,
+      consecutiveFailures: failureStats.consecutiveFailures,
+    },
+    intelligence_store: {
+      ok: intelStats.flushErrors < 10,
+      reason: intelStats.flushErrors >= 10 ? `${intelStats.flushErrors} flush errors` : undefined,
+      totalEvents: intelStats.totalEvents,
+      pendingWrites: intelStats.pendingWrites,
+    },
+    event_ingester: {
+      ok: ingestStats.errors < 10,
+      eventsIngested: ingestStats.eventsIngested,
+      eventsDropped: ingestStats.eventsDropped,
+    },
+  };
+
+  const degraded = Object.values(checks).some((c) => !c.ok);
+
+  return {
+    status: degraded ? 'degraded' : 'ok',
+    checks,
+    dispatchesPaused: pnlStats.killSwitchTriggered || failureStats.inCooldown,
+    pausedReasons: [
+      ...(pnlStats.killSwitchTriggered ? [`kill_switch: ${pnlStats.killSwitchReason ?? 'unknown'}`] : []),
+      ...(failureStats.inCooldown ? [`cooldown ${failureStats.cooldownRemainingMs}ms`] : []),
+      ...(deps.mode === 'dryrun' ? ['dryrun (no dispatches submitted)'] : []),
+    ],
   };
 }
 

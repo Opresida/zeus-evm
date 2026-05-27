@@ -44,9 +44,11 @@ import {
   GasOracle,
   TimeseriesStore,
   EventIngester,
+  startHealthServer,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
+  type ReadinessReport,
 } from '@zeus-evm/execution-utils';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
@@ -321,6 +323,26 @@ export async function boot(): Promise<LiquidatorState> {
   });
   eventIngester.start();
 
+  // Health server — Item 12 H8+H11 (/healthz + /readyz pro UptimeRobot)
+  if (env.HEALTH_SERVER_ENABLED) {
+    startHealthServer({
+      serviceName: 'liquidator',
+      port: env.HEALTH_SERVER_PORT,
+      host: env.HEALTH_SERVER_HOST,
+      version: 'v8.2',
+      logger,
+      readinessProvider: () => buildLiquidatorReadinessReport({
+        pnlTracker,
+        failureTracker,
+        dedupTracker,
+        gasReserveTracker,
+        intelligenceStore,
+        eventIngester,
+        mode: env.LIQUIDATOR_MODE,
+      }),
+    });
+  }
+
   // Discord sink (se URL configurada)
   if (env.DISCORD_WEBHOOK_URL) {
     const severities = parseSeverities(env.DISCORD_SEVERITIES);
@@ -394,6 +416,82 @@ function parseSeverities(raw: string): Severity[] {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is Severity => valid.includes(s as Severity));
+}
+
+/**
+ * Constrói snapshot de readiness pro health endpoint `/readyz`.
+ * Cada componente reporta seu estado — qualquer 'critical' resulta em HTTP 503.
+ */
+function buildLiquidatorReadinessReport(deps: {
+  pnlTracker: PnlTracker;
+  failureTracker: FailureTracker;
+  dedupTracker: PositionDedupTracker;
+  gasReserveTracker: GasReserveTracker;
+  intelligenceStore: TimeseriesStore;
+  eventIngester: EventIngester;
+  mode: string;
+}): ReadinessReport {
+  const pnlStats = deps.pnlTracker.stats();
+  const failureStats = deps.failureTracker.stats();
+  const dedupStats = deps.dedupTracker.stats();
+  const gasStats = deps.gasReserveTracker.stats();
+  const intelStats = deps.intelligenceStore.stats();
+  const ingestStats = deps.eventIngester.getStats();
+
+  const checks: Record<string, import('@zeus-evm/execution-utils').ComponentCheck> = {
+    pnl: {
+      ok: !pnlStats.killSwitchTriggered,
+      reason: pnlStats.killSwitchTriggered ? pnlStats.killSwitchReason : undefined,
+      netPnlUsd24h: pnlStats.netPnlUsd,
+      wins24h: pnlStats.wins,
+      losses24h: pnlStats.losses,
+    },
+    failure: {
+      ok: !failureStats.inCooldown,
+      reason: failureStats.inCooldown ? `cooldown ${failureStats.cooldownRemainingMs}ms` : undefined,
+      consecutiveFailures: failureStats.consecutiveFailures,
+    },
+    dedup: {
+      ok: true,
+      pending: dedupStats.pending,
+      confirmed: dedupStats.confirmed,
+      failed: dedupStats.failed,
+    },
+    gas_reserve: {
+      ok: gasStats.status !== 'critical',
+      reason: gasStats.status,
+      balanceEth: gasStats.balanceEth,
+      balanceUsd: gasStats.balanceUsd,
+    },
+    intelligence_store: {
+      ok: intelStats.flushErrors < 10,
+      reason: intelStats.flushErrors >= 10 ? `${intelStats.flushErrors} flush errors` : undefined,
+      totalEvents: intelStats.totalEvents,
+      pendingWrites: intelStats.pendingWrites,
+      lastFlushAt: intelStats.lastFlushAt,
+    },
+    event_ingester: {
+      ok: ingestStats.errors < 10,
+      reason: ingestStats.errors >= 10 ? `${ingestStats.errors} ingester errors` : undefined,
+      eventsIngested: ingestStats.eventsIngested,
+      eventsDropped: ingestStats.eventsDropped,
+    },
+  };
+
+  // Agregar status global
+  const critical = Object.values(checks).some((c) => !c.ok && c.reason);
+  const degraded = Object.values(checks).some((c) => !c.ok);
+
+  return {
+    status: critical && pnlStats.killSwitchTriggered ? 'critical' : degraded ? 'degraded' : 'ok',
+    checks,
+    dispatchesPaused: pnlStats.killSwitchTriggered || failureStats.inCooldown,
+    pausedReasons: [
+      ...(pnlStats.killSwitchTriggered ? [`kill_switch: ${pnlStats.killSwitchReason}`] : []),
+      ...(failureStats.inCooldown ? [`cooldown ${failureStats.cooldownRemainingMs}ms`] : []),
+      ...(deps.mode === 'dryrun' ? ['dryrun (no dispatches submitted)'] : []),
+    ],
+  };
 }
 
 /**

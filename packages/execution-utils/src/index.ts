@@ -119,6 +119,15 @@ export {
   generateEventId,
 } from './intelligence';
 
+// ─── Health Server (Item 12 H8+H11 — /healthz + /readyz endpoints) ───
+export {
+  startHealthServer,
+  type HealthServerOpts,
+  type ReadinessProvider,
+  type ReadinessReport,
+  type ComponentCheck,
+} from './health';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

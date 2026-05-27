@@ -121,6 +121,14 @@ const envSchema = z.object({
   BRIBE_MIN_PROFIT_USD: z.coerce.number().positive().default(20),
 
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // ─── Health Server (Item 12 H8+H11) ───
+  /** Habilita HTTP health server (/healthz + /readyz). Default true em prod. */
+  HEALTH_SERVER_ENABLED: z.coerce.boolean().default(true),
+  /** Porta de bind. Backrun-engine default 7879 (liquidator usa 7880, scraper 7878). */
+  HEALTH_SERVER_PORT: z.coerce.number().int().min(1024).max(65535).default(7879),
+  /** Host bind. '127.0.0.1' (loopback) pra dev local, '0.0.0.0' pra expor externamente. */
+  HEALTH_SERVER_HOST: z.string().default('127.0.0.1'),
 });
 
 export type BackrunEnv = z.infer<typeof envSchema>;

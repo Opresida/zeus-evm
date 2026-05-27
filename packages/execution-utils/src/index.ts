@@ -320,6 +320,17 @@ export {
   type PauseDetectorOpts,
 } from './protocols';
 
+// ─── Chain Profitability Score (Doutrina 2026-05-27) ───
+export {
+  ChainProfitabilityScorer,
+  formatScoreRankingMarkdown,
+  SCORE_WEIGHTS,
+  type ChainProfitabilityScorerOpts,
+  type ChainObservation,
+  type ChainScore,
+  type ScoreComponents,
+} from './scoring';
+
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───
 export {
   subscribeWhaleSwaps,

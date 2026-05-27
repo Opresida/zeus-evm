@@ -1,0 +1,283 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "ZEUS EVM — Operations & Health Dashboard (Item 16B OB3). Cobre: ops rate, win rate, PnL, gas reserve, uptime, auto-pause. Scrape de /metrics em :7880 (liquidator) e :7881 (backrun).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "options": { "0": { "text": "DOWN" } }, "type": "value" },
+            { "options": { "1": { "text": "UP" } }, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name" },
+      "title": "Liquidator Status",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "clamp_max(zeus_uptime_seconds{service=\"liquidator\"} > 0, 1)",
+          "legendFormat": "Liquidator"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "options": { "0": { "text": "OK" } }, "type": "value" },
+            { "options": { "1": { "text": "PAUSED" } }, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name" },
+      "title": "Auto-Pause Active",
+      "type": "stat",
+      "targets": [{ "expr": "max(zeus_auto_pause_active)", "legendFormat": "{{service}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "title": "Realized PnL (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(zeus_pnl_realized_usd_total) - sum(zeus_pnl_realized_usd_total offset 24h)",
+          "legendFormat": "Net 24h"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ether",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "green", "value": 0.1 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "title": "Gas Reserve (ETH)",
+      "type": "stat",
+      "targets": [
+        { "expr": "zeus_gas_reserve_eth", "legendFormat": "{{chain}}/{{account}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Operation Rate (per minute)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (chain, protocol, outcome) (rate(zeus_operations_total[1m]) * 60)",
+          "legendFormat": "{{chain}}/{{protocol}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "green", "value": 0.7 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "table" } },
+      "title": "Win Rate by Protocol (1h rolling)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (protocol) (rate(zeus_operations_confirmed_total[1h])) / clamp_min(sum by (protocol) (rate(zeus_operations_total[1h])), 1)",
+          "legendFormat": "{{protocol}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 7,
+      "title": "PnL Expected vs Realized (cumulative)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(zeus_pnl_realized_usd_total)", "legendFormat": "Realized" },
+        { "expr": "sum(zeus_pnl_expected_usd_total)", "legendFormat": "Expected" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 8,
+      "title": "PnL Drift (bps)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "avg by (chain, protocol) (zeus_pnl_drift_bps)",
+          "legendFormat": "{{chain}}/{{protocol}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "id": 9,
+      "title": "Pre-Dispatch Gate Rejections",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gate) (rate(zeus_operations_pre_dispatch_rejected_total[5m]) * 60)",
+          "legendFormat": "{{gate}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "id": 10,
+      "title": "Block Staleness",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "zeus_block_staleness_seconds",
+          "legendFormat": "{{chain}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "id": 11,
+      "title": "Dedup Pending / Confirmed",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "zeus_dedup_pending", "legendFormat": "{{chain}} pending" },
+        { "expr": "zeus_dedup_confirmed", "legendFormat": "{{chain}} confirmed" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "id": 12,
+      "title": "Reorgs in Window",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "zeus_reorgs_in_window", "legendFormat": "{{chain}}" },
+        { "expr": "increase(zeus_reorgs_total[1h])", "legendFormat": "{{chain}} (last 1h)" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["zeus", "evm", "operations"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "Prometheus", "value": "prometheus" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "ZEUS EVM — Operations & Health",
+  "uid": "zeus-evm-operations",
+  "version": 1,
+  "weekStart": ""
+}

@@ -59,6 +59,9 @@ import {
   buildDigest,
   formatMarkdown,
   sendToDiscord,
+  buildCompetitorDigest,
+  formatCompetitorMarkdown,
+  sendCompetitorDigestToDiscord,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -579,6 +582,24 @@ export async function boot(): Promise<LiquidatorState> {
     );
   }
 
+  // Competitor Reporter — Item 5 F9 (weekly digest pra Discord)
+  if (env.COMPETITOR_REPORTER_ENABLED && env.COMPETITOR_REPORTER_WEBHOOK_URL) {
+    scheduleCompetitorDigest({
+      registry: senderRegistry,
+      webhookUrl: env.COMPETITOR_REPORTER_WEBHOOK_URL,
+      weekdayUtc: env.COMPETITOR_REPORTER_WEEKDAY_UTC,
+      hourUtc: env.COMPETITOR_REPORTER_HOUR_UTC,
+      logger,
+    });
+    logger.info(
+      {
+        weekdayUtc: env.COMPETITOR_REPORTER_WEEKDAY_UTC,
+        hourUtc: env.COMPETITOR_REPORTER_HOUR_UTC,
+      },
+      `🎯 Competitor weekly digest agendado`,
+    );
+  }
+
   // Emite evento de boot pra notificar subscribers
   eventBus.emit({
     type: 'liquidator.boot',
@@ -677,6 +698,60 @@ function schedulePnlDigest(opts: {
     void runDigest();
     // Depois roda a cada 24h
     const interval = setInterval(() => void runDigest(), 24 * 60 * 60 * 1000);
+    interval.unref();
+  }, msUntilNext).unref();
+}
+
+/**
+ * Agenda Competitor weekly digest. Calcula próxima ocorrência do weekday+hora UTC.
+ * Item 5 F9 do checklist 16-items.
+ */
+function scheduleCompetitorDigest(opts: {
+  registry: SenderRegistry;
+  webhookUrl: string;
+  weekdayUtc: number;
+  hourUtc: number;
+  logger: typeof logger;
+}): void {
+  const runDigest = async () => {
+    try {
+      const digest = buildCompetitorDigest(opts.registry);
+      const markdown = formatCompetitorMarkdown(digest);
+      await sendCompetitorDigestToDiscord(opts.webhookUrl, markdown, opts.logger);
+    } catch (err) {
+      opts.logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'Competitor weekly digest: erro (drop silencioso)',
+      );
+    }
+  };
+
+  // Calcula próxima ocorrência (weekday + hora UTC)
+  const now = new Date();
+  const targetDow = opts.weekdayUtc;
+  const currentDow = now.getUTCDay();
+  let daysUntil = (targetDow - currentDow + 7) % 7;
+  if (daysUntil === 0) {
+    // Hoje — checa se já passou da hora alvo
+    const alreadyPassed =
+      now.getUTCHours() > opts.hourUtc ||
+      (now.getUTCHours() === opts.hourUtc && now.getUTCMinutes() > 0);
+    if (alreadyPassed) daysUntil = 7;
+  }
+  const next = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + daysUntil,
+    opts.hourUtc,
+    0,
+    0,
+  ));
+  const msUntilNext = next.getTime() - now.getTime();
+
+  setTimeout(() => {
+    void runDigest();
+    // Roda a cada 7 dias
+    const interval = setInterval(() => void runDigest(), 7 * 24 * 60 * 60 * 1000);
     interval.unref();
   }, msUntilNext).unref();
 }
@@ -832,6 +907,7 @@ export async function processOpportunity(
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
+    tracer: state.tracer,
   });
 }
 
@@ -857,6 +933,7 @@ export async function processCompoundOpportunity(
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
+    tracer: state.tracer,
   });
 }
 

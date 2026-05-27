@@ -49,3 +49,10 @@ export {
   type ActivityPatternOpts,
   type ActivityPattern,
 } from './activityPatternTracker';
+
+export {
+  buildCompetitorDigest,
+  formatCompetitorMarkdown,
+  sendCompetitorDigestToDiscord,
+  type CompetitorDigestOptions,
+} from './competitorReporter';

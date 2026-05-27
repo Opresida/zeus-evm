@@ -215,6 +215,16 @@ const envSchema = z.object({
   PNL_REPORTER_WEBHOOK_URL: optionalUrl(),
   /** Hora UTC pra disparar daily digest. Default 12 (meio-dia UTC). */
   PNL_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(12),
+
+  // ─── Competitor Reporter (Item 5 F9 — weekly digest) ───
+  /** Habilita competitor weekly reporter. */
+  COMPETITOR_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  /** Discord webhook pro competitor reporter (pode ser o mesmo). */
+  COMPETITOR_REPORTER_WEBHOOK_URL: optionalUrl(),
+  /** Dia da semana (0=domingo, 1=segunda, ..., 6=sábado). Default 1 (segunda). */
+  COMPETITOR_REPORTER_WEEKDAY_UTC: z.coerce.number().int().min(0).max(6).default(1),
+  /** Hora UTC pra disparar weekly digest. Default 14h UTC. */
+  COMPETITOR_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(14),
 });
 
 export type LiquidatorEnv = z.infer<typeof envSchema>;

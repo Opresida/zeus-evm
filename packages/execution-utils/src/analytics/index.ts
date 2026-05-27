@@ -37,3 +37,11 @@ export {
   type CompetitorResolverOpts,
   type ResolvedCompetitor,
 } from './competitorResolver';
+
+export {
+  CalibrationDriftTracker,
+  type CalibrationDriftTrackerOpts,
+  type DriftSample,
+  type DriftDimension,
+  type DriftStats,
+} from './calibrationDriftTracker';

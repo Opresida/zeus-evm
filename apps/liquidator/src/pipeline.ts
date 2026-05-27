@@ -70,6 +70,8 @@ export interface PipelineDeps {
   failureCollector?: FailureCollector;
   /** AutoPauseManager (Item 12 H10) — gate pré-dispatch agregado. */
   autoPauseManager?: import('@zeus-evm/execution-utils').AutoPauseManager;
+  /** Tracer (Item 16B OB1) — spans pra correlação. */
+  tracer?: import('@zeus-evm/execution-utils').Tracer;
 }
 
 /**
@@ -139,6 +141,34 @@ async function buildBribeWithSlippageFloor(
 }
 
 export async function runAavePipeline(
+  position: AaveLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  // Tracing: encapsula execução num span (Item 16B OB1). No-op se tracer ausente.
+  if (deps.tracer) {
+    return deps.tracer.runInSpan(
+      'liquidator.runAavePipeline',
+      async (span) => {
+        span.setAttributes({
+          chain: deps.ctx.chainConfig.name,
+          borrower: position.borrower,
+          protocol: 'aave-v3',
+          debt_asset: position.debtAssetSymbol,
+          collateral_asset: position.collateralAssetSymbol,
+        });
+        const result = await _runAavePipelineInner(position, deps);
+        span.setAttribute('outcome', result.status);
+        if (result.status === 'reverted_pre_dispatch' || result.status === 'reverted_on_chain') {
+          span.setAttribute('reject_reason', (result as { reason?: string }).reason ?? '');
+        }
+        return result;
+      },
+    );
+  }
+  return _runAavePipelineInner(position, deps);
+}
+
+async function _runAavePipelineInner(
   position: AaveLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {
@@ -352,6 +382,29 @@ export async function runAavePipeline(
  * Mesma estrutura do Aave, mas com Comet `baseAmount` em vez de `debtToCover`.
  */
 export async function runCompoundPipeline(
+  position: CompoundLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  if (deps.tracer) {
+    return deps.tracer.runInSpan(
+      'liquidator.runCompoundPipeline',
+      async (span) => {
+        span.setAttributes({
+          chain: deps.ctx.chainConfig.name,
+          borrower: position.borrower,
+          comet: position.cometName,
+          protocol: 'compound-v3',
+        });
+        const result = await _runCompoundPipelineInner(position, deps);
+        span.setAttribute('outcome', result.status);
+        return result;
+      },
+    );
+  }
+  return _runCompoundPipelineInner(position, deps);
+}
+
+async function _runCompoundPipelineInner(
   position: CompoundLiquidatablePosition,
   deps: PipelineDeps,
 ): Promise<DispatchOutcome> {

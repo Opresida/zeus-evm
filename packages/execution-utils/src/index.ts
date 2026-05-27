@@ -140,11 +140,12 @@ export {
   type PauseReason,
 } from './health';
 
-// ─── Failure Analytics (Item 4 A1+A2+A3+A5) ───
+// ─── Failure Analytics (Item 4 A1+A2+A3+A4+A5) ───
 export {
   FailureCollector,
   BlockPositionTracker,
   CompetitorResolver,
+  CalibrationDriftTracker,
   type FailureCollectorOpts,
   type FailureEvent,
   type FailureCategory,
@@ -153,6 +154,10 @@ export {
   type BlockPositionInfo,
   type CompetitorResolverOpts,
   type ResolvedCompetitor,
+  type CalibrationDriftTrackerOpts,
+  type DriftSample,
+  type DriftDimension,
+  type DriftStats,
   generateFailureId,
 } from './analytics';
 
@@ -211,12 +216,15 @@ export {
   type DigestOptions,
 } from './pnl';
 
-// ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4) ───
+// ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4+F9) ───
 export {
   SenderRegistry,
   BlockHistoryScanner,
   GasFingerprintTracker,
   ActivityPatternTracker,
+  buildCompetitorDigest,
+  formatCompetitorMarkdown,
+  sendCompetitorDigestToDiscord,
   KNOWN_BOTS,
   lookupKnownAlias,
   type CompetitorProfile,
@@ -231,6 +239,7 @@ export {
   type GasFingerprint,
   type ActivityPatternOpts,
   type ActivityPattern,
+  type CompetitorDigestOptions,
 } from './competitors';
 
 // ─── Alerting Sinks ───

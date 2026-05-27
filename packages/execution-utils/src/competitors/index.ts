@@ -37,3 +37,15 @@ export {
   type ScannerTargets,
   type ScannerStats,
 } from './blockHistoryScanner';
+
+export {
+  GasFingerprintTracker,
+  type GasFingerprintTrackerOpts,
+  type GasFingerprint,
+} from './gasFingerprintTracker';
+
+export {
+  ActivityPatternTracker,
+  type ActivityPatternOpts,
+  type ActivityPattern,
+} from './activityPatternTracker';

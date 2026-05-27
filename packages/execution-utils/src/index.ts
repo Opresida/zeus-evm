@@ -205,10 +205,12 @@ export {
   type DigestOptions,
 } from './pnl';
 
-// ─── Competitor Fingerprinting (Item 5 F1+F2) ───
+// ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4) ───
 export {
   SenderRegistry,
   BlockHistoryScanner,
+  GasFingerprintTracker,
+  ActivityPatternTracker,
   KNOWN_BOTS,
   lookupKnownAlias,
   type CompetitorProfile,
@@ -219,6 +221,10 @@ export {
   type BlockHistoryScannerOpts,
   type ScannerTargets,
   type ScannerStats,
+  type GasFingerprintTrackerOpts,
+  type GasFingerprint,
+  type ActivityPatternOpts,
+  type ActivityPattern,
 } from './competitors';
 
 // ─── Alerting Sinks ───

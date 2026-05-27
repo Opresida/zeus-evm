@@ -22,6 +22,11 @@ import {
   TimeseriesStore,
   EventIngester,
   startHealthServer,
+  FinalityTracker,
+  BlockStalenessCheck,
+  ProcessCheck,
+  AutoPauseManager,
+  Tracer,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
@@ -90,6 +95,52 @@ async function main() {
     logger,
   });
 
+  // ── Tracer (Item 16B OB1) ──
+  const tracer = new Tracer({ serviceName: 'backrun-engine', logger });
+
+  // ── AutoPauseManager (Item 12 H10) — agrega sinais de health ──
+  const autoPauseManager = new AutoPauseManager({ logger });
+
+  // ── FinalityTracker (Item 9 R1) ──
+  const finalityTracker = new FinalityTracker({ client: chainCtx.client, logger });
+  finalityTracker.onReorg((ev) => {
+    if (ev.depth >= 3 || finalityTracker.isCircuitBreakerActive()) {
+      autoPauseManager.setReason(
+        'reorg',
+        'critical',
+        `reorg depth=${ev.depth} ancestor=${ev.commonAncestorBlock}`,
+      );
+      setTimeout(() => autoPauseManager.clearReason('reorg'), 5 * 60 * 1000).unref();
+    }
+  });
+  finalityTracker.start();
+
+  // ── BlockStalenessCheck (Item 12 H3) ──
+  const blockStalenessCheck = new BlockStalenessCheck({ client: chainCtx.client, logger });
+  blockStalenessCheck.onStatusChange((r) => {
+    if (r.status === 'critical') {
+      autoPauseManager.setReason('block_staleness', 'critical', `${r.age_seconds.toFixed(0)}s sem bloco`);
+    } else {
+      autoPauseManager.clearReason('block_staleness');
+    }
+  });
+  blockStalenessCheck.start();
+
+  // ── ProcessCheck (Item 12 H7) ──
+  const processCheck = new ProcessCheck({ logger });
+  processCheck.onStatusChange((p) => {
+    if (p.status === 'critical') {
+      autoPauseManager.setReason(
+        'process',
+        'critical',
+        `mem ${p.memory_mb.rss.toFixed(0)}MB lag ${p.event_loop_lag_ms.toFixed(0)}ms`,
+      );
+    } else {
+      autoPauseManager.clearReason('process');
+    }
+  });
+  processCheck.start();
+
   // Health server — Item 12 H8+H11 (/healthz + /readyz)
   if (env.HEALTH_SERVER_ENABLED) {
     startHealthServer({
@@ -103,6 +154,10 @@ async function main() {
         failureTracker,
         intelligenceStore,
         eventIngester,
+        autoPauseManager,
+        finalityTracker,
+        blockStalenessCheck,
+        processCheck,
         mode: env.BACKRUN_MODE,
       }),
     });
@@ -254,12 +309,20 @@ function buildBackrunReadinessReport(deps: {
   failureTracker: FailureTracker;
   intelligenceStore: TimeseriesStore;
   eventIngester: EventIngester;
+  autoPauseManager: AutoPauseManager;
+  finalityTracker: FinalityTracker;
+  blockStalenessCheck: BlockStalenessCheck;
+  processCheck: ProcessCheck;
   mode: string;
 }): ReadinessReport {
   const pnlStats = deps.pnlTracker.stats();
   const failureStats = deps.failureTracker.stats();
   const intelStats = deps.intelligenceStore.stats();
   const ingestStats = deps.eventIngester.getStats();
+  const pauseStatus = deps.autoPauseManager.status();
+  const finalityStats = deps.finalityTracker.stats();
+  const staleness = deps.blockStalenessCheck.getStatus();
+  const procHealth = deps.processCheck.getStatus();
 
   const checks: Record<string, ComponentCheck> = {
     pnl: {
@@ -284,17 +347,40 @@ function buildBackrunReadinessReport(deps: {
       eventsIngested: ingestStats.eventsIngested,
       eventsDropped: ingestStats.eventsDropped,
     },
+    block_staleness: {
+      ok: staleness.status !== 'critical',
+      reason: staleness.status,
+      ageSec: staleness.age_seconds.toFixed(1),
+    },
+    process: {
+      ok: procHealth.status !== 'critical',
+      reason: procHealth.status,
+      memoryRssMb: procHealth.memory_mb.rss.toFixed(0),
+      eventLoopLagMs: procHealth.event_loop_lag_ms.toFixed(1),
+    },
+    finality: {
+      ok: !finalityStats.circuitBreakerActive,
+      reason: finalityStats.circuitBreakerActive ? 'reorg circuit breaker' : undefined,
+      reorgsLifetime: finalityStats.reorgsLifetime,
+    },
+    auto_pause: {
+      ok: !pauseStatus.hard_pause,
+      reason: pauseStatus.paused ? deps.autoPauseManager.summary() : undefined,
+      activeReasons: pauseStatus.reasons.length,
+    },
   };
 
-  const degraded = Object.values(checks).some((c) => !c.ok);
+  const anyCritical = pauseStatus.hard_pause || pnlStats.killSwitchTriggered || staleness.status === 'critical' || procHealth.status === 'critical';
+  const anyDegraded = Object.values(checks).some((c) => !c.ok);
 
   return {
-    status: degraded ? 'degraded' : 'ok',
+    status: anyCritical ? 'critical' : anyDegraded ? 'degraded' : 'ok',
     checks,
-    dispatchesPaused: pnlStats.killSwitchTriggered || failureStats.inCooldown,
+    dispatchesPaused: pauseStatus.paused || pnlStats.killSwitchTriggered || failureStats.inCooldown,
     pausedReasons: [
       ...(pnlStats.killSwitchTriggered ? [`kill_switch: ${pnlStats.killSwitchReason ?? 'unknown'}`] : []),
       ...(failureStats.inCooldown ? [`cooldown ${failureStats.cooldownRemainingMs}ms`] : []),
+      ...pauseStatus.reasons.map((r) => `${r.source}: ${r.message}`),
       ...(deps.mode === 'dryrun' ? ['dryrun (no dispatches submitted)'] : []),
     ],
   };

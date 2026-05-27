@@ -128,6 +128,16 @@ export {
   type ComponentCheck,
 } from './health';
 
+// ─── Failure Analytics (Item 4 A1+A5 — schema rico + JSONL persistence) ───
+export {
+  FailureCollector,
+  type FailureCollectorOpts,
+  type FailureEvent,
+  type FailureCategory,
+  type FailureStats,
+  generateFailureId,
+} from './analytics';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

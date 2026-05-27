@@ -102,6 +102,23 @@ export {
   type BribeSlippageFloorResult,
 } from './bribeSlippageFloor';
 
+// ─── Historical Intelligence (Item 15 — DuckDB + EventIngester) ───
+export {
+  TimeseriesStore,
+  EventIngester,
+  type TimeseriesStoreOpts,
+  type TimeseriesStats,
+  type EventIngesterOpts,
+  type IngesterStats,
+  type HistoricalEvent,
+  type EventCategory,
+  type EventMode,
+  type EventSeverity,
+  EVENTS_TABLE_DDL,
+  computeTimeDimensions,
+  generateEventId,
+} from './intelligence';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

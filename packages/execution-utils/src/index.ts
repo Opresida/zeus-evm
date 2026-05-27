@@ -246,7 +246,7 @@ export {
   type InclusionCostBreakdown,
 } from './pnl';
 
-// ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4+F9) ───
+// ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4+F5+F6+F7+F8+F9) ───
 export {
   SenderRegistry,
   BlockHistoryScanner,
@@ -275,6 +275,20 @@ export {
   lookupBuilder,
   type BuilderAttributionOpts,
   type BuilderStats,
+  computeAffinity,
+  topSpecialistsPerProtocol,
+  classifyMultiSignal,
+  applyClassification,
+  CooccurrenceAnalyzer,
+  type ProtocolAffinity,
+  type ProtocolKey,
+  type SpecializationLevel,
+  type ClassifierSignals,
+  type ClassificationResult,
+  type CooccurrenceAnalyzerOpts,
+  type BlockObservation,
+  type CooccurrenceLink,
+  type CooccurrenceCluster,
 } from './competitors';
 
 // ─── Alerting Sinks ───

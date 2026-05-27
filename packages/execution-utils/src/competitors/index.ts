@@ -64,3 +64,26 @@ export {
   type BuilderAttributionOpts,
   type BuilderStats,
 } from './builderAttributionTracker';
+
+export {
+  computeAffinity,
+  topSpecialistsPerProtocol,
+  type ProtocolAffinity,
+  type ProtocolKey,
+  type SpecializationLevel,
+} from './protocolAffinityTracker';
+
+export {
+  classifyMultiSignal,
+  applyClassification,
+  type ClassifierSignals,
+  type ClassificationResult,
+} from './multiSignalClassifier';
+
+export {
+  CooccurrenceAnalyzer,
+  type CooccurrenceAnalyzerOpts,
+  type BlockObservation,
+  type CooccurrenceLink,
+  type CooccurrenceCluster,
+} from './cooccurrenceAnalyzer';

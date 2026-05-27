@@ -184,6 +184,22 @@ export {
   type DecodedBribe,
 } from './pnl';
 
+// ─── Competitor Fingerprinting (Item 5 F1+F2) ───
+export {
+  SenderRegistry,
+  BlockHistoryScanner,
+  KNOWN_BOTS,
+  lookupKnownAlias,
+  type CompetitorProfile,
+  type CompetitorCategory,
+  type CompetitorRegistryStats,
+  type SenderRegistryOpts,
+  type SenderObserveInput,
+  type BlockHistoryScannerOpts,
+  type ScannerTargets,
+  type ScannerStats,
+} from './competitors';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

@@ -140,13 +140,19 @@ export {
   type PauseReason,
 } from './health';
 
-// ─── Failure Analytics (Item 4 A1+A5 — schema rico + JSONL persistence) ───
+// ─── Failure Analytics (Item 4 A1+A2+A3+A5) ───
 export {
   FailureCollector,
+  BlockPositionTracker,
+  CompetitorResolver,
   type FailureCollectorOpts,
   type FailureEvent,
   type FailureCategory,
   type FailureAnalyticsStats,
+  type BlockPositionTrackerOpts,
+  type BlockPositionInfo,
+  type CompetitorResolverOpts,
+  type ResolvedCompetitor,
   generateFailureId,
 } from './analytics';
 

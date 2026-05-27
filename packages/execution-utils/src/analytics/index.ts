@@ -25,3 +25,15 @@ export {
   FailureCollector,
   type FailureCollectorOpts,
 } from './failureCollector';
+
+export {
+  BlockPositionTracker,
+  type BlockPositionTrackerOpts,
+  type BlockPositionInfo,
+} from './blockPositionTracker';
+
+export {
+  CompetitorResolver,
+  type CompetitorResolverOpts,
+  type ResolvedCompetitor,
+} from './competitorResolver';

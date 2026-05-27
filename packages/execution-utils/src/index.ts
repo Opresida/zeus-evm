@@ -119,13 +119,25 @@ export {
   generateEventId,
 } from './intelligence';
 
-// ─── Health Server (Item 12 H8+H11 — /healthz + /readyz endpoints) ───
+// ─── Health (Item 12 H3+H7+H8+H10+H11) ───
 export {
   startHealthServer,
+  BlockStalenessCheck,
+  ProcessCheck,
+  AutoPauseManager,
   type HealthServerOpts,
   type ReadinessProvider,
   type ReadinessReport,
   type ComponentCheck,
+  type BlockStalenessCheckOpts,
+  type StalenessResult,
+  type StalenessStatus,
+  type ProcessCheckOpts,
+  type ProcessHealth,
+  type ProcessStatus,
+  type AutoPauseManagerOpts,
+  type AutoPauseStatus,
+  type PauseReason,
 } from './health';
 
 // ─── Failure Analytics (Item 4 A1+A5 — schema rico + JSONL persistence) ───

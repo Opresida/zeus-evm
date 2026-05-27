@@ -164,6 +164,26 @@ export {
   type StructuredLoggerOpts,
 } from './observability';
 
+// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5) ───
+export {
+  PnlReconciler,
+  attribute,
+  suggestAction,
+  decodeLastSwap,
+  calculateSlippageBps,
+  decodeBribeEvent,
+  generateReconciliationId,
+  type PnlReconciliation,
+  type ReconciliationStats,
+  type AttributionCause,
+  type PnlReconcilerOpts,
+  type ReconcileInput,
+  type AttributionInput,
+  type AttributionResult,
+  type DecodedSwapReceipt,
+  type DecodedBribe,
+} from './pnl';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

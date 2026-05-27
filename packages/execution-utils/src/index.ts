@@ -153,6 +153,17 @@ export {
   type TxEntry,
 } from './finality';
 
+// ─── Observability (Item 16B OB1+OB5 — Tracer + StructuredLogger) ───
+export {
+  Tracer,
+  Span,
+  createStructuredLogger,
+  type TracerOpts,
+  type SpanData,
+  type SpanStatus,
+  type StructuredLoggerOpts,
+} from './observability';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

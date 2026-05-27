@@ -161,11 +161,13 @@ export {
   generateFailureId,
 } from './analytics';
 
-// ─── Finality + Reorg Protection (Item 9 R1+R2+R3) ───
+// ─── Finality + Reorg Protection (Item 9 R1+R2+R3+R5+R7) ───
 export {
   FinalityTracker,
   TxStateMachine,
   CacheInvalidator,
+  OrphanRecoveryManager,
+  ReorgAnalytics,
   type FinalityTrackerOpts,
   type FinalityStats,
   type BlockSnapshot,
@@ -178,6 +180,12 @@ export {
   type CacheInvalidatorOpts,
   type CacheFlushFn,
   type InvalidationStats,
+  type OrphanRecoveryManagerOpts,
+  type OrphanContext,
+  type OrphanRecoveryStats,
+  type ReorgAnalyticsOpts,
+  type ReorgSample,
+  type ReorgAggregateStats,
 } from './finality';
 
 // ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───

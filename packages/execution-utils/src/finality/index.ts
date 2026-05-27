@@ -35,3 +35,17 @@ export {
   type CacheFlushFn,
   type InvalidationStats,
 } from './cacheInvalidator';
+
+export {
+  OrphanRecoveryManager,
+  type OrphanRecoveryManagerOpts,
+  type OrphanContext,
+  type OrphanRecoveryStats,
+} from './orphanRecoveryManager';
+
+export {
+  ReorgAnalytics,
+  type ReorgAnalyticsOpts,
+  type ReorgSample,
+  type ReorgAggregateStats,
+} from './reorgAnalytics';

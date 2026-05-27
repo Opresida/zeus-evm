@@ -49,6 +49,8 @@ import {
   FailureCollector,
   FinalityTracker,
   CacheInvalidator,
+  ReorgAnalytics,
+  TxStateMachine,
   BlockStalenessCheck,
   ProcessCheck,
   AutoPauseManager,
@@ -389,6 +391,12 @@ export async function boot(): Promise<LiquidatorState> {
   // ── AutoPauseManager (Item 12 H10) ──
   const autoPauseManager = new AutoPauseManager({ logger });
 
+  // ── TxStateMachine (Item 9 R2) ──
+  const txStateMachine = new TxStateMachine({ logger });
+
+  // ── ReorgAnalytics (Item 9 R7) — rolling 30d ──
+  const reorgAnalytics = new ReorgAnalytics({ logger });
+
   // ── CacheInvalidator (Item 9 R3) ──
   const cacheInvalidator = new CacheInvalidator({ logger });
   // Registra caches conhecidos pra invalidação automática em reorg
@@ -416,6 +424,8 @@ export async function boot(): Promise<LiquidatorState> {
     }
     // Item 9 R3: invalida TODOS caches registrados (slippage, oracle, comet)
     await cacheInvalidator.flushAll(ev.commonAncestorBlock);
+    // Item 9 R7: registra sample no analytics rolling 30d
+    reorgAnalytics.observe(ev);
   });
   finalityTracker.start();
   logger.info('🔗 FinalityTracker iniciado');

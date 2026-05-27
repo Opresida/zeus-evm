@@ -19,6 +19,8 @@ import {
   PnlTracker,
   FailureTracker,
   GasOracle,
+  TimeseriesStore,
+  EventIngester,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
@@ -26,6 +28,7 @@ import {
 } from '@zeus-evm/execution-utils';
 import type { Severity } from '@zeus-evm/execution-utils';
 import type { Address, Hex } from 'viem';
+import { resolve as resolvePath } from 'node:path';
 
 import { loadConfig } from './config';
 import { buildChainContext } from './chainContext';
@@ -51,6 +54,22 @@ async function main() {
 
   // EventBus + trackers (mesmos do liquidator, instâncias separadas)
   const eventBus = new EventBus();
+
+  // Historical Intelligence — Item 15 I1+I2 (DuckDB + EventIngester)
+  // Coleta automática de eventos pra dataset histórico do ZEUS.
+  // Mesmo .duckdb file que liquidator pra dataset unificado cross-engine.
+  const intelligenceStore = new TimeseriesStore({
+    dbPath: resolvePath('logs', 'intelligence.duckdb'),
+    logger,
+  });
+  await intelligenceStore.init();
+  const eventIngester = new EventIngester({
+    store: intelligenceStore,
+    eventBus,
+    logger,
+    defaultChain: chainCtx.chainName,
+  });
+  eventIngester.start();
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: env.PNL_LOG_FILE,

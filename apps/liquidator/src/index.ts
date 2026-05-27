@@ -42,6 +42,8 @@ import {
   GasReserveTracker,
   EventBus,
   GasOracle,
+  TimeseriesStore,
+  EventIngester,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -84,6 +86,10 @@ interface LiquidatorState {
   gasOracle: GasOracle;
   /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator. */
   aaveOracle: AavePriceOracle;
+  /** Historical intelligence store (DuckDB) — Item 15 do checklist 16-items. */
+  intelligenceStore: TimeseriesStore;
+  /** EventIngester — coleta automática de eventos pro dataset histórico. */
+  eventIngester: EventIngester;
 }
 
 /**
@@ -300,6 +306,21 @@ export async function boot(): Promise<LiquidatorState> {
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
 
+  // Historical Intelligence — Item 15 I1+I2 (DuckDB + EventIngester)
+  // Coleta de TODOS eventos pra dataset histórico (alimenta IA futura).
+  const intelligenceStore = new TimeseriesStore({
+    dbPath: resolvePath('logs', 'intelligence.duckdb'),
+    logger,
+  });
+  await intelligenceStore.init();
+  const eventIngester = new EventIngester({
+    store: intelligenceStore,
+    eventBus,
+    logger,
+    defaultChain: ctx.chainConfig.name,
+  });
+  eventIngester.start();
+
   // Discord sink (se URL configurada)
   if (env.DISCORD_WEBHOOK_URL) {
     const severities = parseSeverities(env.DISCORD_SEVERITIES);
@@ -361,6 +382,8 @@ export async function boot(): Promise<LiquidatorState> {
     eventBus,
     gasOracle,
     aaveOracle,
+    intelligenceStore,
+    eventIngester,
   };
 }
 

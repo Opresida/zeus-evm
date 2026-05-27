@@ -67,6 +67,8 @@ export interface HealthServerOpts {
   version?: string;
   /** Provider que retorna readiness snapshot. */
   readinessProvider: ReadinessProvider;
+  /** Provider opcional pra /metrics (Prometheus format). */
+  metricsProvider?: () => string;
   logger?: LoggerLike;
 }
 
@@ -80,6 +82,7 @@ export function startHealthServer(opts: HealthServerOpts): Server {
     host = '127.0.0.1',
     version = 'unknown',
     readinessProvider,
+    metricsProvider,
     logger,
   } = opts;
 
@@ -119,11 +122,13 @@ export function startHealthServer(opts: HealthServerOpts): Server {
         });
       }
 
-      // Metrics — placeholder Prometheus pra Item 16B OB2
+      // Metrics — Prometheus text exposition format (Item 16B OB2)
       if (url === '/metrics' && method === 'GET') {
-        return sendText(res, 200,
-          `# TYP zeus_uptime_seconds gauge\nzeus_uptime_seconds{service="${serviceName}"} ${Math.floor((Date.now() - startedAt) / 1000)}\n`,
-        );
+        const uptimeMetric = `# HELP zeus_uptime_seconds Bot uptime\n# TYPE zeus_uptime_seconds gauge\nzeus_uptime_seconds{service="${serviceName}"} ${Math.floor((Date.now() - startedAt) / 1000)}\n`;
+        const metricsOutput = metricsProvider
+          ? `${uptimeMetric}\n${metricsProvider()}`
+          : uptimeMetric;
+        return sendText(res, 200, metricsOutput);
       }
 
       // 404

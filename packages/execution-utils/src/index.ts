@@ -165,15 +165,20 @@ export {
   type TxEntry,
 } from './finality';
 
-// ─── Observability (Item 16B OB1+OB5 — Tracer + StructuredLogger) ───
+// ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───
 export {
   Tracer,
   Span,
   createStructuredLogger,
+  MetricRegistry,
+  STANDARD_METRICS,
+  registerStandardMetrics,
   type TracerOpts,
   type SpanData,
   type SpanStatus,
   type StructuredLoggerOpts,
+  type MetricDefinition,
+  type MetricType,
 } from './observability';
 
 // ─── PnL Reconciliation (Item 10 P1+P2+P3+P5+P7) ───

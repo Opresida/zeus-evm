@@ -29,3 +29,11 @@ export {
   createStructuredLogger,
   type StructuredLoggerOpts,
 } from './structuredLogger';
+
+export {
+  MetricRegistry,
+  STANDARD_METRICS,
+  registerStandardMetrics,
+  type MetricDefinition,
+  type MetricType,
+} from './prometheusExporter';

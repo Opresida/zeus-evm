@@ -54,6 +54,8 @@ import {
   SenderRegistry,
   BlockHistoryScanner,
   Tracer,
+  MetricRegistry,
+  registerStandardMetrics,
   buildDigest,
   formatMarkdown,
   sendToDiscord,
@@ -122,6 +124,8 @@ interface LiquidatorState {
   blockHistoryScanner: BlockHistoryScanner;
   /** Tracer (Item 16B OB1) — spans correlacionados via trace_id. */
   tracer: Tracer;
+  /** Prometheus MetricRegistry (Item 16B OB2). */
+  metricRegistry: MetricRegistry;
 }
 
 /**
@@ -373,6 +377,11 @@ export async function boot(): Promise<LiquidatorState> {
     logger,
   });
 
+  // ── Prometheus MetricRegistry (Item 16B OB2) ──
+  const metricRegistry = new MetricRegistry({ logger });
+  registerStandardMetrics(metricRegistry);
+  logger.info({ definitions: metricRegistry.stats().definitions }, '📊 Prometheus registry pronto');
+
   // ── AutoPauseManager (Item 12 H10) ──
   const autoPauseManager = new AutoPauseManager({ logger });
 
@@ -475,6 +484,7 @@ export async function boot(): Promise<LiquidatorState> {
         pnlReconciler,
         mode: env.LIQUIDATOR_MODE,
       }),
+      metricsProvider: () => metricRegistry.render(),
     });
   }
 
@@ -513,6 +523,47 @@ export async function boot(): Promise<LiquidatorState> {
   if (eventBus.subscriberCount() === 0) {
     logger.info('📭 Nenhum sink de alerta configurado (defina DISCORD_WEBHOOK_URL ou GENERIC_WEBHOOK_URL)');
   }
+
+  // Sync periódico de gauges Prometheus (a cada 5s) — pega snapshots de trackers
+  // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
+  const metricsSyncInterval = setInterval(() => {
+    try {
+      const chain = ctx.chainConfig.name;
+      // Health gauges
+      const staleness = blockStalenessCheck.getStatus();
+      metricRegistry.set('zeus_block_staleness_seconds', staleness.age_seconds, { chain });
+      const proc = processCheck.getStatus();
+      metricRegistry.set('zeus_uptime_seconds', proc.uptime_sec, { service: 'liquidator' });
+      metricRegistry.set('zeus_process_memory_rss_mb', proc.memory_mb.rss, { service: 'liquidator' });
+      metricRegistry.set('zeus_event_loop_lag_ms', proc.event_loop_lag_ms, { service: 'liquidator' });
+      // PnL
+      const pnlStats = pnlTracker.stats();
+      metricRegistry.set('zeus_pnl_realized_usd_total', pnlStats.netPnlUsd, { chain, protocol: 'all' });
+      // Gas reserve
+      const gasStats = gasReserveTracker.stats();
+      metricRegistry.set('zeus_gas_reserve_eth', Number(gasStats.balanceEth ?? 0), { chain, account: callerAddress });
+      // Reorg
+      const finStats = finalityTracker.stats();
+      metricRegistry.set('zeus_reorgs_in_window', finStats.reorgsInWindow, { chain });
+      // Auto-pause
+      const pauseStatus = autoPauseManager.status();
+      metricRegistry.set('zeus_auto_pause_active', pauseStatus.paused ? 1 : 0, { service: 'liquidator' });
+      metricRegistry.set('zeus_auto_pause_reasons', pauseStatus.reasons.length, { service: 'liquidator' });
+      // Dedup
+      const dedupStats = dedupTracker.stats();
+      metricRegistry.set('zeus_dedup_pending', dedupStats.pending, { chain });
+      metricRegistry.set('zeus_dedup_confirmed', dedupStats.confirmed, { chain });
+      // Competitor scanner
+      const scannerStats = blockHistoryScanner.getStats();
+      metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain });
+    } catch (err) {
+      logger.debug(
+        { err: err instanceof Error ? err.message : err },
+        'metrics sync: erro (drop silencioso)',
+      );
+    }
+  }, 5_000);
+  metricsSyncInterval.unref();
 
   // PnL Reporter — Item 10 P7 (daily digest pra Discord)
   if (env.PNL_REPORTER_ENABLED && env.PNL_REPORTER_WEBHOOK_URL) {
@@ -564,6 +615,7 @@ export async function boot(): Promise<LiquidatorState> {
     senderRegistry,
     blockHistoryScanner,
     tracer,
+    metricRegistry,
   };
 }
 

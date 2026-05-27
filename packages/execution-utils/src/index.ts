@@ -140,12 +140,15 @@ export {
   type PauseReason,
 } from './health';
 
-// ─── Failure Analytics (Item 4 A1+A2+A3+A4+A5) ───
+// ─── Failure Analytics (Item 4 A1+A2+A3+A4+A5+A8) ───
 export {
   FailureCollector,
   BlockPositionTracker,
   CompetitorResolver,
   CalibrationDriftTracker,
+  buildFailureDigest,
+  formatFailureMarkdown,
+  sendFailureDigestToDiscord,
   type FailureCollectorOpts,
   type FailureEvent,
   type FailureCategory,
@@ -158,6 +161,7 @@ export {
   type DriftSample,
   type DriftDimension,
   type DriftStats,
+  type FailureDigestOptions,
   generateFailureId,
 } from './analytics';
 

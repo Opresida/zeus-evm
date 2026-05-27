@@ -45,3 +45,10 @@ export {
   type DriftDimension,
   type DriftStats,
 } from './calibrationDriftTracker';
+
+export {
+  buildFailureDigest,
+  formatFailureMarkdown,
+  sendFailureDigestToDiscord,
+  type FailureDigestOptions,
+} from './failureReporter';

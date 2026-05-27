@@ -65,6 +65,9 @@ import {
   buildCompetitorDigest,
   formatCompetitorMarkdown,
   sendCompetitorDigestToDiscord,
+  buildFailureDigest,
+  formatFailureMarkdown,
+  sendFailureDigestToDiscord,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -623,6 +626,24 @@ export async function boot(): Promise<LiquidatorState> {
     );
   }
 
+  // Failure Reporter — Item 4 A8 (weekly Markdown digest pra Discord)
+  if (env.FAILURE_REPORTER_ENABLED && env.FAILURE_REPORTER_WEBHOOK_URL) {
+    scheduleFailureDigest({
+      collector: failureCollector,
+      webhookUrl: env.FAILURE_REPORTER_WEBHOOK_URL,
+      weekdayUtc: env.FAILURE_REPORTER_WEEKDAY_UTC,
+      hourUtc: env.FAILURE_REPORTER_HOUR_UTC,
+      logger,
+    });
+    logger.info(
+      {
+        weekdayUtc: env.FAILURE_REPORTER_WEEKDAY_UTC,
+        hourUtc: env.FAILURE_REPORTER_HOUR_UTC,
+      },
+      `💥 Failure weekly digest agendado`,
+    );
+  }
+
   // Emite evento de boot pra notificar subscribers
   eventBus.emit({
     type: 'liquidator.boot',
@@ -774,6 +795,57 @@ function scheduleCompetitorDigest(opts: {
   setTimeout(() => {
     void runDigest();
     // Roda a cada 7 dias
+    const interval = setInterval(() => void runDigest(), 7 * 24 * 60 * 60 * 1000);
+    interval.unref();
+  }, msUntilNext).unref();
+}
+
+/**
+ * Agenda Failure weekly Markdown digest pra Discord.
+ * Item 4 A8 do checklist 16-items.
+ */
+function scheduleFailureDigest(opts: {
+  collector: FailureCollector;
+  webhookUrl: string;
+  weekdayUtc: number;
+  hourUtc: number;
+  logger: typeof logger;
+}): void {
+  const runDigest = async () => {
+    try {
+      const digest = buildFailureDigest(opts.collector);
+      const markdown = formatFailureMarkdown(digest);
+      await sendFailureDigestToDiscord(opts.webhookUrl, markdown, opts.logger);
+    } catch (err) {
+      opts.logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'Failure weekly digest: erro (drop silencioso)',
+      );
+    }
+  };
+
+  const now = new Date();
+  const targetDow = opts.weekdayUtc;
+  const currentDow = now.getUTCDay();
+  let daysUntil = (targetDow - currentDow + 7) % 7;
+  if (daysUntil === 0) {
+    const alreadyPassed =
+      now.getUTCHours() > opts.hourUtc ||
+      (now.getUTCHours() === opts.hourUtc && now.getUTCMinutes() > 0);
+    if (alreadyPassed) daysUntil = 7;
+  }
+  const next = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + daysUntil,
+    opts.hourUtc,
+    0,
+    0,
+  ));
+  const msUntilNext = next.getTime() - now.getTime();
+
+  setTimeout(() => {
+    void runDigest();
     const interval = setInterval(() => void runDigest(), 7 * 24 * 60 * 60 * 1000);
     interval.unref();
   }, msUntilNext).unref();

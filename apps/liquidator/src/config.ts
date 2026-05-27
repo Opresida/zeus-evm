@@ -225,6 +225,16 @@ const envSchema = z.object({
   COMPETITOR_REPORTER_WEEKDAY_UTC: z.coerce.number().int().min(0).max(6).default(1),
   /** Hora UTC pra disparar weekly digest. Default 14h UTC. */
   COMPETITOR_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(14),
+
+  // ─── Failure Reporter (Item 4 A8 — weekly Markdown digest) ───
+  /** Habilita weekly failure digest. */
+  FAILURE_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  /** Discord webhook pro failure reporter. */
+  FAILURE_REPORTER_WEBHOOK_URL: optionalUrl(),
+  /** Dia da semana (0=domingo, 1=segunda, ..., 6=sábado). Default 1 (segunda). */
+  FAILURE_REPORTER_WEEKDAY_UTC: z.coerce.number().int().min(0).max(6).default(1),
+  /** Hora UTC pra disparar. Default 15h UTC (1h depois do competitor). */
+  FAILURE_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(15),
 });
 
 export type LiquidatorEnv = z.infer<typeof envSchema>;

@@ -54,6 +54,9 @@ import {
   SenderRegistry,
   BlockHistoryScanner,
   Tracer,
+  buildDigest,
+  formatMarkdown,
+  sendToDiscord,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -511,6 +514,20 @@ export async function boot(): Promise<LiquidatorState> {
     logger.info('📭 Nenhum sink de alerta configurado (defina DISCORD_WEBHOOK_URL ou GENERIC_WEBHOOK_URL)');
   }
 
+  // PnL Reporter — Item 10 P7 (daily digest pra Discord)
+  if (env.PNL_REPORTER_ENABLED && env.PNL_REPORTER_WEBHOOK_URL) {
+    schedulePnlDigest({
+      reconciler: pnlReconciler,
+      webhookUrl: env.PNL_REPORTER_WEBHOOK_URL,
+      hourUtc: env.PNL_REPORTER_HOUR_UTC,
+      logger,
+    });
+    logger.info(
+      { hourUtc: env.PNL_REPORTER_HOUR_UTC },
+      `📊 PnL daily digest agendado pra ${env.PNL_REPORTER_HOUR_UTC}h UTC`,
+    );
+  }
+
   // Emite evento de boot pra notificar subscribers
   eventBus.emit({
     type: 'liquidator.boot',
@@ -557,6 +574,59 @@ function parseSeverities(raw: string): Severity[] {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is Severity => valid.includes(s as Severity));
+}
+
+/**
+ * Agenda PnL daily digest pra rodar diariamente no horário UTC configurado.
+ * Item 10 P7 do checklist 16-items.
+ *
+ * Estratégia:
+ *  - Calcula tempo até próxima ocorrência da `hourUtc` configurada
+ *  - setTimeout pra essa primeira execução
+ *  - Depois setInterval 24h pra repetir
+ *
+ * Falhas no envio NÃO derrubam o bot (try/catch interno do sendToDiscord).
+ */
+function schedulePnlDigest(opts: {
+  reconciler: PnlReconciler;
+  webhookUrl: string;
+  hourUtc: number;
+  logger: typeof logger;
+}): void {
+  const runDigest = async () => {
+    try {
+      const digest = buildDigest(opts.reconciler, { period: 'daily' });
+      const markdown = formatMarkdown(digest);
+      await sendToDiscord(opts.webhookUrl, markdown, opts.logger);
+    } catch (err) {
+      opts.logger.warn(
+        { err: err instanceof Error ? err.message : err },
+        'PnL daily digest: erro gerando/enviando (drop silencioso)',
+      );
+    }
+  };
+
+  // Calcula ms até próxima ocorrência da hora UTC
+  const now = new Date();
+  const next = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    opts.hourUtc,
+    0,
+    0,
+  ));
+  if (next.getTime() <= now.getTime()) {
+    next.setUTCDate(next.getUTCDate() + 1); // próxima ocorrência amanhã
+  }
+  const msUntilNext = next.getTime() - now.getTime();
+
+  setTimeout(() => {
+    void runDigest();
+    // Depois roda a cada 24h
+    const interval = setInterval(() => void runDigest(), 24 * 60 * 60 * 1000);
+    interval.unref();
+  }, msUntilNext).unref();
 }
 
 /**

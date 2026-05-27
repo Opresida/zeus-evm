@@ -176,7 +176,7 @@ export {
   type StructuredLoggerOpts,
 } from './observability';
 
-// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5) ───
+// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5+P7) ───
 export {
   PnlReconciler,
   attribute,
@@ -185,6 +185,9 @@ export {
   calculateSlippageBps,
   decodeBribeEvent,
   generateReconciliationId,
+  buildDigest,
+  formatMarkdown,
+  sendToDiscord,
   type PnlReconciliation,
   type ReconciliationStats,
   type AttributionCause,
@@ -194,6 +197,7 @@ export {
   type AttributionResult,
   type DecodedSwapReceipt,
   type DecodedBribe,
+  type DigestOptions,
 } from './pnl';
 
 // ─── Competitor Fingerprinting (Item 5 F1+F2) ───

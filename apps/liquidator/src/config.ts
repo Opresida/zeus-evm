@@ -207,6 +207,14 @@ const envSchema = z.object({
   HEALTH_SERVER_PORT: z.coerce.number().int().min(1024).max(65535).default(7880),
   /** Host bind. '127.0.0.1' (loopback) pra dev local, '0.0.0.0' pra expor externamente. */
   HEALTH_SERVER_HOST: z.string().default('127.0.0.1'),
+
+  // ─── PnL Reporter (Item 10 P7 — daily digest pra Discord) ───
+  /** Habilita PnL daily reporter. Default true mas só envia se PNL_REPORTER_WEBHOOK_URL configurado. */
+  PNL_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  /** Discord webhook dedicado pro PnL reporter (pode ser igual DISCORD_WEBHOOK_URL). */
+  PNL_REPORTER_WEBHOOK_URL: optionalUrl(),
+  /** Hora UTC pra disparar daily digest. Default 12 (meio-dia UTC). */
+  PNL_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(12),
 });
 
 export type LiquidatorEnv = z.infer<typeof envSchema>;

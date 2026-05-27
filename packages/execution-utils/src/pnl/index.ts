@@ -47,3 +47,10 @@ export {
   decodeBribeEvent,
   type DecodedBribe,
 } from './bribeRealTracker';
+
+export {
+  buildDigest,
+  formatMarkdown,
+  sendToDiscord,
+  type DigestOptions,
+} from './pnlReporter';

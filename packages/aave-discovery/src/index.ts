@@ -23,6 +23,7 @@ export {
   fetchAaveV3Candidates,
   fetchHealthFactorsBatch,
   resolveBorrowerPositionPair,
+  resolveAllBorrowerPositionPairs,
   discoverAaveLiquidatablePositions,
 } from './discovery';
 export type { AaveCandidate, AaveLiquidatablePosition } from './types';

@@ -21,8 +21,13 @@
  */
 
 import type { Address, PublicClient } from 'viem';
-import { quoteUniswapV3, isQuote } from '@zeus-evm/dex-adapters';
-import type { Quote } from '@zeus-evm/dex-adapters';
+import {
+  quoteUniswapV3,
+  quoteUniswapV3MultiHop,
+  buildCandidateRoutes,
+  isQuote,
+  type Quote,
+} from '@zeus-evm/dex-adapters';
 
 import type { LiquidatorEnv } from '../../config';
 import type {
@@ -55,6 +60,11 @@ export interface AaveCalculatorOpts {
   contractCapWei: bigint;
   /** Aave PriceOracle pra conversões USD-corretas (debt/collateral/gas). */
   oracle: AavePriceOracle;
+  /**
+   * Tokens intermediários pra multi-hop swap routing (Grupo B).
+   * Tipicamente [WETH, USDC] da chain. Vazio = só single-hop.
+   */
+  multiHopIntermediates?: readonly Address[];
 }
 
 /**
@@ -91,14 +101,16 @@ export async function calculateOptimalLiquidation(
     return { ok: false, reason: `upperBound ${upperBound} < $${env.MIN_DEBT_USD} mínimo (${minDebtWei})` };
   }
 
-  // 2) Sample logarítmico — 10 pontos entre min e upper.
+  // 2) Sample logarítmico — 16 pontos entre min e upper (Grupo B: resolução
+  // maior pra capturar ótimos em pools rasos onde profit curve é não-monotônica).
   // Escala downscale_shift até caber em Number safe range (B-5 fix).
   const sampledProfits: Array<{ L: bigint; profit: bigint; slippageBps: number }> = [];
   const { lo, hi, shift } = scaleToSafeRange(minDebtWei, upperBound);
   const upperFloat = Number(hi);
   const lowerFloat = Number(lo);
-  for (let i = 0; i < 10; i++) {
-    let L = BigInt(Math.floor(lowerFloat * Math.pow(upperFloat / lowerFloat, i / 9)));
+  const SAMPLE_COUNT = 16;
+  for (let i = 0; i < SAMPLE_COUNT; i++) {
+    let L = BigInt(Math.floor(lowerFloat * Math.pow(upperFloat / lowerFloat, i / (SAMPLE_COUNT - 1))));
     if (shift > 0n) L = L << shift;
     const sim = await simulateProfit(L, position, opts, debtPrice, collateralPrice);
     if (sim !== null) sampledProfits.push({ L, ...sim });
@@ -114,12 +126,30 @@ export async function calculateOptimalLiquidation(
     if (candidate.profit > best.profit) best = candidate;
   }
 
-  // 4) Refinar local: 5 amounts em janela ±20% em volta do melhor
-  const window = best.L / 5n;
-  if (window > 0n) {
-    for (let i = 0; i < 5; i++) {
-      const offset = (BigInt(i) * 2n * window) / 4n;
-      const L = best.L > window + offset ? best.L - window + offset : minDebtWei;
+  // 4) Refinar local Fase 1: 9 amounts em janela ±40% em volta do melhor.
+  // Grupo B: refinement mais agressivo cobre melhor pool com curva de profit íngreme.
+  const window1 = (best.L * 2n) / 5n; // ±40%
+  if (window1 > 0n) {
+    const REFINE_POINTS_1 = 9;
+    for (let i = 0; i < REFINE_POINTS_1; i++) {
+      const offset = (BigInt(i) * 2n * window1) / BigInt(REFINE_POINTS_1 - 1);
+      const L = best.L > window1 + offset ? best.L - window1 + offset : minDebtWei;
+      if (L > upperBound) continue;
+      const sim = await simulateProfit(L, position, opts, debtPrice, collateralPrice);
+      if (sim !== null && sim.profit > best.profit) {
+        best = { L, ...sim };
+      }
+    }
+  }
+
+  // 5) Refinar local Fase 2: 5 amounts em janela ±10% em volta do novo melhor.
+  // Grupo B: zoom-in fino pra travar próximo do ótimo verdadeiro.
+  const window2 = best.L / 10n;
+  if (window2 > 0n) {
+    const REFINE_POINTS_2 = 5;
+    for (let i = 0; i < REFINE_POINTS_2; i++) {
+      const offset = (BigInt(i) * 2n * window2) / BigInt(REFINE_POINTS_2 - 1);
+      const L = best.L > window2 + offset ? best.L - window2 + offset : minDebtWei;
       if (L > upperBound) continue;
       const sim = await simulateProfit(L, position, opts, debtPrice, collateralPrice);
       if (sim !== null && sim.profit > best.profit) {
@@ -207,6 +237,32 @@ async function simulateProfit(
     );
     if (isQuote(q)) {
       if (!bestQuote || q.amountOut > bestQuote.amountOut) bestQuote = q;
+    }
+  }
+
+  // Grupo B — Multi-hop routes (via WETH/USDC intermediates).
+  // Útil quando pool direto collateral→debt é raso. Multi-chain ready: caller
+  // passa intermediates do chain-config (Polygon: WMATIC+USDC, Avalanche: WAVAX+USDC).
+  if (opts.multiHopIntermediates && opts.multiHopIntermediates.length > 0) {
+    const routes = buildCandidateRoutes({
+      tokenIn: position.collateralAsset,
+      tokenOut: position.debtAsset,
+      intermediates: opts.multiHopIntermediates,
+      maxRoutes: 9,                                 // 3 single-hop testados acima já cobertos
+    }).filter((r) => r.tokens.length > 2);          // só multi-hop aqui
+
+    for (const route of routes) {
+      const q = await quoteUniswapV3MultiHop({
+        client: opts.client,
+        quoterAddress: opts.quoterAddress,
+        route,
+        amountIn: collateralReceived,
+        decimalsIn: position.collateralAssetDecimals,
+        decimalsOut: position.debtAssetDecimals,
+      });
+      if (isQuote(q)) {
+        if (!bestQuote || q.amountOut > bestQuote.amountOut) bestQuote = q;
+      }
     }
   }
 

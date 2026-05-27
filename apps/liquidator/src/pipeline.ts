@@ -81,6 +81,23 @@ export interface PipelineDeps {
 }
 
 /**
+ * Multi-hop intermediates (Grupo B) — tokens "ponte" pra rotear collateral→debt
+ * via pools mais profundos. Lê dinâmicamente do chain-config pra ser multi-chain.
+ *
+ * Base/Arb/OP: WETH + USDC | Polygon: WMATIC + USDC | Avalanche: WAVAX + USDC
+ */
+function buildMultiHopIntermediates(chainConfig: LiquidatorChainContext['chainConfig']): Address[] {
+  const candidates: (Address | undefined)[] = [
+    chainConfig.tokens['WETH'],
+    chainConfig.tokens['WMATIC'],
+    chainConfig.tokens['WAVAX'],
+    chainConfig.tokens['USDC'],
+    chainConfig.tokens['USDbC'],
+  ];
+  return candidates.filter((t): t is Address => !!t);
+}
+
+/**
  * Constrói BribeConfig com `minBribeWei` calculado off-chain pra proteger contra
  * sandwich do swap inline UniV3 da BribeManager (Audit Pass 4 H-01).
  *
@@ -293,6 +310,9 @@ async function _runAavePipelineInner(
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
     contractCapWei: cap,
     oracle: deps.aaveOracle,
+    multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED
+      ? buildMultiHopIntermediates(ctx.chainConfig)
+      : undefined,
   });
 
   if (!outcome.ok) {

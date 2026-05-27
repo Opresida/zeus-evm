@@ -182,6 +182,90 @@ export async function resolveBorrowerPositionPair(opts: {
 }
 
 /**
+ * Multi-collateral evaluation (Grupo B do bloqueio mainnet).
+ *
+ * Retorna TODOS os pares (collateral_i, debt_j) viáveis pra liquidation.
+ * Em borrowers com múltiplos collaterals/debts, top-1 por wei descarta opções
+ * que podem ter MAIS profit (collateral menor mas com bonus maior, pool mais
+ * líquido, fee tier melhor, oracle drift positivo, etc).
+ *
+ * Quem decide o melhor par: o calculator é rodado pra cada combinação e o
+ * pipeline escolhe o de maior profit em USD.
+ *
+ * Multi-chain: mesma ABI Aave V3 em todas chains (Base/Arb/OP/Polygon/Avalanche).
+ *
+ * Custo: 1 multicall (igual top-1). Sem RPC adicional.
+ */
+export async function resolveAllBorrowerPositionPairs(opts: {
+  client: AnyPublicClient;
+  cache: AaveReservesCache;
+  borrower: Address;
+}): Promise<Array<{
+  collateralAsset: Address;
+  collateralBalanceWei: bigint;
+  debtAsset: Address;
+  debtBalanceWei: bigint;
+}>> {
+  const { client, cache, borrower } = opts;
+  if (cache.reserves.length === 0) return [];
+
+  const contracts = cache.reserves.map((asset) => ({
+    address: cache.poolDataProvider,
+    abi: POOL_DATA_PROVIDER_ABI,
+    functionName: 'getUserReserveData' as const,
+    args: [asset, borrower] as const,
+  }));
+
+  const results = await client.multicall({ contracts, allowFailure: true, batchSize: 50 });
+
+  const collaterals: Array<{ asset: Address; balance: bigint }> = [];
+  const debts: Array<{ asset: Address; balance: bigint }> = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]!;
+    if (r.status !== 'success') continue;
+    const data = r.result as readonly [
+      bigint, bigint, bigint, bigint, bigint, bigint, bigint, number, boolean,
+    ];
+
+    const asset = cache.reserves[i]!;
+    const aTokenBalance = data[0];
+    const stableDebt = data[1];
+    const variableDebt = data[2];
+    const usageAsCollateral = data[8];
+    const totalDebt = stableDebt + variableDebt;
+
+    if (aTokenBalance > 0n && usageAsCollateral) {
+      collaterals.push({ asset, balance: aTokenBalance });
+    }
+    if (totalDebt > 0n) {
+      debts.push({ asset, balance: totalDebt });
+    }
+  }
+
+  if (collaterals.length === 0 || debts.length === 0) return [];
+
+  // Produto cartesiano: todos pares possíveis
+  const pairs: Array<{
+    collateralAsset: Address;
+    collateralBalanceWei: bigint;
+    debtAsset: Address;
+    debtBalanceWei: bigint;
+  }> = [];
+  for (const c of collaterals) {
+    for (const d of debts) {
+      pairs.push({
+        collateralAsset: c.asset,
+        collateralBalanceWei: c.balance,
+        debtAsset: d.asset,
+        debtBalanceWei: d.balance,
+      });
+    }
+  }
+  return pairs;
+}
+
+/**
  * Discovery completo: subgraph → HF filter → par dominante → AaveLiquidatablePosition[]
  *
  * Retorna apenas positions com HF < `hfThreshold` E par (collateral, debt) resolvido.
@@ -196,6 +280,13 @@ export async function discoverAaveLiquidatablePositions(opts: {
   cache: AaveReservesCache;
   hfThreshold: number;
   maxCandidates?: number;
+  /**
+   * Grupo B — Multi-collateral evaluation.
+   * Quando true, emite N positions por borrower (1 por par collateral×debt).
+   * Caller (calculator) avalia cada um e pipeline escolhe o de maior profit.
+   * Default false (compat com comportamento atual).
+   */
+  evaluateAllPairs?: boolean;
   logger?: LoggerLike;
 }): Promise<AaveLiquidatablePosition[]> {
   const {
@@ -206,6 +297,7 @@ export async function discoverAaveLiquidatablePositions(opts: {
     cache,
     hfThreshold,
     maxCandidates = 200,
+    evaluateAllPairs = false,
     logger = NOOP_LOGGER,
   } = opts;
 
@@ -237,36 +329,48 @@ export async function discoverAaveLiquidatablePositions(opts: {
 
   if (atRisk.length === 0) return [];
 
-  // 3. Pra cada at-risk: resolver par dominante (sequencial pra não saturar RPC)
+  // 3. Pra cada at-risk: resolver par(es) (sequencial pra não saturar RPC)
   const positions: AaveLiquidatablePosition[] = [];
   for (const { user, hf } of atRisk) {
     try {
-      const pair = await resolveBorrowerPositionPair({ client, cache, borrower: user });
-      if (!pair) {
+      const pairs = evaluateAllPairs
+        ? await resolveAllBorrowerPositionPairs({ client, cache, borrower: user })
+        : await resolveBorrowerPositionPair({ client, cache, borrower: user }).then((p) => p ? [p] : []);
+
+      if (pairs.length === 0) {
         logger.debug({ user, hf: hf.toString() }, `Sem par (collateral,debt) resolvido — skip`);
         continue;
       }
 
-      const colInfo = getReserveInfo(cache, pair.collateralAsset);
-      const debtInfo = getReserveInfo(cache, pair.debtAsset);
-      if (!colInfo || !debtInfo) {
-        logger.warn({ user, pair }, `Reserve info ausente no cache pra par`);
-        continue;
+      for (const pair of pairs) {
+        const colInfo = getReserveInfo(cache, pair.collateralAsset);
+        const debtInfo = getReserveInfo(cache, pair.debtAsset);
+        if (!colInfo || !debtInfo) {
+          logger.warn({ user, pair }, `Reserve info ausente no cache pra par`);
+          continue;
+        }
+
+        positions.push({
+          borrower: user,
+          collateralAsset: pair.collateralAsset,
+          debtAsset: pair.debtAsset,
+          totalDebtWei: pair.debtBalanceWei,
+          totalCollateralWei: pair.collateralBalanceWei,
+          healthFactor: hf,
+          liquidationBonusBps: colInfo.liquidationBonusBps,
+          debtAssetDecimals: debtInfo.decimals,
+          collateralAssetDecimals: colInfo.decimals,
+          debtAssetSymbol: debtInfo.symbol,
+          collateralAssetSymbol: colInfo.symbol,
+        });
       }
 
-      positions.push({
-        borrower: user,
-        collateralAsset: pair.collateralAsset,
-        debtAsset: pair.debtAsset,
-        totalDebtWei: pair.debtBalanceWei,
-        totalCollateralWei: pair.collateralBalanceWei,
-        healthFactor: hf,
-        liquidationBonusBps: colInfo.liquidationBonusBps,
-        debtAssetDecimals: debtInfo.decimals,
-        collateralAssetDecimals: colInfo.decimals,
-        debtAssetSymbol: debtInfo.symbol,
-        collateralAssetSymbol: colInfo.symbol,
-      });
+      if (evaluateAllPairs && pairs.length > 1) {
+        logger.debug(
+          { user, pairs: pairs.length },
+          `Multi-collateral: ${pairs.length} pares emitidos pra ${user}`,
+        );
+      }
     } catch (err) {
       logger.warn(
         { user, err: err instanceof Error ? err.message : err },

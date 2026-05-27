@@ -238,6 +238,22 @@ const envSchema = z.object({
   /** TTL do cache de pause state em blocos (~12s/bloco em Base). Default 3. */
   PAUSE_DETECTOR_CACHE_BLOCKS: z.coerce.number().int().min(1).max(20).default(3),
 
+  // ─── Multi-collateral Evaluation (Grupo B) ───
+  /**
+   * Avalia TODOS pares (collateral_i, debt_j) por borrower em vez de top-1 por wei.
+   * Calculator roda N vezes mas pipeline escolhe maior profit. Resolve gap M-01 do audit
+   * (26/28 at-risk hoje não resolvem por usar top-1).
+   */
+  MULTI_COLLATERAL_EVAL_ENABLED: z.coerce.boolean().default(true),
+
+  // ─── Multi-hop Swaps (Grupo B) ───
+  /**
+   * Habilita rotas 2-hop (collateral → WETH/USDC → debt) além de single-hop.
+   * Resolve gap "pool direto raso" — pares exóticos costumam ter mais liquidez
+   * via intermediate. Custo: +9 RPC calls por amount testado.
+   */
+  MULTI_HOP_SWAPS_ENABLED: z.coerce.boolean().default(true),
+
   // ─── Failure Reporter (Item 4 A8 — weekly Markdown digest) ───
   /** Habilita weekly failure digest. */
   FAILURE_REPORTER_ENABLED: z.coerce.boolean().default(true),

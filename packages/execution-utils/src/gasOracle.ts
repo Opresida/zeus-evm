@@ -46,34 +46,64 @@ export interface GasOracleOpts {
   priorityFeeGwei: number;
   /** Multiplier do baseFee pra calcular maxFee (default 2x). */
   maxFeeMultiplier: number;
+  /**
+   * TTL temporal do cache em ms (Grupo B — evita getBlockNumber RPC repetido).
+   * Default 1500ms (~1 bloco Base de 2s). Reduce em chains rápidas, aumenta em lentas.
+   */
+  cacheTtlMs?: number;
   logger?: LoggerLike;
 }
+
+const DEFAULT_CACHE_TTL_MS = 1500;
 
 export class GasOracle {
   private priorityFeeWei: bigint;
   private maxFeeMultiplier: number;
+  private cacheTtlMs: number;
   private logger: LoggerLike | undefined;
 
   // Cache por blockNumber — se mesmo bloco, retorna cached sem RPC
   private cached: GasFees | null = null;
+  private cachedAtMs = 0;
+  // Stats pra diagnóstico
+  private hitCount = 0;
+  private missCount = 0;
 
   constructor(opts: GasOracleOpts) {
     this.priorityFeeWei = parseGwei(opts.priorityFeeGwei.toString());
     this.maxFeeMultiplier = opts.maxFeeMultiplier;
+    this.cacheTtlMs = opts.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.logger = opts.logger;
   }
 
   /**
-   * Retorna fees pra próxima tx. Cache por blockNumber — só faz RPC se bloco mudou.
+   * Retorna fees pra próxima tx.
+   *
+   * Cache 2-níveis:
+   *   1. TTL temporal — se < cacheTtlMs desde última leitura, retorna direto SEM RPC
+   *   2. Block-aware — se mesmo bloco, retorna cached (revalidação após TTL)
+   *
+   * Em hot path com múltiplas calls < TTL, zero RPC adicional. Importante quando
+   * pipeline tem 5+ checks de fees por tick.
    */
   async getFees(client: AnyPublicClient): Promise<GasFees> {
+    // Fast path: cache temporal ainda válido — nem chama getBlockNumber
+    const nowMs = Date.now();
+    if (this.cached && (nowMs - this.cachedAtMs) < this.cacheTtlMs) {
+      this.hitCount++;
+      return this.cached;
+    }
+
     try {
       const currentBlock = await client.getBlockNumber();
 
-      // Cache hit: mesmo bloco já consultado
+      // Cache hit por bloco (TTL expirou mas ainda mesmo bloco)
       if (this.cached && this.cached.blockNumber === currentBlock) {
+        this.cachedAtMs = nowMs;
+        this.hitCount++;
         return this.cached;
       }
+      this.missCount++;
 
       // Lê fee history dos últimos 4 blocos pra ter baseFee robusto
       const feeHistory = await client.getFeeHistory({
@@ -99,6 +129,7 @@ export class GasOracle {
       };
 
       this.cached = fees;
+      this.cachedAtMs = nowMs;
       return fees;
     } catch (err) {
       this.logger?.warn(
@@ -119,5 +150,16 @@ export class GasOracle {
   /** Reset do cache (útil em testes ou after long idle). */
   invalidateCache(): void {
     this.cached = null;
+    this.cachedAtMs = 0;
+  }
+
+  /** Cache stats pra diagnóstico (hit rate em hot path). */
+  cacheStats(): { hits: number; misses: number; hitRate: number } {
+    const total = this.hitCount + this.missCount;
+    return {
+      hits: this.hitCount,
+      misses: this.missCount,
+      hitRate: total > 0 ? this.hitCount / total : 0,
+    };
   }
 }

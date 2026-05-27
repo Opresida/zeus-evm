@@ -29,6 +29,7 @@ import {
   discoverAaveLiquidatablePositions,
   type AaveReservesCache,
 } from '@zeus-evm/aave-discovery';
+import { calculateOptimalLiquidation } from './protocols/aave/calculator';
 import {
   buildCompoundCometCache,
   type CompoundCometCache,
@@ -1068,6 +1069,77 @@ export async function processCompoundOpportunity(
   });
 }
 
+/**
+ * Multi-collateral evaluation (Grupo B): agrupa positions por borrower e roda
+ * o calculator pra cada par (collateral_i, debt_j). Retorna 1 position por
+ * borrower — a com MAIOR `expectedProfitUsd`.
+ *
+ * Quando borrower só tem 1 par, comportamento idêntico ao top-1 (zero overhead).
+ * Quando borrower tem N pares, faz N calls ao calculator mas reduz N→1 dispatches.
+ */
+async function selectBestPairPerBorrower(
+  positions: AaveLiquidatablePosition[],
+  state: LiquidatorState,
+  logger: import('@zeus-evm/aave-discovery').LoggerLike,
+): Promise<AaveLiquidatablePosition[]> {
+  // Agrupa por borrower
+  const byBorrower = new Map<string, AaveLiquidatablePosition[]>();
+  for (const p of positions) {
+    const key = p.borrower.toLowerCase();
+    const list = byBorrower.get(key) ?? [];
+    list.push(p);
+    byBorrower.set(key, list);
+  }
+
+  const winners: AaveLiquidatablePosition[] = [];
+  for (const [borrower, pairs] of byBorrower.entries()) {
+    if (pairs.length === 1) {
+      winners.push(pairs[0]!);
+      continue;
+    }
+
+    // Roda calculator pra cada par + escolhe maior profit
+    let best: { position: AaveLiquidatablePosition; profitUsd: number } | null = null;
+    for (const pos of pairs) {
+      const cap = state.contractCapByDebtAsset.get(pos.debtAsset.toLowerCase());
+      if (!cap) continue;
+      try {
+        const outcome = await calculateOptimalLiquidation(pos, {
+          env: state.env,
+          client: state.ctx.client,
+          quoterAddress: state.ctx.chainConfig.uniswapV3!.quoterV2,
+          contractCapWei: cap,
+          oracle: state.aaveOracle,
+        });
+        if (outcome.ok && (!best || outcome.decision.expectedProfitUsd > best.profitUsd)) {
+          best = { position: pos, profitUsd: outcome.decision.expectedProfitUsd };
+        }
+      } catch (err) {
+        logger.debug?.(
+          { borrower, err: err instanceof Error ? err.message : err },
+          'multi-collateral: calculator falhou pra par (skip)',
+        );
+      }
+    }
+
+    if (best) {
+      winners.push(best.position);
+      logger.info?.(
+        {
+          borrower,
+          pairs: pairs.length,
+          winner: `${best.position.collateralAssetSymbol}→${best.position.debtAssetSymbol}`,
+          profitUsd: best.profitUsd.toFixed(4),
+        },
+        `🎯 multi-collateral: melhor par escolhido entre ${pairs.length}`,
+      );
+    } else {
+      logger.debug?.({ borrower, pairs: pairs.length }, 'multi-collateral: nenhum par viável');
+    }
+  }
+  return winners;
+}
+
 /** Lista de debt assets comuns por chain pra warm-up do cache de cap. */
 function getCommonDebtAssetsForChain(chainId: number): Address[] {
   // Endereços canônicos USDC/USDT/WETH/etc. Mainnet only por enquanto.
@@ -1122,10 +1194,18 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
         cache: aaveReservesCache,
         hfThreshold: env.HF_AT_RISK_THRESHOLD,
         maxCandidates: 200,
+        evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
         logger,
       });
       stats.aave = aavePositions.length;
-      for (const position of aavePositions) {
+
+      // Grupo B — Multi-collateral evaluation: agrupa por borrower e escolhe o par
+      // com MAIOR profit estimado pelo calculator (em vez de top-1 por wei do collateral).
+      const positionsToDispatch = env.MULTI_COLLATERAL_EVAL_ENABLED
+        ? await selectBestPairPerBorrower(aavePositions, state, logger)
+        : aavePositions;
+
+      for (const position of positionsToDispatch) {
         const outcome = await processOpportunity(position, state);
         updateStats(stats, outcome.status);
       }

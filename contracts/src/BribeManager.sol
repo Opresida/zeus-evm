@@ -7,7 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 
 import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
 
-/// @notice WETH9 mínima — necessária pra unwrap antes do coinbase.transfer.
+/// @notice WETH9 mínima — necessária pra unwrap antes do coinbase.transfer + re-wrap em fallback.
 interface IWETH9 {
     function deposit() external payable;
     function withdraw(uint256 amount) external;
@@ -34,25 +34,43 @@ interface IUniV3SwapRouter {
 /// @dev Estratégia de execução:
 ///   - Caller (Liquidator ou ArbExecutor) approva BRIBE_MANAGER pra puxar profitToken
 ///   - BribeManager faz transferFrom(caller, self, bribeProfitTarget)
-///   - Se profitToken == WETH: withdraw direto → coinbase.transfer
-///   - Senão: swap profitToken → WETH via UniV3 → withdraw → coinbase.transfer
-///   - Emit BribePaid (todo log de bribe sai DESTE contrato)
+///   - Se profitToken == WETH: withdraw direto → coinbase.transfer (com fallback B-6)
+///   - Senão: swap profitToken → WETH via UniV3 → withdraw → coinbase.transfer (com fallback B-6)
+///   - Emit BribePaid (path normal) OU BribeCoinbaseFallback (builder hostil)
 ///
 /// Segurança:
 ///   - nonReentrant (defesa em profundidade — coinbase pode ser contrato malicioso)
 ///   - Validações on-chain (InvalidBribeConfig, BribeExceedsProfit, BribeSwapFailed)
 ///   - Reset approve em catch (caso swap reverta)
 ///   - Não tem owner — é stateless library-as-contract
+///   - **B-6 fix**: coinbase rejeitando ETH NÃO reverte tx — re-wrap em WETH + envia operator
+///   - **B-7 fix**: `_payInProgress` em transient storage (TSTORE/TLOAD) — reset auto fim de tx
 contract BribeManager is IBribeManager, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 internal constant ABSOLUTE_BRIBE_CAP_BPS = 9_900;
     uint256 internal constant BPS_DENOMINATOR = 10_000;
 
-    /// @dev Audit Pass 4 fix M-02: flag que controla quem pode mandar ETH.
-    /// True somente durante uma chamada pay() ativa (set em pay, reset no fim).
-    /// receive() rejeita ETH quando false → impede ETH preso por terceiros.
-    bool private _payInProgress;
+    /// @dev Audit Pass 4 fix B-7: flag controlada via transient storage (TSTORE/TLOAD).
+    /// Reset automático no fim da tx (EVM Cancun) — IMPOSSÍVEL ficar travada em revert path.
+    /// Slot derivado de keccak256 pra evitar collision com storage normal.
+    /// Custo: 100 gas por TSTORE (vs 2900-22100 do SSTORE original).
+    uint256 private constant _PAY_IN_PROGRESS_SLOT =
+        uint256(keccak256("zeus.bribemanager.payinprogress.v1")) - 1;
+
+    function _setPayInProgress(bool v) internal {
+        uint256 slot = _PAY_IN_PROGRESS_SLOT;
+        assembly {
+            tstore(slot, v)
+        }
+    }
+
+    function _isPayInProgress() internal view returns (bool v) {
+        uint256 slot = _PAY_IN_PROGRESS_SLOT;
+        assembly {
+            v := tload(slot)
+        }
+    }
 
     /// @inheritdoc IBribeManager
     function validateConfig(BribeConfig calldata bribe) external pure override {
@@ -76,8 +94,9 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
         // No-op shortcut
         if (bribe.bribeBps == 0 && bribe.minBribeWei == 0) return (0, 0);
 
-        // M-02 fix: sinaliza pra receive() que estamos em contexto autorizado
-        _payInProgress = true;
+        // B-7 fix: sinaliza pra receive() via transient storage.
+        // Reset acontece automaticamente no fim da tx — mesmo em revert path.
+        _setPayInProgress(true);
 
         // Clamp bribeBps contra bribeMaxBps (runtime guard)
         uint256 effectiveBps = bribe.bribeBps > bribe.bribeMaxBps ? bribe.bribeMaxBps : bribe.bribeBps;
@@ -94,8 +113,7 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
 
             IERC20(weth).safeTransferFrom(msg.sender, address(this), bribeWeth);
             IWETH9(weth).withdraw(bribeWeth);
-            _sendToCoinbase(bribeWeth, opType, operator, grossProfit, grossProfit - bribeWeth);
-            _payInProgress = false;
+            _sendToCoinbaseOrFallback(bribeWeth, opType, operator, grossProfit, grossProfit - bribeWeth, weth);
             return (bribeWeth, bribeWeth);
         }
 
@@ -142,29 +160,43 @@ contract BribeManager is IBribeManager, ReentrancyGuard {
         if (wethReceived < bribe.minBribeWei) revert BribeExceedsProfit(bribe.minBribeWei, wethReceived);
 
         IWETH9(weth).withdraw(wethReceived);
-        _sendToCoinbase(wethReceived, opType, operator, grossProfit, grossProfit - bribeProfitTarget);
+        _sendToCoinbaseOrFallback(wethReceived, opType, operator, grossProfit, grossProfit - bribeProfitTarget, weth);
 
-        _payInProgress = false;
         return (wethReceived, bribeProfitTarget);
     }
 
-    function _sendToCoinbase(
+    /// @notice Envia bribe pro block.coinbase com fallback pro operator se coinbase rejeitar.
+    /// @dev Audit Pass 4 fix B-6: builder hostil que rejeita ETH (contrato malicioso como coinbase)
+    ///      ANTES forçava revert da tx inteira → flashloan profit perdido + gas queimado.
+    ///      AGORA: se coinbase rejeita, re-wrap ETH em WETH e envia pro operator.
+    ///      Bot perde o bribe (tip de inclusion não entregue) mas mantém TODO o profit do flashloan.
+    ///      Atomic-only preservado: tx continua bem-sucedida.
+    function _sendToCoinbaseOrFallback(
         uint256 bribeNativeWei,
         BribeOpType opType,
         address operator,
         uint256 grossProfit,
-        uint256 netProfit
+        uint256 netProfit,
+        address weth
     ) internal {
         (bool ok,) = payable(block.coinbase).call{value: bribeNativeWei}("");
-        if (!ok) revert BribeSwapFailed();
-        emit BribePaid(operator, opType, block.coinbase, bribeNativeWei, grossProfit, netProfit);
+        if (ok) {
+            emit BribePaid(operator, opType, block.coinbase, bribeNativeWei, grossProfit, netProfit);
+            return;
+        }
+
+        // Fallback B-6: coinbase rejeitou ETH. Re-wrap em WETH e envia pro operator.
+        // ETH ainda está no contrato (call retornou ok=false → value não saiu).
+        IWETH9(weth).deposit{value: bribeNativeWei}();
+        IERC20(weth).safeTransfer(operator, bribeNativeWei);
+        emit BribeCoinbaseFallback(operator, opType, block.coinbase, operator, bribeNativeWei, grossProfit);
     }
 
     /// @notice Necessário pra receber ETH do withdraw do WETH antes do coinbase.transfer.
     /// @dev Audit Pass 4 fix M-02: só aceita ETH durante uma chamada `pay()` ativa.
     ///      Impede que terceiros enviem ETH por engano (ficaria preso, contrato sem rescue).
-    ///      Quando _payInProgress=true, withdraw do WETH9 funciona normal.
+    ///      B-7 fix: flag controlada via transient storage → impossível ficar travada em revert.
     receive() external payable {
-        if (!_payInProgress) revert NotAuthorizedCaller();
+        if (!_isPayInProgress()) revert NotAuthorizedCaller();
     }
 }

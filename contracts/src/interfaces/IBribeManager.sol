@@ -39,6 +39,19 @@ interface IBribeManager {
         uint256 netProfit
     );
 
+    /// @notice Emitted quando block.coinbase rejeita ETH e fazemos fallback pro operator.
+    /// @dev Audit Pass 4 fix B-6: builder hostil não consegue mais forçar revert da tx inteira.
+    ///      WETH é re-wrapped e enviado pro `recipient` (operator). Bot perde o tip de inclusion
+    ///      mas mantém o profit do flashloan.
+    event BribeCoinbaseFallback(
+        address indexed initiator,
+        BribeOpType indexed opType,
+        address indexed coinbase,
+        address recipient,
+        uint256 bribeNativeWei,
+        uint256 grossProfit
+    );
+
     error InvalidBribeConfig();
     error BribeExceedsProfit(uint256 bribeNativeRequested, uint256 profitNativeAvailable);
     error BribeSwapFailed();

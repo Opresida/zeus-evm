@@ -22,11 +22,14 @@ import type {
   FailureTracker,
   GasOracle,
   BackrunDispatchedEvent,
+  PnlReconciler,
+  FailureCollector,
 } from '@zeus-evm/execution-utils';
 import {
   decodeLiquidationEvent,
   estimateUsd,
   gasCostUsd,
+  generateFailureId,
 } from '@zeus-evm/execution-utils';
 import type { BackrunOpportunity } from '@zeus-evm/strategy';
 
@@ -52,6 +55,10 @@ export interface DispatchBackrunInput {
   /** Bundle relay router opcional. Quando presente (e mode != dryrun), tenta bundle
    *  privado ANTES do mempool público. Quando ausente, usa wallet.sendTransaction direto. */
   relayRouter?: RelayRouter;
+  /** PnL Reconciler (Item 10) — gera análise rica expected vs realized. */
+  pnlReconciler?: PnlReconciler;
+  /** Failure Collector (Item 4) — schema rico pra failures persistidos JSONL. */
+  failureCollector?: FailureCollector;
 }
 
 export interface DispatchBackrunResult {
@@ -218,6 +225,32 @@ export async function dispatchBackrun(
         reason: `backrun reverted on-chain at block ${receipt.blockNumber}`,
       });
       failureTracker.recordFailure(`backrun revert ${txHash}`);
+
+      // FailureCollector — schema rico (Item 4)
+      if (input.failureCollector) {
+        input.failureCollector.record({
+          id: generateFailureId(Date.now()),
+          timestamp: Date.now(),
+          chain: chainCtx.chainName,
+          mode,
+          protocol: 'backrun',
+          category: 'reverted_on_chain',
+          category_confidence: 0.95,
+          our_tx_hash: txHash,
+          our_gas_used: receipt.gasUsed.toString(),
+          our_gas_usd_lost: gasUsdSpent,
+          our_tx_index: receipt.transactionIndex,
+          block_number: receipt.blockNumber.toString(),
+          opportunity_id: opp.pair.id,
+          expected_profit_usd: opp.profitUsd,
+          payload: {
+            pendingTxHash: opp.whale.pendingTxHash,
+            buyVenue: opp.buyQuote.source,
+            sellVenue: opp.sellQuote.source,
+          },
+        });
+      }
+
       logger.error(
         { txHash, gasUsdLost: gasUsdSpent.toFixed(4) },
         `💥 Backrun REVERTIDO — gas perdido $${gasUsdSpent.toFixed(4)}`,
@@ -254,6 +287,35 @@ export async function dispatchBackrun(
       failureTracker.recordFailure(`net negative ${txHash}`);
     } else {
       failureTracker.recordSuccess();
+    }
+
+    // PnL Reconciliation — Item 10 P1 (schema rico expected vs realized + attribution)
+    if (input.pnlReconciler) {
+      try {
+        input.pnlReconciler.reconcile({
+          chain: chainCtx.chainName,
+          protocol: 'backrun',
+          tx_hash: txHash,
+          block_number: receipt.blockNumber,
+          expected_profit_wei: opp.profitWei,
+          expected_profit_usd: opp.profitUsd,
+          flashloan_amount_wei: flashloanAmount,
+          realized_profit_wei: profitWei,
+          realized_profit_usd: profitUsd ?? 0,
+          realized_gas_units_used: receipt.gasUsed,
+          realized_gas_usd: gasUsdSpent,
+          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          eth_usd_price: env.ETH_USD_PRICE_ESTIMATE,
+          opportunity_id: opp.pair.id,
+          venue: opp.buyQuote.source,
+          finality_status: 'soft',
+        });
+      } catch (err) {
+        logger.warn(
+          { err: err instanceof Error ? err.message : err, txHash },
+          'Backrun PnlReconciler: erro (drop silencioso)',
+        );
+      }
     }
 
     const event: BackrunDispatchedEvent = {

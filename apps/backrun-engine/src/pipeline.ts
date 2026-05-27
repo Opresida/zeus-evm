@@ -64,6 +64,10 @@ export interface BackrunPipelineDeps {
   relayRouter?: RelayRouter;
   /** Pares conhecidos. Default resolve via getTargetPairsForChain(chainId). */
   pairs?: readonly TargetPair[];
+  /** PnL Reconciler (Item 10) — gera análise rica expected vs realized. */
+  pnlReconciler?: import('@zeus-evm/execution-utils').PnlReconciler;
+  /** Failure Collector (Item 4) — schema rico em JSONL. */
+  failureCollector?: import('@zeus-evm/execution-utils').FailureCollector;
 }
 
 export interface BackrunPipelineResult {
@@ -294,6 +298,8 @@ export async function processWhaleSwap(
     netProfitUsd: validation.netProfitUsd,
     simulationGas: validation.simulation?.gasUsed,
     relayRouter,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
   });
 
   logger.info(

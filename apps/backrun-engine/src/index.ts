@@ -27,6 +27,8 @@ import {
   ProcessCheck,
   AutoPauseManager,
   Tracer,
+  PnlReconciler,
+  FailureCollector,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
@@ -92,6 +94,18 @@ async function main() {
   const gasOracle = new GasOracle({
     priorityFeeGwei: env.GAS_PRIORITY_FEE_GWEI,
     maxFeeMultiplier: env.GAS_MAX_FEE_MULTIPLIER,
+    logger,
+  });
+
+  // ── PnL Reconciler (Item 10) ──
+  const pnlReconciler = new PnlReconciler({
+    baseDir: resolvePath('logs', 'pnl-reconciliations'),
+    logger,
+  });
+
+  // ── FailureCollector (Item 4) ──
+  const failureCollector = new FailureCollector({
+    baseDir: resolvePath('logs', 'failures'),
     logger,
   });
 
@@ -239,6 +253,8 @@ async function main() {
     gasWarDetector,
     competitionTracker,
     relayRouter,
+    pnlReconciler,
+    failureCollector,
   };
 
   // Poll baseFee a cada 5s pra alimentar gasWarDetector

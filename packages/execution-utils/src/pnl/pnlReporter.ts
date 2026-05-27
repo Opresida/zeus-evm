@@ -11,6 +11,7 @@
 
 import type { LoggerLike } from '@zeus-evm/aave-discovery';
 import type { PnlReconciler } from './pnlReconciler';
+import type { PnlAggregator, AggregationResult } from './pnlAggregator';
 import type { AttributionCause, PnlReconciliation } from './pnlSchema';
 
 export interface DigestOptions {
@@ -207,6 +208,163 @@ export async function sendToDiscord(
     logger?.warn({ err: msg }, 'PnlReporter: erro enviando pra Discord');
     return { ok: false, status: 0, error: msg };
   }
+}
+
+// ─── Weekly Deep Dive (Item 10 P8) ───
+
+export interface WeeklyDigestData {
+  title: string;
+  generated_at: string;
+  total_samples_7d: number;
+  by_protocol: AggregationResult[];
+  by_venue: AggregationResult[];
+  by_pair: AggregationResult[];
+  by_hour_utc: AggregationResult[];
+  worst_overall: AggregationResult[];
+  top_performers: AggregationResult[];
+}
+
+/**
+ * Constrói weekly deep-dive a partir do PnlAggregator (rolling 7d).
+ * Item 10 P8 do checklist.
+ *
+ * Stateless. Consome só `aggregator.weeklySummary()` + `topPerformers()`.
+ */
+export function buildWeeklyDigest(aggregator: PnlAggregator): WeeklyDigestData {
+  const summary = aggregator.weeklySummary();
+  const stats = aggregator.stats();
+  const top_performers = aggregator.topPerformers('protocol', '7d', 5);
+
+  return {
+    title: `ZEUS Weekly PnL Deep Dive — ${new Date().toISOString().slice(0, 10)}`,
+    generated_at: new Date().toISOString(),
+    total_samples_7d: stats.total_samples,
+    by_protocol: summary.by_protocol,
+    by_venue: summary.by_venue,
+    by_pair: summary.by_pair,
+    by_hour_utc: summary.by_hour_utc,
+    worst_overall: summary.worst_overall,
+    top_performers,
+  };
+}
+
+/**
+ * Formata weekly digest como Markdown (deep dive — pode passar de 2k chars).
+ * Item 10 P8 do checklist.
+ *
+ * Discord webhook trunca em 1900, então pra weekly deep dive grande, salvar como
+ * .md file também (caller pode chamar fs.writeFileSync com este return).
+ */
+export function formatWeeklyMarkdown(data: WeeklyDigestData): string {
+  const lines: string[] = [];
+  lines.push(`# 📈 ${data.title}`);
+  lines.push('');
+  lines.push(`_Generated at ${data.generated_at}_`);
+  lines.push('');
+  lines.push(`**Total reconciliations (7d):** ${data.total_samples_7d}`);
+  if (data.total_samples_7d === 0) {
+    lines.push('');
+    lines.push('_Sem operações nos últimos 7 dias._');
+    return lines.join('\n');
+  }
+  lines.push('');
+
+  if (data.by_protocol.length > 0) {
+    lines.push('## 📂 Por Protocolo');
+    for (const r of data.by_protocol) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  if (data.by_venue.length > 0) {
+    lines.push('## 🏪 Por Venue');
+    for (const r of data.by_venue) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  if (data.by_pair.length > 0) {
+    lines.push('## 💱 Por Par/Oportunidade');
+    for (const r of data.by_pair) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  if (data.by_hour_utc.length > 0) {
+    lines.push('## ⏰ Por Hora UTC');
+    for (const r of data.by_hour_utc) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  if (data.top_performers.length > 0) {
+    lines.push('## 🏆 Top Performers (win_rate × samples)');
+    for (const r of data.top_performers) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  if (data.worst_overall.length > 0) {
+    lines.push('## ⚠️ Worst (Net Delta Negativo)');
+    for (const r of data.worst_overall) {
+      lines.push(formatAggregationLine(r));
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Envia weekly markdown como Discord webhook (auto-trunca em 1900 chars).
+ * Pra deep dive completo, salvar separado em .md.
+ */
+export async function sendWeeklyDigestToDiscord(
+  webhookUrl: string,
+  markdown: string,
+  logger?: LoggerLike,
+): Promise<{ ok: boolean; status: number; error?: string }> {
+  try {
+    const content = markdown.length > 1900
+      ? markdown.slice(0, 1900) + '\n\n_(truncado — ver .md completo)_'
+      : markdown;
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'ZEUS PnL Weekly', content }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      logger?.warn({ status: res.status, body: text.slice(0, 200) }, 'PnL weekly Discord falhou');
+      return { ok: false, status: res.status, error: text.slice(0, 200) };
+    }
+    logger?.info({ status: res.status }, '📤 PnL weekly digest enviado pro Discord');
+    return { ok: true, status: res.status };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger?.warn({ err: msg }, 'PnL weekly: erro enviando');
+    return { ok: false, status: 0, error: msg };
+  }
+}
+
+function formatAggregationLine(r: AggregationResult): string {
+  const winPct = (r.win_rate * 100).toFixed(0);
+  const driftSign = r.avg_drift_bps > 0 ? '+' : '';
+  const deltaSign = r.net_delta_usd >= 0 ? '+' : '';
+  const slipPart = r.avg_slippage_real_bps !== undefined
+    ? ` slip=${r.avg_slippage_real_bps}bps`
+    : '';
+  return (
+    `- **${r.key}**: ${r.samples} ops, ` +
+    `${winPct}% win, ` +
+    `drift ${driftSign}${r.avg_drift_bps}bps, ` +
+    `Δ ${deltaSign}$${r.net_delta_usd.toFixed(2)}${slipPart}`
+  );
 }
 
 // ─── Helpers internos ───

@@ -208,7 +208,7 @@ export {
   type MetricType,
 } from './observability';
 
-// ─── PnL Reconciliation (Item 10 P1+P2+P3+P5+P6+P7) ───
+// ─── PnL Reconciliation (Item 10 P1+P2+P3+P4+P5+P6+P7+P8) ───
 export {
   PnlReconciler,
   PnlAggregator,
@@ -222,6 +222,11 @@ export {
   buildDigest,
   formatMarkdown,
   sendToDiscord,
+  buildWeeklyDigest,
+  formatWeeklyMarkdown,
+  sendWeeklyDigestToDiscord,
+  computeInclusionCost,
+  formatBreakdownLog,
   type PnlReconciliation,
   type ReconciliationStats,
   type AttributionCause,
@@ -232,10 +237,13 @@ export {
   type DecodedSwapReceipt,
   type DecodedBribe,
   type DigestOptions,
+  type WeeklyDigestData,
   type PnlAggregatorOpts,
   type AggregationDimension,
   type AggregationResult,
   type WindowName,
+  type InclusionCostInput,
+  type InclusionCostBreakdown,
 } from './pnl';
 
 // ─── Competitor Fingerprinting (Item 5 F1+F2+F3+F4+F9) ───

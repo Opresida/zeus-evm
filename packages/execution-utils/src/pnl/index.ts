@@ -52,8 +52,19 @@ export {
   buildDigest,
   formatMarkdown,
   sendToDiscord,
+  buildWeeklyDigest,
+  formatWeeklyMarkdown,
+  sendWeeklyDigestToDiscord,
   type DigestOptions,
+  type WeeklyDigestData,
 } from './pnlReporter';
+
+export {
+  computeInclusionCost,
+  formatBreakdownLog,
+  type InclusionCostInput,
+  type InclusionCostBreakdown,
+} from './inclusionCostBreakdown';
 
 export {
   PnlAggregator,

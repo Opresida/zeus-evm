@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@zeus-evm/aave-discovery": "workspace:*",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "catalog:"
   }
 }

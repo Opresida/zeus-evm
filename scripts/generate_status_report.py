@@ -540,6 +540,40 @@ def build_story(styles):
 
     S.append(PageBreak())
 
+    S.append(Paragraph("5.3 Motor 2 — Radar de ineficiência (MIS) construído nesta sessão", styles["h2"]))
+    S.append(Paragraph(
+        "Entregamos o MIS (Market Inefficiency Scanner) — o radar do Motor 2 (arbitragem cross-DEX). "
+        "Ele roda em OBSERVAÇÃO PURA: lê o estado dos pools on-chain, mede divergências de preço, "
+        "estima a economia real de um flashloan e ranqueia por PERSISTÊNCIA. Não toca em capital, "
+        "não submete transação. É um radar — e radar não atira.",
+        styles["body"]
+    ))
+    mis_rows = [
+        ["Peça", "O que faz"],
+        ["Varredura em multicall", "Lê o estado de TODOS os pools de TODOS os pares em 1 ida-e-volta ao RPC (em vez de uma chamada por pool). Essencial pra escalar pra dezenas de pares."],
+        ["Derivação de tokens on-chain", "Em vez de digitar tokens à mão (e errar), o MIS lê os colaterais direto dos protocolos de lending (Aave/forks, Moonwell, Morpho) — endereços garantidos pela fonte — e auto-popula os pares a monitorar. Motor 1 e Motor 2 passam a compartilhar o mesmo conjunto de tokens."],
+        ["Estimador de flash (quoter)", "Quando acha divergência, traduz em números REAIS via quoter on-chain: par, hora, valor do empréstimo, valor de devolução à Aave (+0,05%), custo de gas, lucro bruto/líquido em $ e %."],
+        ["Gate de profundidade", "Roda o round-trip do empréstimo no quoter; se o pool é raso (slippage devora o trade), o par é marcado RASO e EXCLUÍDO do ranking. Tira do mapa as 'oportunidades' que são só slippage disfarçado."],
+        ["Persistência (liga/desliga)", "O histórico é salvo em disco e recarregado ao reiniciar — a persistência (sinal-chave) acumula dia após dia mesmo sem rodar 24/7."],
+    ]
+    S.append(table_2col(mis_rows, col1_w=4.5 * cm, col2_w=12 * cm))
+    S.append(simple_box(
+        "O gate de profundidade foi a lição da sessão: divergências de spot que pareciam ótimas "
+        "(ex: 97 bps) dão PREJUÍZO de ~99% num flash de $10k, porque os pools daquele par são rasos. "
+        "Só o quoter revela isso. Por isso o radar agora separa 'divergência bonita' de "
+        "'oportunidade que aguenta nosso tamanho'.",
+        styles
+    ))
+    S.append(simple_box(
+        "IMPORTANTE — o MIS NÃO está ligado ao executor de flashloan, e isso é de propósito. "
+        "Ele varre, identifica, estima e ranqueia — e PARA no log. Ligar a execução é um passo "
+        "futuro deliberado (ver seção 8), que só faz sentido depois de dias de persistência coletada "
+        "+ as peças de segurança do arb prontas. Detalhe na seção 8.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
     # ───── 6. CAMADA DE OBSERVAÇÃO ─────
     S.append(Paragraph("6. Camada de aprendizado — o cérebro do bot", styles["h1"]))
     S.append(Paragraph(
@@ -623,6 +657,33 @@ def build_story(styles):
         "Hoje o ZEUS olha 123 'casas em apuros' pra liquidar em Base. Com a expansão, vai olhar 7.000. "
         "Mesmo bot perfeito tem probabilidade baixa de pegar oportunidade com universo tão pequeno — "
         "volume é pré-condição matemática.",
+        styles
+    ))
+
+    S.append(Paragraph("8.3 Motor 2 — Ponte do radar (MIS) até a execução (LEMBRETE)", styles["h2"]))
+    S.append(Paragraph(
+        "O MIS (seção 5.3) hoje é um RADAR em observação pura: varre, identifica, estima e ranqueia — "
+        "e para no log. Ele NÃO está ligado ao executor de flashloan (ZeusArbExecutor), e isso é uma "
+        "escolha deliberada, não um esquecimento. Ligar a execução do Motor 2 exige as peças abaixo, "
+        "e só faz sentido DEPOIS de coletar dias de persistência e confirmar que existe par com "
+        "ineficiência real que aguenta nosso notional.",
+        styles["body"]
+    ))
+    ponte = [
+        ["Peça pra ligar MIS → executor", "Status"],
+        ["txBuilder de rota de arb (buy leg + sell leg) → executeFlashloanArbitrage", "Não feito"],
+        ["simulateArbitrage (eth_call atômico) antes de qualquer submit", "Reusa o do liquidator — não fiado ao MIS"],
+        ["Allowlist de token do arb (fee-on-transfer / honeypot passam pela sim e quebram na execução)", "Existe (tokenSafety) — não fiada ao MIS"],
+        ["Sizing do notional pela liquidez do pool (em vez de $10k fixo)", "Não feito — gate de profundidade é o primeiro passo"],
+        ["Wire da caixa-preta (scorer/reconciler venue='arb')", "Pendente — item 5 do plano do Motor 2"],
+        ["Gates herdados (kill switch / cooldown / gas / slippage floor)", "Existem no liquidator — falta plugar no caminho de arb"],
+    ]
+    S.append(table_2col(ponte, col1_w=10.5 * cm, col2_w=6 * cm))
+    S.append(simple_box(
+        "Pensa no MIS como o radar de um navio de guerra: ele aponta onde estão os alvos e diz se "
+        "valem o tiro. Mas o gatilho (executor) é um sistema separado, ligado de propósito só quando "
+        "o comandante decide. Radar bom não atira sozinho — primeiro a gente confirma que o alvo é "
+        "real (persistência) e que o canhão alcança (sizing/segurança).",
         styles
     ))
 

@@ -85,6 +85,30 @@ describe('MIS — ranking por persistência (tese central)', () => {
   });
 });
 
+describe('MIS — gate de profundidade (rasos fora do ranking)', () => {
+  it('grupo marcado como raso não aparece no ranking', () => {
+    const mis = new MarketInefficiencyScanner({ minDivergenceBps: 20 });
+    for (let i = 0; i < 5; i++) mis.recordSample(mkObs('fundo', 50));
+    for (let i = 0; i < 5; i++) mis.recordSample(mkObs('raso', 200)); // div alta mas raso
+
+    mis.markThin('raso', true);
+    const ranking = mis.ranking();
+    expect(ranking.find((r) => r.groupLabel === 'raso')).toBeUndefined();
+    expect(ranking.find((r) => r.groupLabel === 'fundo')).toBeDefined();
+    expect(mis.thinCount()).toBe(1);
+  });
+
+  it('desmarcar raso devolve o grupo ao ranking', () => {
+    const mis = new MarketInefficiencyScanner({ minDivergenceBps: 20 });
+    for (let i = 0; i < 3; i++) mis.recordSample(mkObs('g', 30));
+    mis.markThin('g', true);
+    expect(mis.ranking()).toHaveLength(0);
+    mis.markThin('g', false);
+    expect(mis.ranking()).toHaveLength(1);
+    expect(mis.isThin('g')).toBe(false);
+  });
+});
+
 describe('MIS — persistência (padrão liga/desliga diário)', () => {
   it('snapshot + restore preserva histórico entre sessões', () => {
     const mis1 = new MarketInefficiencyScanner();
@@ -106,6 +130,35 @@ describe('MIS — persistência (padrão liga/desliga diário)', () => {
     mis.restore(snap);
     expect(mis.stats().totalSamples).toBe(1); // só a recente sobrevive
     vi.useRealTimers();
+  });
+});
+
+describe('MIS — sanity cap (descarta lixo de pool morto)', () => {
+  it('divergência > maxSaneDivergenceBps é ignorada (batched)', async () => {
+    const Q96 = 2n ** 96n;
+    const poolGood = '0xaAaA000000000000000000000000000000000001' as Address;
+    const poolDead = '0xbBbB000000000000000000000000000000000001' as Address;
+    // Batched: 1 multicall com TODOS os pools — mapeia cada contrato pro seu sqrt
+    const multicall = vi.fn().mockImplementation(({ contracts }: { contracts: Array<{ address: string }> }) =>
+      Promise.resolve(
+        contracts.map((c) => {
+          const isDead = c.address.toLowerCase() === poolDead.toLowerCase();
+          const sqrt = isDead ? 1000n * Q96 : 2n * Q96; // dead → price absurdo
+          return { status: 'success', result: [sqrt, 0, 0, 0, 0, 0, true] };
+        }),
+      ),
+    );
+    const client = { multicall } as any;
+    const mis = new MarketInefficiencyScanner({ minDivergenceBps: 20, maxSaneDivergenceBps: 1500 });
+    mis.registerGroup({
+      label: 'X/Y', tokenA: WETH, tokenB: USDC, decimalsA: 18, decimalsB: 18,
+      pools: [
+        { dex: 'univ3', pool: poolGood, label: 'good' },
+        { dex: 'univ3', pool: poolDead, label: 'dead' },
+      ],
+    });
+    const obs = await mis.scanAllBatched(client);
+    expect(obs[0]!.maxDivergenceBps).toBe(0); // divergência absurda ignorada
   });
 });
 

@@ -23,7 +23,9 @@ import pino from 'pino';
 
 import { BASE_MAINNET } from '@zeus-evm/chain-config';
 import { MarketInefficiencyScanner, type InefficiencyObservation } from '@zeus-evm/execution-utils';
-import { BASE_CURATED_PAIRS, resolvePoolGroups } from './poolGroups';
+import { BASE_CURATED_PAIRS, curatedPairsToResolved, dedupPairs, resolvePoolGroups, type ResolvedPair } from './poolGroups';
+import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
+import { estimateFlashArb, fetchEthUsd } from './flashEstimator';
 
 // Carrega .env local + raiz do monorepo (2 níveis acima) — RPC fica na raiz
 dotenv.config();
@@ -78,9 +80,35 @@ async function main(): Promise<void> {
     logger.info({ samples: mis.stats().totalSamples }, '📂 histórico anterior recarregado');
   }
 
-  // Resolve pools on-chain dos pares curados
-  logger.info({ pairs: BASE_CURATED_PAIRS.length }, '🔍 resolvendo pools on-chain...');
-  const groups = await resolvePoolGroups({ client, chainConfig: BASE_MAINNET, pairs: BASE_CURATED_PAIRS, logger });
+  // Monta o universo de pares: curados (tese) + derivados on-chain (colaterais lending)
+  const curated = curatedPairsToResolved(BASE_CURATED_PAIRS, BASE_MAINNET);
+  let allPairs: ResolvedPair[] = curated;
+
+  const deriveTokens = (process.env.MIS_DERIVE_TOKENS ?? 'true') !== 'false';
+  if (deriveTokens) {
+    logger.info('🧬 derivando tokens dos colaterais Aave/Moonwell/Morpho...');
+    const tokens = await deriveProtocolTokens({
+      client,
+      chainConfig: BASE_MAINNET,
+      logger,
+      opts: {
+        includeMorpho: (process.env.MIS_DERIVE_MORPHO ?? 'true') !== 'false',
+        maxPairs: Number(process.env.MIS_MAX_DERIVED_PAIRS ?? 60),
+      },
+    });
+    const derived = buildDerivedPairs({
+      tokens,
+      chainConfig: BASE_MAINNET,
+      opts: { maxPairs: Number(process.env.MIS_MAX_DERIVED_PAIRS ?? 60) },
+    });
+    logger.info({ tokens: tokens.length, derivedPairs: derived.length }, `🧬 ${tokens.length} tokens → ${derived.length} pares derivados`);
+    // Curados primeiro (prioridade no dedup), depois derivados
+    allPairs = dedupPairs([...curated, ...derived]);
+  }
+
+  // Resolve pools on-chain de todos os pares (curados + derivados)
+  logger.info({ pairs: allPairs.length }, '🔍 resolvendo pools on-chain...');
+  const groups = await resolvePoolGroups({ client, chainConfig: BASE_MAINNET, pairs: allPairs, logger });
   for (const g of groups) mis.registerGroup(g);
 
   if (mis.groupCount() === 0) {
@@ -88,6 +116,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   logger.info({ groups: mis.groupCount() }, `✅ MIS pronto — varrendo ${mis.groupCount()} grupos a cada ${SCAN_INTERVAL_MS}ms`);
+
+  // Lookup grupo por label (pro estimador de flash usar tokens/pools reais)
+  const groupByLabel = new Map(groups.map((g) => [g.label, g]));
+  const flashNotionalUsd = Number(process.env.MIS_FLASH_NOTIONAL_USD ?? 10_000);
+  // Só estima flash em divergência forte o suficiente pra valer o RPC (default = minDiv)
+  const flashMinBps = Number(process.env.MIS_FLASH_MIN_BPS ?? minDivergenceBps);
+  // Budget de slippage do gate de profundidade: round-trip < (1−budget) = pool raso
+  const maxSlippageBps = Number(process.env.MIS_MAX_SLIPPAGE_BPS ?? 500);
 
   // Graceful shutdown: salva snapshot ao sair (Ctrl+C)
   let stopping = false;
@@ -105,7 +141,7 @@ async function main(): Promise<void> {
   const tick = async () => {
     if (stopping) return;
     try {
-      const obs = await mis.scanAll(client);
+      const obs = await mis.scanAllBatched(client);
       scanCount++;
       const active = obs.filter((o) => o.maxDivergenceBps >= minDivergenceBps);
       if (active.length > 0) {
@@ -113,14 +149,56 @@ async function main(): Promise<void> {
           { divergences: active.map((o) => `${o.groupLabel}=${o.maxDivergenceBps}bps`) },
           `📡 scan #${scanCount}: ${active.length} grupos com divergência ativa`,
         );
+
+        // Enriquece com dados do flash (quoter on-chain) só pras divergências fortes
+        const strong = active.filter((o) => o.maxDivergenceBps >= flashMinBps && groupByLabel.has(o.groupLabel));
+        const ethUsd = strong.length > 0 ? await fetchEthUsd(client, BASE_MAINNET) : 0; // cotado 1x/tick
+        for (const o of strong) {
+          const group = groupByLabel.get(o.groupLabel)!;
+          try {
+            const est = await estimateFlashArb({
+              client, chainConfig: BASE_MAINNET, group, observation: o,
+              opts: { notionalUsd: flashNotionalUsd, ethUsd, maxSlippageBps },
+            });
+            if (!est) continue;
+            // Gate de profundidade: pool raso → fora do ranking de persistência
+            mis.markThin(o.groupLabel, !est.supportsNotional);
+            const emoji = !est.supportsNotional ? '🕳️' : est.profitable ? '💰' : '🔍';
+            logger.info(
+              {
+                par: est.pair,
+                hora: est.isoTime,
+                rota: `${est.cheapPool} → ${est.expensivePool}`,
+                divBps: est.divergenceBps,
+                emprestimo: `$${est.loanUsd} (${est.loanTokenB})`,
+                devolucaoAave: `$${est.repayUsd.toFixed(2)} (${est.repayTokenB})`,
+                gasCusto: `$${est.gasCostUsd}`,
+                lucroBruto: `$${est.grossProfitUsd}`,
+                lucroLiquido: `$${est.netProfitUsd}`,
+                lucroPct: `${est.profitPct}%`,
+                roundTrip: `${(est.roundTripRatio * 100).toFixed(1)}%`,
+                suportaNotional: est.supportsNotional,
+                lucrativo: est.profitable,
+              },
+              est.supportsNotional
+                ? `${emoji} flash ${est.pair}: líquido $${est.netProfitUsd} (${est.profitPct}%)`
+                : `🕳️ ${est.pair} RASO: round-trip só ${(est.roundTripRatio * 100).toFixed(1)}% do empréstimo — fora do ranking`,
+            );
+          } catch (err) {
+            logger.debug?.({ par: o.groupLabel, err: err instanceof Error ? err.message : err }, 'estimativa de flash falhou');
+          }
+        }
       }
       saveSnapshot(mis.snapshot());
 
       if (scanCount % RANKING_EVERY === 0) {
         const ranking = mis.ranking().slice(0, 10);
         logger.info(
-          { ranking: ranking.map((r) => ({ par: r.groupLabel, score: r.score, persist: `${(r.persistenceRatio * 100).toFixed(0)}%`, avgBps: r.avgDivergenceBps, n: r.samples })) },
-          `🏆 Ranking de ineficiência persistente (top ${ranking.length})`,
+          {
+            ranking: ranking.map((r) => ({ par: r.groupLabel, score: r.score, persist: `${(r.persistenceRatio * 100).toFixed(0)}%`, avgBps: r.avgDivergenceBps, n: r.samples })),
+            rasosExcluidos: mis.thinCount(),
+          },
+          `🏆 Ranking de ineficiência persistente (top ${ranking.length}, ${mis.thinCount()} rasos fora)`,
         );
       }
     } catch (err) {
@@ -129,8 +207,8 @@ async function main(): Promise<void> {
   };
 
   await tick();
-  const interval = setInterval(() => void tick(), SCAN_INTERVAL_MS);
-  interval.unref?.();
+  // SEM unref: o scanner deve varrer continuamente até SIGINT (padrão "deixa varrendo").
+  setInterval(() => void tick(), SCAN_INTERVAL_MS);
 }
 
 main().catch((err) => {

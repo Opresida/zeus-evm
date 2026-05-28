@@ -292,6 +292,15 @@ export {
   type CooccurrenceCluster,
 } from './competitors';
 
+// ─── Arb / Motor 2 (Token Safety) ───
+export {
+  buildArbAllowlist,
+  isArbTokenAllowed,
+  checkArbPair,
+  checkArbRoute,
+  type ArbAllowlist,
+} from './arb';
+
 // ─── Alerting Sinks ───
 export {
   createDiscordSink,

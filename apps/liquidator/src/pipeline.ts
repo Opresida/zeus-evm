@@ -78,6 +78,12 @@ export interface PipelineDeps {
   stalenessChecker?: ChainlinkStalenessChecker;
   /** Pause detector (Grupo B) — gate pre-dispatch contra protocol pausado upstream. */
   pauseDetector?: PauseDetector;
+  /**
+   * Mercado Aave ativo (Doutrina multi-market). Quando presente, sobrescreve
+   * os endereços core do chainConfig.aave — permite operar Seamless e outros
+   * forks com o MESMO pipeline. Ausente = Aave V3 core (compat).
+   */
+  aaveMarket?: { label: string; pool: Address; oracleAddress: Address };
 }
 
 /**
@@ -197,6 +203,11 @@ async function _runAavePipelineInner(
 ): Promise<DispatchOutcome> {
   const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
 
+  // Mercado Aave ativo (core ou fork como Seamless). Doutrina multi-market.
+  const marketLabel = deps.aaveMarket?.label ?? 'aave-v3';
+  const marketPool = deps.aaveMarket?.pool ?? ctx.chainConfig.aave.pool;
+  const marketOracle = deps.aaveMarket?.oracleAddress ?? ctx.chainConfig.aave.oracle;
+
   // Gate kill switch
   if (pnlTracker?.isKillSwitchTriggered()) {
     return {
@@ -233,7 +244,7 @@ async function _runAavePipelineInner(
   // Gate oracle staleness (Grupo B) — Chainlink updatedAt > threshold = abort
   if (deps.stalenessChecker) {
     const stale = await deps.stalenessChecker.checkAaveAssetsStaleness(
-      ctx.chainConfig.aave.oracle,
+      marketOracle,
       [position.debtAsset, position.collateralAsset],
     );
     for (const [asset, result] of stale.entries()) {
@@ -253,14 +264,14 @@ async function _runAavePipelineInner(
   // Gate pause detection upstream (Grupo B) — protocol pausado = abort
   if (deps.pauseDetector) {
     const pause = await deps.pauseDetector.checkAaveLiquidation(
-      ctx.chainConfig.aave.pool,
+      marketPool,
       position.debtAsset,
       position.collateralAsset,
     );
     if (pause.paused) {
       logger.warn(
-        { reason: pause.reason, block: pause.checked_at_block.toString() },
-        `⏸️  Aave pause gate: ${pause.reason}`,
+        { market: marketLabel, reason: pause.reason, block: pause.checked_at_block.toString() },
+        `⏸️  Aave pause gate (${marketLabel}): ${pause.reason}`,
       );
       return {
         status: 'reverted_pre_dispatch',
@@ -269,8 +280,8 @@ async function _runAavePipelineInner(
     }
   }
 
-  // Gate dedup
-  const positionKey = aavePositionKey(ctx.chainConfig.name, position.borrower);
+  // Gate dedup (key inclui market label pra não colidir entre Aave core e forks)
+  const positionKey = aavePositionKey(ctx.chainConfig.name, position.borrower, marketLabel);
   if (dedupTracker) {
     const dedupCheck = dedupTracker.check(positionKey);
     if (dedupCheck.blocked) {
@@ -439,6 +450,7 @@ async function _runAavePipelineInner(
     failureCollector: deps.failureCollector,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
+    venue: marketLabel,
   });
 }
 

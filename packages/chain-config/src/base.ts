@@ -40,6 +40,19 @@ export const BASE_MAINNET: ChainConfig = {
     aaveDataProvider: '0xd82a47fdebB5bf5329b09441C3DaB4b5df2153Ad',
   },
 
+  // ─── Aave V3 forks (Doutrina: mercados sub-servidos) ───
+  // Seamless Protocol — fork direto do Aave V3 em Base, menos liquidators ativos.
+  // Endereços oficiais: https://docs.seamlessprotocol.com/technical/contract-addresses
+  aaveForks: [
+    {
+      label: 'seamless',
+      poolAddressesProvider: '0x0E02EB705be325407707662C6f6d3466E939f3a0',
+      pool: '0x8F44Fd754285aa6A2b8B9B97739B79746e0475a7',
+      oracle: '0xFDd4e83890BCcd1fbF9b10d71a5cc0a738753b01',
+      aaveDataProvider: '0x2A0979257105834789bC6b9E1B6d59A8c0acf003',
+    },
+  ],
+
   // ─── Uniswap V3 ───
   uniswapV3: {
     factory: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD',

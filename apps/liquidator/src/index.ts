@@ -71,6 +71,8 @@ import {
   sendFailureDigestToDiscord,
   ChainlinkStalenessChecker,
   PauseDetector,
+  ChainProfitabilityScorer,
+  formatScoreRankingMarkdown,
   createDiscordSink,
   createGenericWebhookSink,
   type Severity,
@@ -90,6 +92,16 @@ const EXECUTOR_VIEW_ABI = [
     outputs: [{ type: 'uint256' }],
   },
 ] as const;
+
+/** Runtime de um mercado Aave-compatível (core ou fork). Doutrina multi-market. */
+interface AaveMarketRuntime {
+  label: string;
+  pool: Address;
+  oracleAddress: Address;
+  reservesCache: AaveReservesCache;
+  oracleInstance: AavePriceOracle;
+  subgraphId: string | undefined;
+}
 
 interface LiquidatorState {
   env: ReturnType<typeof loadConfig>;
@@ -112,8 +124,10 @@ interface LiquidatorState {
   eventBus: EventBus;
   /** Gas oracle EIP-1559 — pricing correto pra Base/Arb/OP */
   gasOracle: GasOracle;
-  /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator. */
+  /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator (core market). */
   aaveOracle: AavePriceOracle;
+  /** Mercados Aave ativos (core + forks como Seamless). Doutrina multi-market. */
+  aaveMarkets: AaveMarketRuntime[];
   /** Chainlink staleness checker (Grupo B) — gate pre-dispatch contra oracle stale. */
   stalenessChecker?: ChainlinkStalenessChecker;
   /** PauseDetector (Grupo B) — gate pre-dispatch contra protocol pausado upstream. */
@@ -138,6 +152,8 @@ interface LiquidatorState {
   senderRegistry: SenderRegistry;
   /** BlockHistoryScanner (Item 5 F2) — popula registry em background. */
   blockHistoryScanner: BlockHistoryScanner;
+  /** ChainProfitabilityScorer (Doutrina) — score por market pra decisão de capital. */
+  scorer: ChainProfitabilityScorer;
   /** Tracer (Item 16B OB1) — spans correlacionados via trace_id. */
   tracer: Tracer;
   /** Prometheus MetricRegistry (Item 16B OB2). */
@@ -355,6 +371,47 @@ export async function boot(): Promise<LiquidatorState> {
     `🔮 Aave PriceOracle pronto`,
   );
 
+  // ── Mercados Aave (Doutrina multi-market): core + forks (Seamless etc) ──
+  const aaveMarkets: AaveMarketRuntime[] = [];
+  if (aaveReservesCache) {
+    aaveMarkets.push({
+      label: 'aave-v3',
+      pool: ctx.chainConfig.aave.pool,
+      oracleAddress: ctx.chainConfig.aave.oracle,
+      reservesCache: aaveReservesCache,
+      oracleInstance: aaveOracle,
+      subgraphId: ctx.subgraphId,
+    });
+  }
+  for (const fork of ctx.chainConfig.aaveForks ?? []) {
+    try {
+      const forkCache = await buildAaveReservesCache({
+        client: ctx.client,
+        poolAddress: fork.pool,
+        chainId: ctx.chainConfig.chainId,
+        logger,
+      });
+      const forkSubgraph = resolveForkSubgraphId(env, fork.label);
+      aaveMarkets.push({
+        label: fork.label,
+        pool: fork.pool,
+        oracleAddress: fork.oracle,
+        reservesCache: forkCache,
+        oracleInstance: new AavePriceOracle(ctx.client, fork.oracle),
+        subgraphId: forkSubgraph,
+      });
+      logger.info(
+        { fork: fork.label, pool: fork.pool, hasSubgraph: !!forkSubgraph },
+        `🌱 Aave fork '${fork.label}' carregado${forkSubgraph ? '' : ' (sem subgraph — discovery vai pular até configurar)'}`,
+      );
+    } catch (err) {
+      logger.error(
+        { fork: fork.label, err: err instanceof Error ? err.message : err },
+        `Falha ao carregar fork Aave '${fork.label}' — pulando`,
+      );
+    }
+  }
+
   // Chainlink staleness checker (Grupo B) — gate pre-dispatch
   const stalenessChecker = env.ORACLE_STALENESS_CHECK_ENABLED
     ? new ChainlinkStalenessChecker(ctx.client, {
@@ -378,6 +435,7 @@ export async function boot(): Promise<LiquidatorState> {
       '⏸️  PauseDetector armado (gate pre-dispatch contra Aave/Comet paused)',
     );
   }
+
 
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
@@ -519,6 +577,14 @@ export async function boot(): Promise<LiquidatorState> {
   });
   blockHistoryScanner.start();
   logger.info({ targets: Object.keys(scannerTargets).length }, '🔭 BlockHistoryScanner iniciado em background');
+
+  // ChainProfitabilityScorer (Doutrina) — score por (chain, protocol) pra decisão de capital
+  const scorer = new ChainProfitabilityScorer({
+    pnlReconciler,
+    senderRegistry,
+    logger,
+  });
+  logger.info('🎯 ChainProfitabilityScorer armado (observe por market no discovery)');
 
   // Health server — Item 12 H8+H11 (/healthz + /readyz pro UptimeRobot)
   if (env.HEALTH_SERVER_ENABLED) {
@@ -665,6 +731,7 @@ export async function boot(): Promise<LiquidatorState> {
       weekdayUtc: env.FAILURE_REPORTER_WEEKDAY_UTC,
       hourUtc: env.FAILURE_REPORTER_HOUR_UTC,
       logger,
+      scorer,
     });
     logger.info(
       {
@@ -700,6 +767,7 @@ export async function boot(): Promise<LiquidatorState> {
     eventBus,
     gasOracle,
     aaveOracle,
+    aaveMarkets,
     stalenessChecker,
     pauseDetector,
     intelligenceStore,
@@ -712,6 +780,7 @@ export async function boot(): Promise<LiquidatorState> {
     autoPauseManager,
     senderRegistry,
     blockHistoryScanner,
+    scorer,
     tracer,
     metricRegistry,
   };
@@ -843,12 +912,19 @@ function scheduleFailureDigest(opts: {
   weekdayUtc: number;
   hourUtc: number;
   logger: typeof logger;
+  scorer?: ChainProfitabilityScorer;
 }): void {
   const runDigest = async () => {
     try {
       const digest = buildFailureDigest(opts.collector);
       const markdown = formatFailureMarkdown(digest);
       await sendFailureDigestToDiscord(opts.webhookUrl, markdown, opts.logger);
+
+      // Doutrina — anexa Chain Profitability Ranking no mesmo slot semanal
+      if (opts.scorer) {
+        const rankingMd = formatScoreRankingMarkdown(opts.scorer.rankAll());
+        await sendFailureDigestToDiscord(opts.webhookUrl, rankingMd, opts.logger);
+      }
     } catch (err) {
       opts.logger.warn(
         { err: err instanceof Error ? err.message : err },
@@ -1019,7 +1095,10 @@ function buildLiquidatorReadinessReport(deps: {
 export async function processOpportunity(
   position: AaveLiquidatablePosition,
   state: LiquidatorState,
+  market?: AaveMarketRuntime,
 ): Promise<DispatchOutcome> {
+  // Default = core Aave V3. Forks (Seamless) passam o market explícito.
+  const activeMarket = market ?? state.aaveMarkets[0];
   return runAavePipeline(position, {
     env: state.env,
     ctx: state.ctx,
@@ -1031,13 +1110,16 @@ export async function processOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
-    aaveOracle: state.aaveOracle,
+    aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
+    aaveMarket: activeMarket
+      ? { label: activeMarket.label, pool: activeMarket.pool, oracleAddress: activeMarket.oracleAddress }
+      : undefined,
   });
 }
 
@@ -1080,6 +1162,7 @@ export async function processCompoundOpportunity(
 async function selectBestPairPerBorrower(
   positions: AaveLiquidatablePosition[],
   state: LiquidatorState,
+  market: AaveMarketRuntime,
   logger: import('@zeus-evm/aave-discovery').LoggerLike,
 ): Promise<AaveLiquidatablePosition[]> {
   // Agrupa por borrower
@@ -1109,7 +1192,7 @@ async function selectBestPairPerBorrower(
           client: state.ctx.client,
           quoterAddress: state.ctx.chainConfig.uniswapV3!.quoterV2,
           contractCapWei: cap,
-          oracle: state.aaveOracle,
+          oracle: market.oracleInstance,
         });
         if (outcome.ok && (!best || outcome.decision.expectedProfitUsd > best.profitUsd)) {
           best = { position: pos, profitUsd: outcome.decision.expectedProfitUsd };
@@ -1138,6 +1221,16 @@ async function selectBestPairPerBorrower(
     }
   }
   return winners;
+}
+
+/** Resolve subgraph ID de um fork Aave a partir do env. Vazio = sem subgraph. */
+function resolveForkSubgraphId(env: ReturnType<typeof loadConfig>, forkLabel: string): string | undefined {
+  switch (forkLabel) {
+    case 'seamless':
+      return env.AAVE_SEAMLESS_BASE_SUBGRAPH_ID || undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** Lista de debt assets comuns por chain pra warm-up do cache de cap. */
@@ -1175,7 +1268,7 @@ function getCommonDebtAssetsForChain(chainId: number): Address[] {
  * Em testnet/mainnet: positions com simulação OK viram tx submetidas.
  */
 export async function discoveryTick(state: LiquidatorState): Promise<void> {
-  const { env, ctx, aaveReservesCache, compoundCometCache } = state;
+  const { env, ctx, compoundCometCache } = state;
 
   const startedAt = Date.now();
   const stats = { aave: 0, compound: 0, dispatched: 0, dryrun: 0, rejected: 0 };
@@ -1183,37 +1276,55 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
   await state.gasReserveTracker.check(ctx.client, ctx.account);
 
-  // ─── Aave V3 ───
-  if (aaveReservesCache && env.THEGRAPH_API_KEY && ctx.chainConfig.aave?.pool) {
-    try {
-      const aavePositions = await discoverAaveLiquidatablePositions({
-        client: ctx.client,
-        poolAddress: ctx.chainConfig.aave.pool,
-        apiKey: env.THEGRAPH_API_KEY,
-        subgraphId: ctx.subgraphId,
-        cache: aaveReservesCache,
-        hfThreshold: env.HF_AT_RISK_THRESHOLD,
-        maxCandidates: 200,
-        evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
-        logger,
-      });
-      stats.aave = aavePositions.length;
-
-      // Grupo B — Multi-collateral evaluation: agrupa por borrower e escolhe o par
-      // com MAIOR profit estimado pelo calculator (em vez de top-1 por wei do collateral).
-      const positionsToDispatch = env.MULTI_COLLATERAL_EVAL_ENABLED
-        ? await selectBestPairPerBorrower(aavePositions, state, logger)
-        : aavePositions;
-
-      for (const position of positionsToDispatch) {
-        const outcome = await processOpportunity(position, state);
-        updateStats(stats, outcome.status);
+  // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
+  if (env.THEGRAPH_API_KEY && state.aaveMarkets.length > 0) {
+    for (const market of state.aaveMarkets) {
+      if (!market.subgraphId) {
+        logger.debug(
+          { market: market.label },
+          `Aave market '${market.label}' sem subgraph — discovery pulado`,
+        );
+        continue;
       }
-    } catch (err) {
-      logger.error({ err: err instanceof Error ? err.message : err }, 'Aave discovery falhou');
+      try {
+        const positions = await discoverAaveLiquidatablePositions({
+          client: ctx.client,
+          poolAddress: market.pool,
+          apiKey: env.THEGRAPH_API_KEY,
+          subgraphId: market.subgraphId,
+          cache: market.reservesCache,
+          hfThreshold: env.HF_AT_RISK_THRESHOLD,
+          maxCandidates: 200,
+          evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
+          logger,
+        });
+        stats.aave += positions.length;
+
+        // Doutrina — alimenta ChainProfitabilityScorer (densidade de oportunidade por market)
+        state.scorer.observe({
+          chain: ctx.chainConfig.shortName,
+          protocol: market.label,
+          opportunities_seen: positions.length,
+        });
+
+        // Grupo B — Multi-collateral: escolhe o par de MAIOR profit por borrower
+        const positionsToDispatch = env.MULTI_COLLATERAL_EVAL_ENABLED
+          ? await selectBestPairPerBorrower(positions, state, market, logger)
+          : positions;
+
+        for (const position of positionsToDispatch) {
+          const outcome = await processOpportunity(position, state, market);
+          updateStats(stats, outcome.status);
+        }
+      } catch (err) {
+        logger.error(
+          { market: market.label, err: err instanceof Error ? err.message : err },
+          `Aave discovery falhou (market ${market.label})`,
+        );
+      }
     }
-  } else if (!aaveReservesCache) {
-    logger.debug('aaveReservesCache ausente — Aave discovery pulado');
+  } else if (state.aaveMarkets.length === 0) {
+    logger.debug('Nenhum mercado Aave carregado — Aave discovery pulado');
   }
 
   // ─── Compound III ───
@@ -1226,6 +1337,12 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
         logger,
       });
       stats.compound = compoundPositions.length;
+      // Doutrina — alimenta scorer (densidade Compound III)
+      state.scorer.observe({
+        chain: ctx.chainConfig.shortName,
+        protocol: 'compound-v3',
+        opportunities_seen: compoundPositions.length,
+      });
       for (const position of compoundPositions) {
         const outcome = await processCompoundOpportunity(position, state);
         updateStats(stats, outcome.status);
@@ -1318,6 +1435,22 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     },
     `🔄 Tick done: aave=${stats.aave} compound=${stats.compound} | dispatched=${stats.dispatched} dryrun=${stats.dryrun} rejected=${stats.rejected} | cache=${cacheStats.hits}/${cacheStats.hits + cacheStats.misses} (${(cacheStats.hitRate * 100).toFixed(0)}%) | PnL24h net=$${pnlStats.netPnlUsd.toFixed(2)} (loss=$${pnlStats.lossesUsd.toFixed(2)}) | fails=${failureStats.consecutiveFailures}/${failureStats.maxAllowed}${failureStats.inCooldown ? ` ⏸️ cd=${Math.ceil(failureStats.cooldownRemainingMs / 1000)}s` : ''} | dedup=${dedupStats.total} (p=${dedupStats.pending} c=${dedupStats.confirmed} f=${dedupStats.failed}) | gas=${gasStats.status} ${gasStats.balanceEth}ETH`,
   );
+
+  // Doutrina — ranking de profitability por market (compacto no log do tick)
+  const ranking = state.scorer.rankAll();
+  if (ranking.length > 0) {
+    logger.info(
+      {
+        ranking: ranking.map((r) => ({
+          combo: `${r.chain}×${r.protocol}`,
+          score: r.score,
+          opsPerH: r.raw.ops_per_hour,
+          winRate: `${(r.raw.win_rate * 100).toFixed(0)}%`,
+        })),
+      },
+      `🎯 Profitability ranking: ${ranking.map((r) => `${r.protocol}=${r.score.toFixed(2)}`).join(' ')}`,
+    );
+  }
 
   // Emit tick event pra subscribers (Discord filtra fora por default — só generic webhook recebe)
   state.eventBus.emit({

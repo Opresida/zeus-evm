@@ -1,4 +1,4 @@
-export type { ChainConfig } from './types';
+export type { ChainConfig, AaveMarketConfig } from './types';
 export { BASE_MAINNET } from './base';
 export { BASE_SEPOLIA } from './base-sepolia';
 export { ARBITRUM_MAINNET } from './arbitrum';

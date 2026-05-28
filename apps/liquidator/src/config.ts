@@ -73,6 +73,9 @@ const envSchema = z.object({
   AAVE_V3_BASE_SUBGRAPH_ID: z.string().default('GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF'),
   AAVE_V3_ARBITRUM_SUBGRAPH_ID: z.string().default('DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B'),
   AAVE_V3_OPTIMISM_SUBGRAPH_ID: z.string().default('DSfLz8oQBUeU5atALgUFQKMTSYV9mZAVYp4noLSXAfvb'),
+  /** Subgraph do Seamless (Aave fork em Base). Vazio = discovery do Seamless pula
+   *  até ser configurado. Preencher quando tiver o subgraph ID no The Graph. */
+  AAVE_SEAMLESS_BASE_SUBGRAPH_ID: z.string().default(''),
 
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:

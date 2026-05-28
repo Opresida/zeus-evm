@@ -92,6 +92,8 @@ export interface DispatchInput {
   expectedSwapOutputWei?: bigint;
   /** Opportunity id (borrower address) pra cross-ref no schema. */
   opportunityId?: string;
+  /** Venue/market label (ex: 'seamless') pra distinguir forks Aave no reconciler. */
+  venue?: string;
 }
 
 /**
@@ -376,6 +378,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           realized_bribe_usd_paid: realBribeUsd,
           eth_usd_price: ethUsdPrice,
           opportunity_id: input.opportunityId,
+          venue: input.venue,
           finality_status: 'soft', // 1 conf — pode promover pra 'finalized' depois via FinalityTracker
         });
       } catch (err) {

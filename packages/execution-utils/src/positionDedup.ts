@@ -51,9 +51,11 @@ export interface DedupTrackerOpts {
   logger?: LoggerLike;
 }
 
-/** Builders de chave canonical pra dedup. */
-export function aavePositionKey(chain: string, borrower: Address): string {
-  return `${chain}:aave-v3:${borrower.toLowerCase()}`;
+/** Builders de chave canonical pra dedup.
+ *  `market` distingue Aave V3 core de forks (seamless, etc) — evita colisão de
+ *  dedup quando o mesmo borrower existe em múltiplos mercados Aave-compatíveis. */
+export function aavePositionKey(chain: string, borrower: Address, market = 'aave-v3'): string {
+  return `${chain}:${market}:${borrower.toLowerCase()}`;
 }
 
 export function compoundPositionKey(chain: string, comet: Address, borrower: Address): string {

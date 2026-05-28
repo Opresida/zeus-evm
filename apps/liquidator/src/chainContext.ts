@@ -20,9 +20,10 @@ import {
   BASE_SEPOLIA,
   OPTIMISM_MAINNET,
   OPTIMISM_SEPOLIA,
+  POLYGON_MAINNET,
   type ChainConfig,
 } from '@zeus-evm/chain-config';
-import { arbitrum, arbitrumSepolia, base, baseSepolia, optimism, optimismSepolia } from 'viem/chains';
+import { arbitrum, arbitrumSepolia, base, baseSepolia, optimism, optimismSepolia, polygon } from 'viem/chains';
 
 import type { LiquidatorEnv } from './config';
 
@@ -155,9 +156,17 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
         viemChain: optimismSepolia,
         executorAddr: env.LIQUIDATOR_ADDRESS_OPTIMISM_SEPOLIA ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA,
       };
+    case 137:
+      return {
+        cfg: POLYGON_MAINNET,
+        rpc: env.POLYGON_RPC_HTTP,
+        subgraphId: env.AAVE_V3_POLYGON_SUBGRAPH_ID,
+        viemChain: polygon,
+        executorAddr: env.LIQUIDATOR_ADDRESS_POLYGON ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_POLYGON,
+      };
     default:
       throw new Error(
-        `CHAIN_ID=${chainId} não suportado. Use: 8453/42161/10 (mainnet) ou 84532/421614/11155420 (sepolia).`,
+        `CHAIN_ID=${chainId} não suportado. Use: 8453/42161/10/137 (mainnet) ou 84532/421614/11155420 (sepolia).`,
       );
   }
 }

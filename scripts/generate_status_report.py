@@ -442,7 +442,7 @@ def build_story(styles):
         ["Base Sepolia (teste)", "Contratos v8 deployados", "Testes funcionando"],
         ["Arbitrum Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
         ["Optimism Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
-        ["Polygon", "Multi-chain ready", "Falta apenas 1 arquivo de config"],
+        ["Polygon", "Code-ready (Motor 1)", "Config + Deploy + liquidator ligados (2026-05-28) — falta só o deploy on-chain"],
         ["Avalanche", "Multi-chain ready", "Falta config + adapter Trader Joe (DEX local)"],
     ]
     S.append(table_grid(chains_rows, [3 * cm, 3.5 * cm, 10 * cm]))

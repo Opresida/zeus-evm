@@ -34,6 +34,7 @@ const envSchema = z.object({
   BASE_RPC_WS: optionalUrl(),
   ARBITRUM_RPC_HTTP: optionalUrl(),
   OPTIMISM_RPC_HTTP: optionalUrl(),
+  POLYGON_RPC_HTTP: optionalUrl(),
   BASE_SEPOLIA_RPC_HTTP: optionalUrl(),
   ARBITRUM_SEPOLIA_RPC_HTTP: optionalUrl(),
   OPTIMISM_SEPOLIA_RPC_HTTP: optionalUrl(),
@@ -51,6 +52,7 @@ const envSchema = z.object({
   EXECUTOR_CONTRACT_ADDRESS_ARBITRUM_SEPOLIA: optionalAddress(),
   EXECUTOR_CONTRACT_ADDRESS_OPTIMISM: optionalAddress(),
   EXECUTOR_CONTRACT_ADDRESS_OPTIMISM_SEPOLIA: optionalAddress(),
+  EXECUTOR_CONTRACT_ADDRESS_POLYGON: optionalAddress(),
 
   // ─── V8: contratos splittados (ZeusLiquidator + ZeusArbExecutor + BribeManager) ───
   // Liquidator app usa LIQUIDATOR_ADDRESS_*. Quando não setado, fallback pra EXECUTOR_CONTRACT_ADDRESS_*
@@ -62,6 +64,7 @@ const envSchema = z.object({
   LIQUIDATOR_ADDRESS_ARBITRUM_SEPOLIA: optionalAddress(),
   LIQUIDATOR_ADDRESS_OPTIMISM: optionalAddress(),
   LIQUIDATOR_ADDRESS_OPTIMISM_SEPOLIA: optionalAddress(),
+  LIQUIDATOR_ADDRESS_POLYGON: optionalAddress(),
 
   // BribeManager address (compartilhado entre Liquidator e ArbExecutor — pra decoder de evento)
   BRIBE_MANAGER_ADDRESS: optionalAddress(),
@@ -73,6 +76,8 @@ const envSchema = z.object({
   AAVE_V3_BASE_SUBGRAPH_ID: z.string().default('GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF'),
   AAVE_V3_ARBITRUM_SUBGRAPH_ID: z.string().default('DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B'),
   AAVE_V3_OPTIMISM_SUBGRAPH_ID: z.string().default('DSfLz8oQBUeU5atALgUFQKMTSYV9mZAVYp4noLSXAfvb'),
+  /** Aave V3 Polygon. Vazio = discovery on-chain (event scan). Preencher se quiser subgraph. */
+  AAVE_V3_POLYGON_SUBGRAPH_ID: z.string().default(''),
   /** Subgraph do Seamless (Aave fork em Base). Vazio = discovery on-chain (Opção 3).
    *  Se preenchido, usa subgraph (mais eficiente); senão, event scan on-chain. */
   AAVE_SEAMLESS_BASE_SUBGRAPH_ID: z.string().default(''),

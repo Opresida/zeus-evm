@@ -5,6 +5,7 @@ export { ARBITRUM_MAINNET } from './arbitrum';
 export { ARBITRUM_SEPOLIA } from './arbitrum-sepolia';
 export { OPTIMISM_MAINNET } from './optimism';
 export { OPTIMISM_SEPOLIA } from './optimism-sepolia';
+export { POLYGON_MAINNET } from './polygon';
 export { BASE_TARGET_PAIRS, findPairById } from './target-pairs';
 export type { TargetPair } from './target-pairs';
 export { OPTIMISM_TARGET_PAIRS, findOptimismPairById } from './target-pairs-optimism';

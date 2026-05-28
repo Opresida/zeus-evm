@@ -85,6 +85,30 @@ describe('MIS — ranking por persistência (tese central)', () => {
   });
 });
 
+describe('MIS — persistência (padrão liga/desliga diário)', () => {
+  it('snapshot + restore preserva histórico entre sessões', () => {
+    const mis1 = new MarketInefficiencyScanner();
+    for (let i = 0; i < 5; i++) mis1.recordSample(mkObs('cbETH/WETH', 30));
+    const snap = mis1.snapshot();
+
+    // Nova instância (simula reiniciar amanhã) restaura
+    const mis2 = new MarketInefficiencyScanner();
+    mis2.restore(snap);
+    expect(mis2.stats().totalSamples).toBe(5);
+    expect(mis2.ranking()[0]!.groupLabel).toBe('cbETH/WETH');
+  });
+
+  it('restore aplica prune da janela (amostras velhas não voltam)', () => {
+    vi.useFakeTimers();
+    const old = Date.now() - 10 * 24 * 60 * 60 * 1000; // 10 dias atrás
+    const snap = { 'g': [mkObs('g', 30, old), mkObs('g', 30, Date.now())] };
+    const mis = new MarketInefficiencyScanner({ windowMs: 7 * 24 * 60 * 60 * 1000 });
+    mis.restore(snap);
+    expect(mis.stats().totalSamples).toBe(1); // só a recente sobrevive
+    vi.useRealTimers();
+  });
+});
+
 describe('MIS — scanGroup com pools reais (mock)', () => {
   it('detecta divergência entre 2 pools UniV3 do mesmo par', async () => {
     const Q96 = 2n ** 96n;

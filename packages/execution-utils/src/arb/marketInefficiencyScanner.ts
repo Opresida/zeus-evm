@@ -250,6 +250,27 @@ export class MarketInefficiencyScanner {
     return { groups: this.groups.size, totalSamples: total };
   }
 
+  /**
+   * Snapshot do histórico (pro padrão liga/desliga — persiste em disco + recarrega
+   * no boot, acumulando persistência dia após dia mesmo sem rodar 24/7).
+   */
+  snapshot(): Record<string, InefficiencyObservation[]> {
+    const out: Record<string, InefficiencyObservation[]> = {};
+    for (const [label, list] of this.samples.entries()) {
+      out[label] = [...list];
+    }
+    return out;
+  }
+
+  /** Restaura histórico de um snapshot (chamar no boot). Prune aplica a janela. */
+  restore(data: Record<string, InefficiencyObservation[]>): void {
+    for (const label of Object.keys(data)) {
+      const list = (data[label] ?? []).slice(-this.maxSamplesPerGroup);
+      this._prune(list);
+      this.samples.set(label, list);
+    }
+  }
+
   private _prune(list: InefficiencyObservation[]): void {
     const cutoff = Date.now() - this.windowMs;
     while (list.length > 0 && (list[0]?.timestamp ?? 0) < cutoff) {

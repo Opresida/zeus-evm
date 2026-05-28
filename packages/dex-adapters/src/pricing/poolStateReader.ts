@@ -68,6 +68,20 @@ const UNIV3_FACTORY_ABI = [
   },
 ] as const;
 
+const AERO_FACTORY_ABI = [
+  {
+    type: 'function',
+    name: 'getPool',
+    stateMutability: 'view',
+    inputs: [
+      { type: 'address' },
+      { type: 'address' },
+      { type: 'bool', name: 'stable' },
+    ],
+    outputs: [{ type: 'address' }],
+  },
+] as const;
+
 export interface UniV3PoolState {
   pool: Address;
   token0: Address;
@@ -106,6 +120,31 @@ export async function getUniV3PoolAddress(opts: {
   })) as Address;
   if (pool === '0x0000000000000000000000000000000000000000') return null;
   return pool;
+}
+
+/**
+ * Resolve o endereço de um pool Aerodrome/Velodrome via factory.getPool(tokenA, tokenB, stable).
+ */
+export async function getAeroPoolAddress(opts: {
+  client: AnyPublicClient;
+  factory: Address;
+  tokenA: Address;
+  tokenB: Address;
+  stable: boolean;
+}): Promise<Address | null> {
+  const { client, factory, tokenA, tokenB, stable } = opts;
+  try {
+    const pool = (await client.readContract({
+      address: factory,
+      abi: AERO_FACTORY_ABI,
+      functionName: 'getPool',
+      args: [tokenA, tokenB, stable],
+    })) as Address;
+    if (pool === '0x0000000000000000000000000000000000000000') return null;
+    return pool;
+  } catch {
+    return null;
+  }
 }
 
 /**

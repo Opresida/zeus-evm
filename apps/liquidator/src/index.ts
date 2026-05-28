@@ -17,11 +17,12 @@ import { isAddress } from 'viem';
 import { loadConfig } from './config';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
-import { runAavePipeline, runCompoundPipeline } from './pipeline';
+import { runAavePipeline, runCompoundPipeline, runMorphoPipeline } from './pipeline';
 import { AavePriceOracle } from './protocols/aave/oracle';
 import type {
   AaveLiquidatablePosition,
   CompoundLiquidatablePosition,
+  MorphoLiquidatablePosition,
   DispatchOutcome,
 } from './types';
 import {
@@ -37,6 +38,8 @@ import {
   type CompoundCometCache,
 } from './protocols/compound/comets';
 import { discoverCompoundLiquidatablePositions } from './protocols/compound/discovery';
+import { buildMorphoMarketCache, type MorphoMarketCache } from './protocols/morpho/markets';
+import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discovery';
 import {
   slippageCache,
   PnlTracker,
@@ -116,6 +119,10 @@ interface LiquidatorState {
   aaveReservesCache?: AaveReservesCache;
   /** Cache de Comets Compound (collaterals + base token) — buildado 1x no boot */
   compoundCometCache?: CompoundCometCache;
+  /** Cache de markets Morpho Blue (params + decimals + liquidez) — buildado 1x no boot */
+  morphoMarketCache?: MorphoMarketCache;
+  /** BorrowerCache acumulativo por market id Morpho (discovery on-chain). */
+  morphoBorrowerCaches: Map<string, BorrowerCache>;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -347,6 +354,37 @@ export async function boot(): Promise<LiquidatorState> {
           `Falha ao buildar Compound cometCache — Compound discovery indisponível`,
         );
       }
+    }
+  }
+
+  // Morpho Blue market cache — enumera markets via CreateMarket events (auto-suficiente)
+  let morphoMarketCache: MorphoMarketCache | undefined;
+  const morphoBorrowerCaches = new Map<string, BorrowerCache>();
+  if (env.MORPHO_ENABLED && ctx.chainConfig.morpho?.morphoBlue) {
+    try {
+      morphoMarketCache = await buildMorphoMarketCache({
+        client: ctx.client,
+        morpho: ctx.chainConfig.morpho.morphoBlue,
+        blockLookback: env.MORPHO_MARKETS_LOOKBACK,
+        logger,
+      });
+      // 1 BorrowerCache por market (cache acumulativo, igual Aave on-chain)
+      for (const market of morphoMarketCache.markets) {
+        morphoBorrowerCaches.set(
+          market.id.toLowerCase(),
+          new BorrowerCache({
+            baseDir: resolvePath('logs', 'borrowers'),
+            chain: ctx.chainConfig.shortName,
+            market: `morpho-${market.id.slice(0, 10)}`,
+            logger,
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : err },
+        'Falha ao buildar Morpho market cache — Morpho discovery indisponível',
+      );
     }
   }
 
@@ -774,6 +812,8 @@ export async function boot(): Promise<LiquidatorState> {
     contractCapByDebtAsset,
     aaveReservesCache,
     compoundCometCache,
+    morphoMarketCache,
+    morphoBorrowerCaches,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1166,6 +1206,34 @@ export async function processCompoundOpportunity(
 }
 
 /**
+ * Roda o pipeline Morpho Blue contra uma oportunidade já discovered.
+ */
+export async function processMorphoOpportunity(
+  position: MorphoLiquidatablePosition,
+  state: LiquidatorState,
+): Promise<DispatchOutcome> {
+  return runMorphoPipeline(position, {
+    env: state.env,
+    ctx: state.ctx,
+    callerAddress: state.callerAddress,
+    contractCapByDebtAsset: state.contractCapByDebtAsset,
+    pnlTracker: state.pnlTracker,
+    failureTracker: state.failureTracker,
+    dedupTracker: state.dedupTracker,
+    gasReserveTracker: state.gasReserveTracker,
+    eventBus: state.eventBus,
+    gasOracle: state.gasOracle,
+    aaveOracle: state.aaveOracle,
+    pnlReconciler: state.pnlReconciler,
+    failureCollector: state.failureCollector,
+    autoPauseManager: state.autoPauseManager,
+    tracer: state.tracer,
+    stalenessChecker: state.stalenessChecker,
+    pauseDetector: state.pauseDetector,
+  });
+}
+
+/**
  * Multi-collateral evaluation (Grupo B): agrupa positions por borrower e roda
  * o calculator pra cada par (collateral_i, debt_j). Retorna 1 position por
  * borrower — a com MAIOR `expectedProfitUsd`.
@@ -1285,7 +1353,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const { env, ctx, compoundCometCache } = state;
 
   const startedAt = Date.now();
-  const stats = { aave: 0, compound: 0, dispatched: 0, dryrun: 0, rejected: 0 };
+  const stats = { aave: 0, compound: 0, morpho: 0, dispatched: 0, dryrun: 0, rejected: 0 };
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
   await state.gasReserveTracker.check(ctx.client, ctx.account);
@@ -1374,6 +1442,35 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     logger.debug('compoundCometCache ausente — Compound discovery pulado');
   }
 
+  // ─── Morpho Blue (markets isolados, discovery on-chain + cache acumulativo) ───
+  if (state.morphoMarketCache && state.morphoMarketCache.markets.length > 0) {
+    try {
+      const morphoPositions = await discoverMorphoLiquidatablePositions({
+        client: ctx.client,
+        cache: state.morphoMarketCache,
+        hfThreshold: env.HF_AT_RISK_THRESHOLD,
+        blockLookback: env.AAVE_ONCHAIN_BLOCK_LOOKBACK,
+        borrowerCacheFor: (marketId) => state.morphoBorrowerCaches.get(marketId.toLowerCase()),
+        logger,
+      });
+      stats.morpho = morphoPositions.length;
+      // Doutrina — alimenta scorer (densidade Morpho Blue)
+      state.scorer.observe({
+        chain: ctx.chainConfig.shortName,
+        protocol: 'morpho-blue',
+        opportunities_seen: morphoPositions.length,
+      });
+      for (const position of morphoPositions) {
+        const outcome = await processMorphoOpportunity(position, state);
+        updateStats(stats, outcome.status);
+      }
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'Morpho discovery falhou');
+    }
+  } else if (!state.morphoMarketCache) {
+    logger.debug('morphoMarketCache ausente — Morpho discovery pulado');
+  }
+
   // Stats do cache de slippage (pra observar hit rate)
   const cacheStats = slippageCache.stats();
   // Reset stats por tick pra ver evolução
@@ -1415,7 +1512,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     }
   }
 
-  if (stats.aave === 0 && stats.compound === 0) {
+  if (stats.aave === 0 && stats.compound === 0 && stats.morpho === 0) {
     logger.info(
       { elapsedMs: Date.now() - startedAt, cache: cacheStats, prunedEntries: pruned },
       '✅ Discovery: 0 positions at-risk total',

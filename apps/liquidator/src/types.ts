@@ -8,6 +8,33 @@ export type { AaveLiquidatablePosition } from '@zeus-evm/aave-discovery';
 
 import type { Address } from 'viem';
 
+/** Position liquidável detectada em Morpho Blue (market isolado). */
+export interface MorphoLiquidatablePosition {
+  /** Market id (keccak256 dos marketParams). */
+  marketId: `0x${string}`;
+  borrower: Address;
+  /** ── marketParams (identificam o market isolado) ── */
+  loanToken: Address;
+  loanTokenSymbol: string;
+  loanTokenDecimals: number;
+  collateralToken: Address;
+  collateralTokenSymbol: string;
+  collateralTokenDecimals: number;
+  oracle: Address;
+  irm: Address;
+  lltv: bigint;
+  /** ── estado da position ── */
+  borrowShares: bigint;
+  collateral: bigint;
+  /** Preço do oracle (1e36 scale, loanToken por collateralToken). */
+  collateralPrice: bigint;
+  /** Health factor (1e18 scale). < 1e18 = liquidável. */
+  healthFactor: bigint;
+  /** Totais do market (pra calculator computar repaidShares/seizedAssets). */
+  totalBorrowAssets: bigint;
+  totalBorrowShares: bigint;
+}
+
 /** Position liquidável detectada em Compound III (Comet). */
 export interface CompoundLiquidatablePosition {
   /** Endereço do Comet (cUSDCv3, cWETHv3) */

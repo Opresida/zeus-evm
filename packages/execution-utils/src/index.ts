@@ -35,6 +35,7 @@ export {
   PositionDedupTracker,
   aavePositionKey,
   compoundPositionKey,
+  morphoPositionKey,
   type DedupStatus,
   type DedupStats,
   type DedupTrackerOpts,

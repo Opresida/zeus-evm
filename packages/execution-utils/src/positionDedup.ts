@@ -62,6 +62,11 @@ export function compoundPositionKey(chain: string, comet: Address, borrower: Add
   return `${chain}:compound-v3:${comet.toLowerCase()}:${borrower.toLowerCase()}`;
 }
 
+/** Morpho: market isolado por id — key inclui marketId pra não colidir entre markets. */
+export function morphoPositionKey(chain: string, marketId: string, borrower: Address): string {
+  return `${chain}:morpho-blue:${marketId.toLowerCase()}:${borrower.toLowerCase()}`;
+}
+
 export class PositionDedupTracker {
   private store = new Map<string, DedupEntry>();
   private pendingTimeoutMs: number;

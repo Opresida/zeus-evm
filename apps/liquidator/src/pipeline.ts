@@ -18,6 +18,7 @@ import type { LiquidatorChainContext } from './chainContext';
 import type {
   AaveLiquidatablePosition,
   CompoundLiquidatablePosition,
+  MorphoLiquidatablePosition,
   DispatchOutcome,
 } from './types';
 import type { BribeConfig } from '@zeus-evm/strategy';
@@ -28,10 +29,15 @@ import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
+import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator';
+import { buildMorphoLiquidationTx } from './protocols/morpho/builder';
+import { simulateMorphoLiquidation } from './protocols/morpho/simulator';
+import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import {
   aavePositionKey,
   compoundPositionKey,
+  morphoPositionKey,
   computeBribeSlippageFloor,
   ChainlinkStalenessChecker,
   PauseDetector,
@@ -710,5 +716,187 @@ async function _runCompoundPipelineInner(
     failureCollector: deps.failureCollector,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
+  });
+}
+
+/**
+ * Pipeline pra Morpho Blue: calc → build → sim → dispatch.
+ *
+ * Diferenças vs Aave/Compound:
+ *  - Markets isolados (não pool global) — position já traz marketParams + totals
+ *  - SEM gate de pause: Morpho Blue é imutável/permissionless (não tem pause admin)
+ *  - SEM gate Chainlink staleness: usa oracle próprio por market (IOracle.price 1e36).
+ *    A freshness do oracle do market é responsabilidade do market; sim cobre revert.
+ *  - Conecta na caixa-preta igual aos outros: scorer (no discoveryTick), dedup,
+ *    reconciler (protocol=morpho-blue + venue=marketId), failureCollector, eventBus.
+ */
+export async function runMorphoPipeline(
+  position: MorphoLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  if (deps.tracer) {
+    return deps.tracer.runInSpan(
+      'liquidator.runMorphoPipeline',
+      async (span) => {
+        span.setAttributes({
+          chain: deps.ctx.chainConfig.name,
+          borrower: position.borrower,
+          market: position.marketId,
+          protocol: 'morpho-blue',
+        });
+        const result = await _runMorphoPipelineInner(position, deps);
+        span.setAttribute('outcome', result.status);
+        return result;
+      },
+    );
+  }
+  return _runMorphoPipelineInner(position, deps);
+}
+
+async function _runMorphoPipelineInner(
+  position: MorphoLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  const { env, ctx, callerAddress, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
+
+  // Gates compartilhados (kill / cooldown / gas / auto-pause)
+  if (pnlTracker?.isKillSwitchTriggered()) {
+    return { status: 'reverted_pre_dispatch', reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}` };
+  }
+  if (failureTracker?.inCooldown()) {
+    const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
+    return { status: 'reverted_pre_dispatch', reason: `cooldown ativo, retomada em ${remainingS}s` };
+  }
+  if (gasReserveTracker?.shouldBlockDispatch()) {
+    return { status: 'reverted_pre_dispatch', reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)` };
+  }
+  if (deps.autoPauseManager?.shouldPause()) {
+    return { status: 'reverted_pre_dispatch', reason: `auto-pause active: ${deps.autoPauseManager.summary()}` };
+  }
+
+  // Gate dedup (key inclui marketId — não colide entre markets do mesmo borrower)
+  const positionKey = morphoPositionKey(ctx.chainConfig.name, position.marketId, position.borrower);
+  if (dedupTracker) {
+    const dedupCheck = dedupTracker.check(positionKey);
+    if (dedupCheck.blocked) {
+      return { status: 'reverted_pre_dispatch', reason: `dedup blocked: ${dedupCheck.status} há ${Math.round(dedupCheck.ageMs / 1000)}s` };
+    }
+  }
+
+  if (!ctx.chainConfig.uniswapV3?.quoterV2) {
+    return { status: 'reverted_pre_dispatch', reason: 'no UniswapV3 QuoterV2 configured' };
+  }
+  if (!ctx.chainConfig.morpho?.morphoBlue) {
+    return { status: 'reverted_pre_dispatch', reason: 'no Morpho Blue configured on chain' };
+  }
+
+  // 1. Calculator
+  const outcome = await calculateOptimalMorphoLiquidation(position, {
+    env,
+    client: ctx.client,
+    quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
+  });
+
+  if (!outcome.ok || !outcome.decision || !outcome.plan) {
+    logger.debug(
+      { market: position.marketId, borrower: position.borrower, reason: outcome.reason },
+      `⏭️  Morpho descartado: ${outcome.reason}`,
+    );
+    return { status: 'reverted_pre_dispatch', reason: outcome.reason ?? 'morpho calc falhou' };
+  }
+  const decision = outcome.decision;
+  const plan = outcome.plan;
+
+  // Gate executor: sem executor, loga decision teórica (calibração DRY_RUN)
+  if (!ctx.executorContractAddress) {
+    logger.info(
+      {
+        chain: ctx.chainConfig.name,
+        market: `${position.collateralTokenSymbol}/${position.loanTokenSymbol}`,
+        borrower: position.borrower,
+        mode: plan.mode,
+        wouldFlashloanWei: decision.flashloanAmount.toString(),
+        wouldProfitUsd: decision.expectedProfitUsd.toFixed(2),
+      },
+      `🔭 [no-executor] Morpho decision LOGADA — sem contrato em ${ctx.chainConfig.name}`,
+    );
+    return { status: 'dryrun_skipped', reason: 'no executor deployed on chain' };
+  }
+
+  // 2. Builder
+  const built = buildMorphoLiquidationTx(position, decision, plan, {
+    executorAddress: ctx.executorContractAddress,
+    morpho: ctx.chainConfig.morpho.morphoBlue,
+    chainConfig: ctx.chainConfig,
+    profitReceiver: callerAddress,
+    slippageBps: env.MAX_SLIPPAGE_BPS,
+    preferredFeeTier: 500,
+    expectedSwapOutput: outcome.expectedSwapOutputWei ?? 0n,
+  });
+
+  // 3. Simulator
+  const sim = await simulateMorphoLiquidation({
+    client: ctx.client,
+    executorAddress: built.to,
+    callerAddress,
+    calldata: built.data,
+  });
+
+  // 3.5 Stale check — re-lê position + recomputa isLiquidatable antes do submit real
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success) {
+    const stillLiq = isMorphoLiquidatable(
+      { borrowShares: position.borrowShares, collateral: position.collateral },
+      { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
+      position.collateralPrice,
+      position.lltv,
+    );
+    if (!stillLiq) {
+      return { status: 'reverted_pre_dispatch', reason: 'stale position: não mais liquidável (Morpho HF recovered)' };
+    }
+  }
+
+  // 4. Dispatcher — conecta na caixa-preta (reconciler/failure/pnl/eventBus)
+  return dispatch({
+    mode: env.LIQUIDATOR_MODE,
+    client: ctx.client,
+    wallet: ctx.wallet,
+    account: ctx.account,
+    to: built.to,
+    data: built.data,
+    summary: {
+      chain: ctx.chainConfig.name,
+      protocol: 'morpho-blue',
+      market: `${position.collateralTokenSymbol}/${position.loanTokenSymbol}`,
+      borrower: built.summary.borrower,
+      flashloanWei: built.summary.flashloanWei.toString(),
+      loanToken: built.summary.loanToken,
+      collateralToken: built.summary.collateralToken,
+      mode: built.summary.mode,
+      expectedProfitUsd: decision.expectedProfitUsd.toFixed(2),
+      slippageBps: decision.estimatedSlippageBps,
+      withBribe: built.summary.withBribe,
+    },
+    simulationOk: sim.success,
+    simulationGas: sim.gasUsed,
+    simulationReason: sim.revertReason,
+    expectedProfitWei: decision.expectedProfitWei,
+    profitAssetDecimals: position.loanTokenDecimals,
+    profitAssetSymbol: position.loanTokenSymbol,
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    pnlTracker,
+    failureTracker,
+    dedupTracker,
+    positionKey,
+    protocol: 'morpho-blue',
+    eventBus: deps.eventBus,
+    borrower: position.borrower,
+    chain: ctx.chainConfig.name,
+    gasOracle: deps.gasOracle,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
+    expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
+    opportunityId: position.borrower,
+    venue: position.marketId,
   });
 }

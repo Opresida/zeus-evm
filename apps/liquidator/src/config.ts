@@ -80,6 +80,12 @@ const envSchema = z.object({
    *  Free tier dRPC/Alchemy: ~10k blocos seguro. Base ~2s/bloco = ~5.5h de lookback. */
   AAVE_ONCHAIN_BLOCK_LOOKBACK: z.coerce.number().int().min(1000).max(100000).default(10000),
 
+  // ─── Morpho Blue (Grupo C) ───
+  /** Habilita discovery + liquidation Morpho Blue (markets isolados). */
+  MORPHO_ENABLED: z.coerce.boolean().default(true),
+  /** Lookback de blocos pra enumerar markets via CreateMarket events (histórico). */
+  MORPHO_MARKETS_LOOKBACK: z.coerce.number().int().min(100000).max(10000000).default(2000000),
+
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:
   //   - MIN_DEBT_USD >= 100 (defaults de prod, não os baixos de calibração)

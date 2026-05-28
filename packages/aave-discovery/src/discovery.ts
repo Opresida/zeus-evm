@@ -17,7 +17,7 @@
 
 import type { Address, PublicClient } from 'viem';
 
-import { POOL_ABI, POOL_DATA_PROVIDER_ABI } from './abi';
+import { POOL_ABI, POOL_DATA_PROVIDER_ABI, POOL_BORROW_EVENT_ABI } from './abi';
 import { NOOP_LOGGER, type LoggerLike } from './logger';
 import type { AaveReservesCache } from './reserves';
 import { getReserveInfo } from './reserves';
@@ -384,5 +384,145 @@ export async function discoverAaveLiquidatablePositions(opts: {
     `📦 Positions completas resolvidas: ${positions.length}/${atRisk.length}`,
   );
 
+  return positions;
+}
+
+/// Free tier dRPC/Alchemy: limita range em ~10k blocos por getLogs.
+const FREE_TIER_BLOCK_RANGE_LIMIT = 9_999;
+
+/**
+ * Discovery on-chain (SEM subgraph) — Opção 3 da Doutrina.
+ *
+ * Lista borrowers via eventos `Borrow` do Pool nos últimos N blocos (chunked pra
+ * free tier), depois reusa o MESMO pipeline (HF batch + resolve pairs) do discovery
+ * subgraph-based. Elimina dependência de subgraph de terceiro — funciona pra
+ * Seamless e qualquer Aave fork.
+ *
+ * Mesma estratégia do Compound discovery (event scan chunked).
+ */
+export async function fetchAaveBorrowersOnChain(opts: {
+  client: AnyPublicClient;
+  poolAddress: Address;
+  blockLookback?: number;
+  chunkSize?: number;
+}): Promise<Address[]> {
+  const { client, poolAddress, blockLookback = 10_000, chunkSize = FREE_TIER_BLOCK_RANGE_LIMIT } = opts;
+
+  const currentBlock = await client.getBlockNumber();
+  const startBlock = currentBlock > BigInt(blockLookback) ? currentBlock - BigInt(blockLookback) : 0n;
+
+  const uniqueBorrowers = new Set<string>();
+  const step = BigInt(chunkSize);
+
+  for (let from = startBlock; from <= currentBlock; from += step + 1n) {
+    const to = from + step > currentBlock ? currentBlock : from + step;
+    try {
+      const logs = await client.getLogs({
+        address: poolAddress,
+        event: POOL_BORROW_EVENT_ABI,
+        fromBlock: from,
+        toBlock: to,
+      });
+      for (const log of logs) {
+        // onBehalfOf é quem carrega a dívida (não o `user` que pode ser um relayer)
+        const onBehalfOf = (log as { args?: { onBehalfOf?: Address } }).args?.onBehalfOf;
+        if (onBehalfOf) uniqueBorrowers.add(onBehalfOf.toLowerCase());
+      }
+    } catch {
+      // Falha parcial: chunk falhou mas mantemos o que já temos (próximo tick recupera)
+    }
+  }
+
+  return Array.from(uniqueBorrowers) as Address[];
+}
+
+/**
+ * Discovery completo on-chain: event scan → HF batch → resolve par(es).
+ *
+ * Interface idêntica ao `discoverAaveLiquidatablePositions` mas SEM subgraph.
+ * Usado pra Aave forks (Seamless) que não têm subgraph no decentralized network.
+ */
+export async function discoverAaveLiquidatablePositionsOnChain(opts: {
+  client: AnyPublicClient;
+  poolAddress: Address;
+  cache: AaveReservesCache;
+  hfThreshold: number;
+  blockLookback?: number;
+  evaluateAllPairs?: boolean;
+  logger?: LoggerLike;
+}): Promise<AaveLiquidatablePosition[]> {
+  const {
+    client,
+    poolAddress,
+    cache,
+    hfThreshold,
+    blockLookback = 10_000,
+    evaluateAllPairs = false,
+    logger = NOOP_LOGGER,
+  } = opts;
+
+  // 1. Event scan on-chain (substitui o subgraph)
+  const candidates = await fetchAaveBorrowersOnChain({ client, poolAddress, blockLookback });
+  if (candidates.length === 0) {
+    logger.info('📋 On-chain discovery: 0 borrowers no event scan');
+    return [];
+  }
+  logger.debug({ count: candidates.length }, `On-chain candidates: ${candidates.length}`);
+
+  // 2. HF batch on-chain (reusa fetchHealthFactorsBatch)
+  const hfMap = await fetchHealthFactorsBatch({ client, poolAddress, users: candidates });
+  const hfThresholdBigInt = BigInt(Math.floor(hfThreshold * 1e18));
+  const atRisk: { user: Address; hf: bigint }[] = [];
+  for (const user of candidates) {
+    const data = hfMap.get(user.toLowerCase());
+    if (!data || data.hf === 0n) continue;
+    if (data.hf < hfThresholdBigInt) atRisk.push({ user, hf: data.hf });
+  }
+
+  logger.info(
+    { candidates: candidates.length, atRisk: atRisk.length, threshold: hfThreshold },
+    `🎯 On-chain at-risk (HF < ${hfThreshold}): ${atRisk.length}/${candidates.length}`,
+  );
+
+  if (atRisk.length === 0) return [];
+
+  // 3-5. Resolve par(es) — MESMA lógica do discovery subgraph-based
+  const positions: AaveLiquidatablePosition[] = [];
+  for (const { user, hf } of atRisk) {
+    try {
+      const pairs = evaluateAllPairs
+        ? await resolveAllBorrowerPositionPairs({ client, cache, borrower: user })
+        : await resolveBorrowerPositionPair({ client, cache, borrower: user }).then((p) => (p ? [p] : []));
+
+      for (const pair of pairs) {
+        const colInfo = getReserveInfo(cache, pair.collateralAsset);
+        const debtInfo = getReserveInfo(cache, pair.debtAsset);
+        if (!colInfo || !debtInfo) continue;
+        positions.push({
+          borrower: user,
+          collateralAsset: pair.collateralAsset,
+          debtAsset: pair.debtAsset,
+          totalDebtWei: pair.debtBalanceWei,
+          totalCollateralWei: pair.collateralBalanceWei,
+          healthFactor: hf,
+          liquidationBonusBps: colInfo.liquidationBonusBps,
+          debtAssetDecimals: debtInfo.decimals,
+          collateralAssetDecimals: colInfo.decimals,
+          debtAssetSymbol: debtInfo.symbol,
+          collateralAssetSymbol: colInfo.symbol,
+        });
+      }
+    } catch (err) {
+      logger.warn(
+        { user, err: err instanceof Error ? err.message : err },
+        `On-chain: falha ao resolver position de ${user}`,
+      );
+    }
+  }
+
+  logger.info(
+    { resolved: positions.length, atRisk: atRisk.length },
+    `📦 On-chain positions resolvidas: ${positions.length}/${atRisk.length}`,
+  );
   return positions;
 }

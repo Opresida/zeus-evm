@@ -25,5 +25,7 @@ export {
   resolveBorrowerPositionPair,
   resolveAllBorrowerPositionPairs,
   discoverAaveLiquidatablePositions,
+  fetchAaveBorrowersOnChain,
+  discoverAaveLiquidatablePositionsOnChain,
 } from './discovery';
 export type { AaveCandidate, AaveLiquidatablePosition } from './types';

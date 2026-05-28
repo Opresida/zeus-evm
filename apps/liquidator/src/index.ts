@@ -27,6 +27,7 @@ import type {
 import {
   buildAaveReservesCache,
   discoverAaveLiquidatablePositions,
+  discoverAaveLiquidatablePositionsOnChain,
   type AaveReservesCache,
 } from '@zeus-evm/aave-discovery';
 import { calculateOptimalLiquidation } from './protocols/aave/calculator';
@@ -1279,25 +1280,30 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
   if (env.THEGRAPH_API_KEY && state.aaveMarkets.length > 0) {
     for (const market of state.aaveMarkets) {
-      if (!market.subgraphId) {
-        logger.debug(
-          { market: market.label },
-          `Aave market '${market.label}' sem subgraph — discovery pulado`,
-        );
-        continue;
-      }
       try {
-        const positions = await discoverAaveLiquidatablePositions({
-          client: ctx.client,
-          poolAddress: market.pool,
-          apiKey: env.THEGRAPH_API_KEY,
-          subgraphId: market.subgraphId,
-          cache: market.reservesCache,
-          hfThreshold: env.HF_AT_RISK_THRESHOLD,
-          maxCandidates: 200,
-          evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
-          logger,
-        });
+        // Markets com subgraph usam subgraph (mais eficiente); forks sem subgraph
+        // (Seamless) caem pro discovery on-chain via event scan (Opção 3 da Doutrina).
+        const positions = market.subgraphId
+          ? await discoverAaveLiquidatablePositions({
+              client: ctx.client,
+              poolAddress: market.pool,
+              apiKey: env.THEGRAPH_API_KEY,
+              subgraphId: market.subgraphId,
+              cache: market.reservesCache,
+              hfThreshold: env.HF_AT_RISK_THRESHOLD,
+              maxCandidates: 200,
+              evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
+              logger,
+            })
+          : await discoverAaveLiquidatablePositionsOnChain({
+              client: ctx.client,
+              poolAddress: market.pool,
+              cache: market.reservesCache,
+              hfThreshold: env.HF_AT_RISK_THRESHOLD,
+              blockLookback: env.AAVE_ONCHAIN_BLOCK_LOOKBACK,
+              evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
+              logger,
+            });
         stats.aave += positions.length;
 
         // Doutrina — alimenta ChainProfitabilityScorer (densidade de oportunidade por market)

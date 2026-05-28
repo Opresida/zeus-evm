@@ -73,9 +73,12 @@ const envSchema = z.object({
   AAVE_V3_BASE_SUBGRAPH_ID: z.string().default('GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF'),
   AAVE_V3_ARBITRUM_SUBGRAPH_ID: z.string().default('DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B'),
   AAVE_V3_OPTIMISM_SUBGRAPH_ID: z.string().default('DSfLz8oQBUeU5atALgUFQKMTSYV9mZAVYp4noLSXAfvb'),
-  /** Subgraph do Seamless (Aave fork em Base). Vazio = discovery do Seamless pula
-   *  até ser configurado. Preencher quando tiver o subgraph ID no The Graph. */
+  /** Subgraph do Seamless (Aave fork em Base). Vazio = discovery on-chain (Opção 3).
+   *  Se preenchido, usa subgraph (mais eficiente); senão, event scan on-chain. */
   AAVE_SEAMLESS_BASE_SUBGRAPH_ID: z.string().default(''),
+  /** Janela de blocos pro discovery on-chain de Aave forks (event scan Borrow).
+   *  Free tier dRPC/Alchemy: ~10k blocos seguro. Base ~2s/bloco = ~5.5h de lookback. */
+  AAVE_ONCHAIN_BLOCK_LOOKBACK: z.coerce.number().int().min(1000).max(100000).default(10000),
 
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:

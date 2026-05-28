@@ -66,6 +66,24 @@ export const POOL_ABI = [
   },
 ] as const;
 
+/**
+ * Evento Borrow do Aave V3 Pool — usado pra discovery on-chain (sem subgraph).
+ * `onBehalfOf` é quem efetivamente carrega a dívida (o borrower que queremos).
+ */
+export const POOL_BORROW_EVENT_ABI = {
+  type: 'event',
+  name: 'Borrow',
+  inputs: [
+    { type: 'address', name: 'reserve', indexed: true },
+    { type: 'address', name: 'user', indexed: false },
+    { type: 'address', name: 'onBehalfOf', indexed: true },
+    { type: 'uint256', name: 'amount', indexed: false },
+    { type: 'uint8', name: 'interestRateMode', indexed: false },
+    { type: 'uint256', name: 'borrowRate', indexed: false },
+    { type: 'uint16', name: 'referralCode', indexed: true },
+  ],
+} as const;
+
 export const POOL_ADDRESSES_PROVIDER_ABI = [
   {
     type: 'function',

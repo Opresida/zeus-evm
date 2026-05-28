@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Address } from 'viem';
 import { parseUnits } from 'viem';
 
-import { estimateFlashArb } from '../src/flashEstimator';
+import { estimateFlashArb, optimizeFlashLoan } from '../src/flashEstimator';
 import type { PoolGroup, InefficiencyObservation } from '@zeus-evm/execution-utils';
 
 const WETH = '0x4200000000000000000000000000000000000006' as Address;
@@ -144,6 +144,43 @@ describe('flashEstimator — math do flash-arb', () => {
     expect(est).not.toBeNull();
     expect(est!.supportsNotional).toBe(true);
     expect(est!.roundTripRatio).toBeCloseTo(0.997, 2);
+  });
+
+  it('optimizeFlashLoan acha o pico de lucro e o teto viável (curva côncava)', async () => {
+    // Dois pools constant-product com gap de ~1% (cheap price 2000, exp price 2020) e
+    // profundidade finita → slippage cresce com o tamanho. Pico de lucro fica em ~$25k.
+    const Rusdc = 10_000_000n * 10n ** 6n;  // cheap pool USDC reserve
+    const Rweth = 5_000n * 10n ** 18n;       // cheap pool WETH reserve (price 2000)
+    const Rusdc2 = 10_100_000n * 10n ** 6n;  // exp pool USDC reserve (price 2020)
+    const Rweth2 = 5_000n * 10n ** 18n;
+
+    const cp = (Rin: bigint, Rout: bigint, amountIn: bigint) => (Rout * amountIn) / (Rin + amountIn);
+    const simulateContract = vi.fn().mockImplementation(({ args }: { args: Array<{ tokenIn: Address; amountIn: bigint }> }) => {
+      const { tokenIn, amountIn } = args[0]!;
+      const out = tokenIn.toLowerCase() === USDC.toLowerCase()
+        ? cp(Rusdc, Rweth, amountIn)   // buy leg: USDC→WETH no cheap
+        : cp(Rweth2, Rusdc2, amountIn); // sell leg: WETH→USDC no exp
+      return Promise.resolve({ result: [out, 0n, 0, 50_000n] });
+    });
+    const client = {
+      simulateContract,
+      getBlockNumber: vi.fn().mockResolvedValue(1n),
+      getGasPrice: vi.fn().mockResolvedValue(10_000_000n),
+    } as any;
+
+    const opt = await optimizeFlashLoan({
+      client, chainConfig, group, observation: obs,
+      opts: { ethUsd: 2000, maxSlippageBps: 500 },
+    });
+
+    expect(opt.best).not.toBeNull();
+    expect(opt.best!.netProfitUsd).toBeGreaterThan(0);
+    // Pico em $25k (lucra mais que $10k, e $50k já vira prejuízo → early-stop)
+    expect(opt.best!.loanUsd).toBe(25_000);
+    expect(opt.maxViableLoanUsd).toBe(25_000);
+    // Curva monotônica subindo até o pico, depois cai
+    const peakIdx = opt.curve.findIndex((c) => c.loanUsd === 25_000);
+    expect(opt.curve[peakIdx]!.netProfitUsd).toBeGreaterThan(opt.curve[peakIdx - 1]!.netProfitUsd);
   });
 
   it('retorna null se faltar cheap/expensive pool na observação', async () => {

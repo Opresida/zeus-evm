@@ -554,6 +554,7 @@ def build_story(styles):
         ["Derivação de tokens on-chain", "Em vez de digitar tokens à mão (e errar), o MIS lê os colaterais direto dos protocolos de lending (Aave/forks, Moonwell, Morpho) — endereços garantidos pela fonte — e auto-popula os pares a monitorar. Motor 1 e Motor 2 passam a compartilhar o mesmo conjunto de tokens."],
         ["Estimador de flash (quoter)", "Quando acha divergência, traduz em números REAIS via quoter on-chain: par, hora, valor do empréstimo, valor de devolução à Aave (+0,05%), custo de gas, lucro bruto/líquido em $ e %."],
         ["Gate de profundidade", "Roda o round-trip do empréstimo no quoter; se o pool é raso (slippage devora o trade), o par é marcado RASO e EXCLUÍDO do ranking. Tira do mapa as 'oportunidades' que são só slippage disfarçado."],
+        ["Sizing do empréstimo (optimizeFlashLoan)", "Varre tamanhos de empréstimo ($1k→$250k) via quoter e acha o PICO de lucro (maior antes do slippage matar o edge) + o TETO VIÁVEL (maior empréstimo ainda lucrativo). Para cedo quando passa do pico (poupa RPC). Saber quanto dá pra pegar sem inviabilizar é fundamental."],
         ["Persistência (liga/desliga)", "O histórico é salvo em disco e recarregado ao reiniciar — a persistência (sinal-chave) acumula dia após dia mesmo sem rodar 24/7."],
     ]
     S.append(table_2col(mis_rows, col1_w=4.5 * cm, col2_w=12 * cm))
@@ -674,7 +675,7 @@ def build_story(styles):
         ["txBuilder de rota de arb (buy leg + sell leg) → executeFlashloanArbitrage", "Não feito"],
         ["simulateArbitrage (eth_call atômico) antes de qualquer submit", "Reusa o do liquidator — não fiado ao MIS"],
         ["Allowlist de token do arb (fee-on-transfer / honeypot passam pela sim e quebram na execução)", "Existe (tokenSafety) — não fiada ao MIS"],
-        ["Sizing do notional pela liquidez do pool (em vez de $10k fixo)", "Não feito — gate de profundidade é o primeiro passo"],
+        ["Sizing do notional pela liquidez do pool (em vez de $10k fixo)", "FEITO (optimizeFlashLoan) — acha pico de lucro + teto viável"],
         ["Wire da caixa-preta (scorer/reconciler venue='arb')", "Pendente — item 5 do plano do Motor 2"],
         ["Gates herdados (kill switch / cooldown / gas / slippage floor)", "Existem no liquidator — falta plugar no caminho de arb"],
     ]

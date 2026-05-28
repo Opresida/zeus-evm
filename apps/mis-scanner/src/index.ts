@@ -25,7 +25,7 @@ import { BASE_MAINNET } from '@zeus-evm/chain-config';
 import { MarketInefficiencyScanner, type InefficiencyObservation } from '@zeus-evm/execution-utils';
 import { BASE_CURATED_PAIRS, curatedPairsToResolved, dedupPairs, resolvePoolGroups, type ResolvedPair } from './poolGroups';
 import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
-import { estimateFlashArb, fetchEthUsd } from './flashEstimator';
+import { optimizeFlashLoan, fetchEthUsd } from './flashEstimator';
 
 // Carrega .env local + raiz do monorepo (2 níveis acima) — RPC fica na raiz
 dotenv.config();
@@ -119,7 +119,6 @@ async function main(): Promise<void> {
 
   // Lookup grupo por label (pro estimador de flash usar tokens/pools reais)
   const groupByLabel = new Map(groups.map((g) => [g.label, g]));
-  const flashNotionalUsd = Number(process.env.MIS_FLASH_NOTIONAL_USD ?? 10_000);
   // Só estima flash em divergência forte o suficiente pra valer o RPC (default = minDiv)
   const flashMinBps = Number(process.env.MIS_FLASH_MIN_BPS ?? minDivergenceBps);
   // Budget de slippage do gate de profundidade: round-trip < (1−budget) = pool raso
@@ -156,36 +155,44 @@ async function main(): Promise<void> {
         for (const o of strong) {
           const group = groupByLabel.get(o.groupLabel)!;
           try {
-            const est = await estimateFlashArb({
+            // Acha o TAMANHO ÓTIMO do empréstimo (pico de lucro antes do slippage matar)
+            const opt = await optimizeFlashLoan({
               client, chainConfig: BASE_MAINNET, group, observation: o,
-              opts: { notionalUsd: flashNotionalUsd, ethUsd, maxSlippageBps },
+              opts: { ethUsd, maxSlippageBps },
             });
-            if (!est) continue;
-            // Gate de profundidade: pool raso → fora do ranking de persistência
-            mis.markThin(o.groupLabel, !est.supportsNotional);
-            const emoji = !est.supportsNotional ? '🕳️' : est.profitable ? '💰' : '🔍';
+            // Sem tamanho viável (mesmo o menor não lucra / pool raso) → fora do ranking
+            const viable = opt.best !== null && opt.maxViableLoanUsd > 0;
+            mis.markThin(o.groupLabel, !viable);
+
+            if (!viable) {
+              const rt = opt.curve[0]?.roundTripRatio ?? 0;
+              logger.info(
+                { par: o.groupLabel, divBps: o.maxDivergenceBps, melhorRoundTrip: `${(rt * 100).toFixed(1)}%`, curva: opt.curve },
+                `🕳️ ${o.groupLabel} INVIÁVEL: nenhum tamanho de empréstimo fecha com lucro — fora do ranking`,
+              );
+              continue;
+            }
+
+            const b = opt.best!;
             logger.info(
               {
-                par: est.pair,
-                hora: est.isoTime,
-                rota: `${est.cheapPool} → ${est.expensivePool}`,
-                divBps: est.divergenceBps,
-                emprestimo: `$${est.loanUsd} (${est.loanTokenB})`,
-                devolucaoAave: `$${est.repayUsd.toFixed(2)} (${est.repayTokenB})`,
-                gasCusto: `$${est.gasCostUsd}`,
-                lucroBruto: `$${est.grossProfitUsd}`,
-                lucroLiquido: `$${est.netProfitUsd}`,
-                lucroPct: `${est.profitPct}%`,
-                roundTrip: `${(est.roundTripRatio * 100).toFixed(1)}%`,
-                suportaNotional: est.supportsNotional,
-                lucrativo: est.profitable,
+                par: b.pair,
+                hora: b.isoTime,
+                rota: `${b.cheapPool} → ${b.expensivePool}`,
+                divBps: b.divergenceBps,
+                emprestimoOtimo: `$${b.loanUsd} (${b.loanTokenB})`,
+                tetoViavel: `$${opt.maxViableLoanUsd}`,
+                devolucaoAave: `$${b.repayUsd.toFixed(2)} (${b.repayTokenB})`,
+                gasCusto: `$${b.gasCostUsd}`,
+                lucroLiquido: `$${b.netProfitUsd}`,
+                lucroPct: `${b.profitPct}%`,
+                roundTrip: `${(b.roundTripRatio * 100).toFixed(1)}%`,
+                curva: opt.curve.map((c) => `$${c.loanUsd}→$${c.netProfitUsd}`),
               },
-              est.supportsNotional
-                ? `${emoji} flash ${est.pair}: líquido $${est.netProfitUsd} (${est.profitPct}%)`
-                : `🕳️ ${est.pair} RASO: round-trip só ${(est.roundTripRatio * 100).toFixed(1)}% do empréstimo — fora do ranking`,
+              `💰 ${b.pair}: ótimo $${b.loanUsd} → líquido $${b.netProfitUsd} (${b.profitPct}%) · teto viável $${opt.maxViableLoanUsd}`,
             );
           } catch (err) {
-            logger.debug?.({ par: o.groupLabel, err: err instanceof Error ? err.message : err }, 'estimativa de flash falhou');
+            logger.debug?.({ par: o.groupLabel, err: err instanceof Error ? err.message : err }, 'otimização de flash falhou');
           }
         }
       }

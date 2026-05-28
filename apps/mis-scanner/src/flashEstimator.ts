@@ -67,6 +67,8 @@ export interface FlashEstimatorOpts {
    * voltar menos que (1 − budget), o pool é raso → supportsNotional=false. Default 500 (5%).
    */
   maxSlippageBps?: number;
+  /** Gas price (wei) — passe pra evitar refetch numa varredura de tamanhos. */
+  gasPriceWei?: bigint;
 }
 
 function splitPair(label: string): { aSym: string; bSym: string } {
@@ -186,7 +188,8 @@ export async function estimateFlashArb(args: {
   const netBeforeGasTokenB = amountBOut - repayTokenB;
 
   const grossProfitUsd = Number(formatUnits(grossProfitTokenB, group.decimalsB)) * bUsd;
-  const gasCostEth = Number(formatUnits(gasUnits * (await client.getGasPrice()), 18));
+  const gasPriceWei = opts.gasPriceWei ?? (await client.getGasPrice());
+  const gasCostEth = Number(formatUnits(gasUnits * gasPriceWei, 18));
   const gasCostUsd = gasCostEth * ethUsd;
   const netProfitUsd = Number(formatUnits(netBeforeGasTokenB, group.decimalsB)) * bUsd - gasCostUsd;
 
@@ -216,4 +219,79 @@ export async function estimateFlashArb(args: {
     roundTripRatio: Math.round(roundTripRatio * 10_000) / 10_000,
     supportsNotional,
   };
+}
+
+/** Candidatos de notional (USD) em escala ~logarítmica — varredura padrão. */
+const DEFAULT_LOAN_CANDIDATES = [1_000, 2_500, 5_000, 10_000, 25_000, 50_000, 100_000, 250_000];
+
+export interface FlashOptimization {
+  pair: string;
+  /** Estimativa no tamanho de MAIOR lucro líquido (pico da curva). null = nenhum lucra. */
+  best: FlashArbEstimate | null;
+  /** Maior empréstimo (USD) que ainda fecha com lucro líquido > 0. 0 = nenhum viável. */
+  maxViableLoanUsd: number;
+  /** Curva lucro × tamanho (pra inspeção/log). */
+  curve: Array<{ loanUsd: number; netProfitUsd: number; roundTripRatio: number; profitable: boolean }>;
+}
+
+export interface OptimizeOpts {
+  /** Lista de notionais (USD) a testar. Default escala log 1k→250k. */
+  candidatesUsd?: number[];
+  ethUsd?: number;
+  gasUnits?: bigint;
+  maxSlippageBps?: number;
+}
+
+/**
+ * Acha o TAMANHO ÓTIMO do flashloan: o maior que ainda vale a pena antes do
+ * slippage matar o edge. O lucro × tamanho é côncavo (sobe com a divergência,
+ * cai quando o impacto domina) — varremos candidatos crescentes via quoter e
+ * paramos cedo quando passamos do pico (poupa RPC).
+ *
+ * Cota ethUsd + gasPrice 1x e reusa em todos os tamanhos. Só rode em divergência ativa.
+ */
+export async function optimizeFlashLoan(args: {
+  client: AnyPublicClient;
+  chainConfig: ChainConfig;
+  group: PoolGroup;
+  observation: InefficiencyObservation;
+  opts?: OptimizeOpts;
+}): Promise<FlashOptimization> {
+  const { client, chainConfig, group, observation, opts = {} } = args;
+  const candidates = (opts.candidatesUsd ?? DEFAULT_LOAN_CANDIDATES).slice().sort((a, b) => a - b);
+
+  // Cota preço do ETH + gas 1x pra reusar na varredura inteira
+  const ethUsd = opts.ethUsd ?? (await fetchEthUsd(client, chainConfig));
+  const gasPriceWei = await client.getGasPrice();
+
+  const curve: FlashOptimization['curve'] = [];
+  let best: FlashArbEstimate | null = null;
+  let maxViableLoanUsd = 0;
+  let sawProfit = false;
+
+  for (const loanUsd of candidates) {
+    const est = await estimateFlashArb({
+      client, chainConfig, group, observation,
+      opts: { notionalUsd: loanUsd, ethUsd, gasUnits: opts.gasUnits, maxSlippageBps: opts.maxSlippageBps, gasPriceWei },
+    });
+    if (!est) break; // pool sumiu / sem quote — não adianta ir maior
+
+    curve.push({ loanUsd, netProfitUsd: est.netProfitUsd, roundTripRatio: est.roundTripRatio, profitable: est.profitable });
+
+    if (est.netProfitUsd > 0) {
+      sawProfit = true;
+      maxViableLoanUsd = loanUsd;
+    }
+    if (!best || est.netProfitUsd > best.netProfitUsd) best = est;
+
+    // Early-stop: já vimos lucro e agora ficou negativo → passamos do pico, maiores só pioram
+    if (sawProfit && est.netProfitUsd <= 0) break;
+    // Pool raso já no menor tamanho (impacto catastrófico) → não vale escalar
+    if (!sawProfit && est.roundTripRatio < 0.5) break;
+  }
+
+  // best só conta se realmente lucra; senão null (nada viável)
+  if (best && best.netProfitUsd <= 0) best = null;
+
+  return { pair: group.label, best, maxViableLoanUsd, curve };
 }

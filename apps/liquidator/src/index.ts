@@ -17,12 +17,13 @@ import { isAddress } from 'viem';
 import { loadConfig } from './config';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
-import { runAavePipeline, runCompoundPipeline, runMorphoPipeline } from './pipeline';
+import { runAavePipeline, runCompoundPipeline, runMorphoPipeline, runMoonwellPipeline } from './pipeline';
 import { AavePriceOracle } from './protocols/aave/oracle';
 import type {
   AaveLiquidatablePosition,
   CompoundLiquidatablePosition,
   MorphoLiquidatablePosition,
+  MoonwellLiquidatablePosition,
   DispatchOutcome,
 } from './types';
 import {
@@ -40,6 +41,8 @@ import {
 import { discoverCompoundLiquidatablePositions } from './protocols/compound/discovery';
 import { buildMorphoMarketCache, type MorphoMarketCache } from './protocols/morpho/markets';
 import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discovery';
+import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
+import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
 import {
   slippageCache,
   PnlTracker,
@@ -123,6 +126,10 @@ interface LiquidatorState {
   morphoMarketCache?: MorphoMarketCache;
   /** BorrowerCache acumulativo por market id Morpho (discovery on-chain). */
   morphoBorrowerCaches: Map<string, BorrowerCache>;
+  /** Cache de mTokens Moonwell (Compound V2 fork) — buildado 1x no boot */
+  moonwellMarketCache?: MoonwellMarketCache;
+  /** BorrowerCache acumulativo por mToken Moonwell. */
+  moonwellBorrowerCaches: Map<string, BorrowerCache>;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -384,6 +391,35 @@ export async function boot(): Promise<LiquidatorState> {
       logger.error(
         { err: err instanceof Error ? err.message : err },
         'Falha ao buildar Morpho market cache — Morpho discovery indisponível',
+      );
+    }
+  }
+
+  // Moonwell market cache — enumera mTokens via Comptroller.getAllMarkets()
+  let moonwellMarketCache: MoonwellMarketCache | undefined;
+  const moonwellBorrowerCaches = new Map<string, BorrowerCache>();
+  if (env.MOONWELL_ENABLED && ctx.chainConfig.moonwell?.comptroller) {
+    try {
+      moonwellMarketCache = await buildMoonwellMarketCache({
+        client: ctx.client,
+        comptroller: ctx.chainConfig.moonwell.comptroller,
+        logger,
+      });
+      for (const market of moonwellMarketCache.markets) {
+        moonwellBorrowerCaches.set(
+          market.mToken.toLowerCase(),
+          new BorrowerCache({
+            baseDir: resolvePath('logs', 'borrowers'),
+            chain: ctx.chainConfig.shortName,
+            market: `moonwell-${market.mTokenSymbol}`,
+            logger,
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : err },
+        'Falha ao buildar Moonwell market cache — Moonwell discovery indisponível',
       );
     }
   }
@@ -814,6 +850,8 @@ export async function boot(): Promise<LiquidatorState> {
     compoundCometCache,
     morphoMarketCache,
     morphoBorrowerCaches,
+    moonwellMarketCache,
+    moonwellBorrowerCaches,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1234,6 +1272,33 @@ export async function processMorphoOpportunity(
 }
 
 /**
+ * Roda o pipeline Moonwell (Compound V2) — tx vai pro ZeusMoonwellLiquidator separado.
+ */
+export async function processMoonwellOpportunity(
+  position: MoonwellLiquidatablePosition,
+  state: LiquidatorState,
+): Promise<DispatchOutcome> {
+  return runMoonwellPipeline(position, {
+    env: state.env,
+    ctx: state.ctx,
+    callerAddress: state.callerAddress,
+    contractCapByDebtAsset: state.contractCapByDebtAsset,
+    pnlTracker: state.pnlTracker,
+    failureTracker: state.failureTracker,
+    dedupTracker: state.dedupTracker,
+    gasReserveTracker: state.gasReserveTracker,
+    eventBus: state.eventBus,
+    gasOracle: state.gasOracle,
+    aaveOracle: state.aaveOracle,
+    pnlReconciler: state.pnlReconciler,
+    failureCollector: state.failureCollector,
+    autoPauseManager: state.autoPauseManager,
+    tracer: state.tracer,
+    moonwellLiquidatorAddress: state.env.MOONWELL_LIQUIDATOR_ADDRESS as Address | undefined,
+  });
+}
+
+/**
  * Multi-collateral evaluation (Grupo B): agrupa positions por borrower e roda
  * o calculator pra cada par (collateral_i, debt_j). Retorna 1 position por
  * borrower — a com MAIOR `expectedProfitUsd`.
@@ -1353,7 +1418,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const { env, ctx, compoundCometCache } = state;
 
   const startedAt = Date.now();
-  const stats = { aave: 0, compound: 0, morpho: 0, dispatched: 0, dryrun: 0, rejected: 0 };
+  const stats = { aave: 0, compound: 0, morpho: 0, moonwell: 0, dispatched: 0, dryrun: 0, rejected: 0 };
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
   await state.gasReserveTracker.check(ctx.client, ctx.account);
@@ -1471,6 +1536,33 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     logger.debug('morphoMarketCache ausente — Morpho discovery pulado');
   }
 
+  // ─── Moonwell (Compound V2 fork, discovery on-chain + cache acumulativo) ───
+  if (state.moonwellMarketCache && state.moonwellMarketCache.markets.length > 0) {
+    try {
+      const moonwellPositions = await discoverMoonwellLiquidatablePositions({
+        client: ctx.client,
+        cache: state.moonwellMarketCache,
+        blockLookback: env.AAVE_ONCHAIN_BLOCK_LOOKBACK,
+        borrowerCacheFor: (mToken) => state.moonwellBorrowerCaches.get(mToken.toLowerCase()),
+        logger,
+      });
+      stats.moonwell = moonwellPositions.length;
+      state.scorer.observe({
+        chain: ctx.chainConfig.shortName,
+        protocol: 'moonwell',
+        opportunities_seen: moonwellPositions.length,
+      });
+      for (const position of moonwellPositions) {
+        const outcome = await processMoonwellOpportunity(position, state);
+        updateStats(stats, outcome.status);
+      }
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'Moonwell discovery falhou');
+    }
+  } else if (!state.moonwellMarketCache) {
+    logger.debug('moonwellMarketCache ausente — Moonwell discovery pulado');
+  }
+
   // Stats do cache de slippage (pra observar hit rate)
   const cacheStats = slippageCache.stats();
   // Reset stats por tick pra ver evolução
@@ -1512,7 +1604,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     }
   }
 
-  if (stats.aave === 0 && stats.compound === 0 && stats.morpho === 0) {
+  if (stats.aave === 0 && stats.compound === 0 && stats.morpho === 0 && stats.moonwell === 0) {
     logger.info(
       { elapsedMs: Date.now() - startedAt, cache: cacheStats, prunedEntries: pruned },
       '✅ Discovery: 0 positions at-risk total',

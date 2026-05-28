@@ -78,5 +78,10 @@ export interface ChainConfig {
     morphoBlue: Address;
   };
 
+  /** Moonwell (Compound V2 fork) — Comptroller. mTokens via getAllMarkets() on-chain. */
+  moonwell?: {
+    comptroller: Address;
+  };
+
   multicall3: Address;
 }

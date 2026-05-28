@@ -19,6 +19,7 @@ import type {
   AaveLiquidatablePosition,
   CompoundLiquidatablePosition,
   MorphoLiquidatablePosition,
+  MoonwellLiquidatablePosition,
   DispatchOutcome,
 } from './types';
 import type { BribeConfig } from '@zeus-evm/strategy';
@@ -33,6 +34,9 @@ import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator
 import { buildMorphoLiquidationTx } from './protocols/morpho/builder';
 import { simulateMorphoLiquidation } from './protocols/morpho/simulator';
 import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math';
+import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calculator';
+import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
+import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import {
   aavePositionKey,
@@ -90,6 +94,8 @@ export interface PipelineDeps {
    * forks com o MESMO pipeline. Ausente = Aave V3 core (compat).
    */
   aaveMarket?: { label: string; pool: Address; oracleAddress: Address };
+  /** Endereço do ZeusMoonwellLiquidator (contrato SEPARADO). Necessário pro pipeline Moonwell. */
+  moonwellLiquidatorAddress?: Address;
 }
 
 /**
@@ -898,5 +904,142 @@ async function _runMorphoPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
+  });
+}
+
+/**
+ * Pipeline pra Moonwell (Compound V2 fork). Tx vai pro ZeusMoonwellLiquidator
+ * (contrato SEPARADO — moonwellLiquidatorAddress, não o executor padrão).
+ *
+ * Conectado na caixa-preta: scorer (discoveryTick), reconciler (protocol=moonwell),
+ * failureCollector, dedup, eventBus.
+ */
+export async function runMoonwellPipeline(
+  position: MoonwellLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  if (deps.tracer) {
+    return deps.tracer.runInSpan(
+      'liquidator.runMoonwellPipeline',
+      async (span) => {
+        span.setAttributes({
+          chain: deps.ctx.chainConfig.name,
+          borrower: position.borrower,
+          protocol: 'moonwell',
+        });
+        const result = await _runMoonwellPipelineInner(position, deps);
+        span.setAttribute('outcome', result.status);
+        return result;
+      },
+    );
+  }
+  return _runMoonwellPipelineInner(position, deps);
+}
+
+async function _runMoonwellPipelineInner(
+  position: MoonwellLiquidatablePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  const { env, ctx, callerAddress, contractCapByDebtAsset, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
+
+  // Gates compartilhados
+  if (pnlTracker?.isKillSwitchTriggered()) {
+    return { status: 'reverted_pre_dispatch', reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}` };
+  }
+  if (failureTracker?.inCooldown()) {
+    const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
+    return { status: 'reverted_pre_dispatch', reason: `cooldown ativo, retomada em ${remainingS}s` };
+  }
+  if (gasReserveTracker?.shouldBlockDispatch()) {
+    return { status: 'reverted_pre_dispatch', reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)` };
+  }
+  if (deps.autoPauseManager?.shouldPause()) {
+    return { status: 'reverted_pre_dispatch', reason: `auto-pause active: ${deps.autoPauseManager.summary()}` };
+  }
+
+  // Gate dedup (key: chain:moonwell:mTokenBorrowed:borrower via compoundPositionKey reaproveitado)
+  const positionKey = compoundPositionKey(ctx.chainConfig.name, position.mTokenBorrowed, position.borrower)
+    .replace(':compound-v3:', ':moonwell:');
+  if (dedupTracker) {
+    const dedupCheck = dedupTracker.check(positionKey);
+    if (dedupCheck.blocked) {
+      return { status: 'reverted_pre_dispatch', reason: `dedup blocked: ${dedupCheck.status} há ${Math.round(dedupCheck.ageMs / 1000)}s` };
+    }
+  }
+
+  if (!ctx.chainConfig.uniswapV3?.quoterV2) {
+    return { status: 'reverted_pre_dispatch', reason: 'no UniswapV3 QuoterV2 configured' };
+  }
+  if (!deps.moonwellLiquidatorAddress) {
+    return { status: 'reverted_pre_dispatch', reason: 'no ZeusMoonwellLiquidator deployed (MOONWELL_LIQUIDATOR_ADDRESS ausente)' };
+  }
+
+  // 1. Calculator
+  const cap = contractCapByDebtAsset.get(position.borrowedUnderlying.toLowerCase());
+  const outcome = calculateOptimalMoonwellLiquidation(position, { env, capWei: cap });
+  if (!outcome.ok || !outcome.decision) {
+    logger.debug(
+      { borrower: position.borrower, reason: outcome.reason },
+      `⏭️  Moonwell descartado: ${outcome.reason}`,
+    );
+    return { status: 'reverted_pre_dispatch', reason: outcome.reason ?? 'moonwell calc falhou' };
+  }
+  const decision = outcome.decision;
+
+  // 2. Builder
+  const built = buildMoonwellLiquidationTx(position, decision, {
+    moonwellLiquidatorAddress: deps.moonwellLiquidatorAddress,
+    chainConfig: ctx.chainConfig,
+    profitReceiver: callerAddress,
+    slippageBps: env.MAX_SLIPPAGE_BPS,
+    preferredFeeTier: 500,
+    expectedSwapOutput: outcome.expectedSwapOutputWei ?? 0n,
+  });
+
+  // 3. Simulator
+  const sim = await simulateMoonwellLiquidation({
+    client: ctx.client,
+    executorAddress: built.to,
+    callerAddress,
+    calldata: built.data,
+  });
+
+  // 4. Dispatcher — protocol='moonwell' na caixa-preta
+  return dispatch({
+    mode: env.LIQUIDATOR_MODE,
+    client: ctx.client,
+    wallet: ctx.wallet,
+    account: ctx.account,
+    to: built.to,
+    data: built.data,
+    summary: {
+      chain: ctx.chainConfig.name,
+      protocol: 'moonwell',
+      borrower: built.summary.borrower,
+      market: `${position.collateralSymbol}/${position.borrowedSymbol}`,
+      repayAmountWei: built.summary.repayAmountWei.toString(),
+      expectedProfitUsd: decision.expectedProfitUsd.toFixed(2),
+    },
+    simulationOk: sim.success,
+    simulationGas: sim.gasUsed,
+    simulationReason: sim.revertReason,
+    expectedProfitWei: decision.expectedProfitWei,
+    profitAssetDecimals: position.borrowedDecimals,
+    profitAssetSymbol: position.borrowedSymbol,
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    pnlTracker,
+    failureTracker,
+    dedupTracker,
+    positionKey,
+    protocol: 'moonwell',
+    eventBus: deps.eventBus,
+    borrower: position.borrower,
+    chain: ctx.chainConfig.name,
+    gasOracle: deps.gasOracle,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
+    expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
+    opportunityId: position.borrower,
+    venue: 'moonwell',
   });
 }

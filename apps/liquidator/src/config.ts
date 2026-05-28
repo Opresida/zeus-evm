@@ -86,6 +86,12 @@ const envSchema = z.object({
   /** Lookback de blocos pra enumerar markets via CreateMarket events (histórico). */
   MORPHO_MARKETS_LOOKBACK: z.coerce.number().int().min(100000).max(10000000).default(2000000),
 
+  // ─── Moonwell (Compound V2 fork — Grupo C) ───
+  /** Habilita discovery + liquidation Moonwell. Requer MOONWELL_LIQUIDATOR_ADDRESS pra dispatch real. */
+  MOONWELL_ENABLED: z.coerce.boolean().default(true),
+  /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
+  MOONWELL_LIQUIDATOR_ADDRESS: optionalString(),
+
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:
   //   - MIN_DEBT_USD >= 100 (defaults de prod, não os baixos de calibração)

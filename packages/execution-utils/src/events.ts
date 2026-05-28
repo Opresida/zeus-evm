@@ -62,7 +62,7 @@ export interface TxConfirmedEvent extends BaseEvent {
   type: 'tx.confirmed';
   severity: 'info';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
   borrower: Address;
   profitUsd: number | null;
   gasCostUsd: number;
@@ -75,7 +75,7 @@ export interface TxRevertedOnChainEvent extends BaseEvent {
   type: 'tx.reverted_on_chain';
   severity: 'warn';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
   borrower: Address;
   gasUsdLost: number;
   blockNumber: string;
@@ -84,7 +84,7 @@ export interface TxRevertedOnChainEvent extends BaseEvent {
 export interface TxRevertedPreDispatchEvent extends BaseEvent {
   type: 'tx.reverted_pre_dispatch';
   severity: 'info'; // não custou gas — é proteção funcionando
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
   borrower: Address;
   reason: string;
 }

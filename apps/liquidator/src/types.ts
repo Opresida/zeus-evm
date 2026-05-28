@@ -35,6 +35,29 @@ export interface MorphoLiquidatablePosition {
   totalBorrowShares: bigint;
 }
 
+/** Position liquidável detectada em Moonwell (Compound V2 fork). */
+export interface MoonwellLiquidatablePosition {
+  borrower: Address;
+  /** mToken onde o borrower tem dívida (ex: mUSDC). */
+  mTokenBorrowed: Address;
+  borrowedUnderlying: Address;
+  borrowedSymbol: string;
+  borrowedDecimals: number;
+  /** mToken do colateral a seizar (ex: mWETH). */
+  mTokenCollateral: Address;
+  collateralUnderlying: Address;
+  collateralSymbol: string;
+  collateralDecimals: number;
+  /** Dívida atual no mTokenBorrowed (underlying wei). */
+  borrowBalanceWei: bigint;
+  /** Shortfall reportado pelo Comptroller (USD 1e18 scale). > 0 = liquidável. */
+  shortfallWei: bigint;
+  /** closeFactor (1e18) — máx % da dívida liquidável de uma vez. */
+  closeFactorMantissa: bigint;
+  /** liquidationIncentive (1e18, ex 1.08e18). */
+  liquidationIncentiveMantissa: bigint;
+}
+
 /** Position liquidável detectada em Compound III (Comet). */
 export interface CompoundLiquidatablePosition {
   /** Endereço do Comet (cUSDCv3, cWETHv3) */

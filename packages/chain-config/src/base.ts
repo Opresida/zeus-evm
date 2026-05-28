@@ -88,6 +88,12 @@ export const BASE_MAINNET: ChainConfig = {
     morphoBlue: '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb',
   },
 
+  // ─── Moonwell (Compound V2 fork — Doutrina: mercado sub-servido) ───
+  // Comptroller oficial Base: https://docs.moonwell.fi/moonwell/protocol-information/contracts
+  moonwell: {
+    comptroller: '0xfBb21d0380beE3312B33c4353c8936a0F13EF26C',
+  },
+
   // ─── Multicall ───
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
 };

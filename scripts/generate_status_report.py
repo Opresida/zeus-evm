@@ -253,11 +253,11 @@ def build_story(styles):
     ))
     S.append(Spacer(1, 1.5 * cm))
     summary_rows = [
-        ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após 3 semanas de setup"],
-        ["Testes automatizados", "194/194 verde · 53/53 contratos verde"],
-        ["Workspaces validados", "9/9 typecheck verde"],
-        ["Última atualização", "Hoje (sessão 2026-05-28) — Grupo C completo (Seamless + Morpho + Moonwell)"],
-        ["Pendência crítica", "Decidir capital inicial + qual edge perseguir"],
+        ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após setup + 2 semanas DRY_RUN"],
+        ["Testes automatizados", "execution-utils 255/255 · mis-scanner 6/6 · contratos 53/53 verde"],
+        ["Workspaces validados", "13/13 typecheck verde"],
+        ["Última atualização", "Hoje (sessão 2026-05-28) — Motor 2 (radar MIS): multicall + derivação on-chain + flash sizing"],
+        ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN (edge JÁ decidido — Fase 4c)"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
 
@@ -304,6 +304,129 @@ def build_story(styles):
         "Os três motores são descorrelacionados — em qualquer cenário (crash, volume normal ou "
         "alta volatilidade) pelo menos um deles tende a estar ativo. É como ter três sócios que "
         "ganham em momentos diferentes: enquanto um descansa, o outro está trabalhando.",
+        styles
+    ))
+
+    # ── Detalhe de cada motor em linguagem simples ──
+    S.append(Paragraph("Como cada motor funciona, se posiciona e ganha dinheiro", styles["h2"]))
+
+    S.append(Paragraph("Motor 1 — Liquidations (liquidações)", styles["h3"]))
+    S.append(Paragraph(
+        "O que faz: em protocolos de empréstimo (Aave, Morpho, Moonwell...), quem pega dinheiro "
+        "emprestado deixa uma garantia (colateral) como caução. Se o valor dessa garantia cai abaixo "
+        "do limite, a posição fica 'no vermelho' e o protocolo abre pra qualquer um quitar parte da "
+        "dívida e levar a garantia COM DESCONTO + um bônus (5-15%). O ZEUS é quem faz essa limpeza.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como se posiciona: NÃO disputa as posições óbvias dos protocolos gigantes (Aave grande, "
+        "onde mil robôs brigam por milissegundos — ali a gente perde). Foca nos protocolos de NICHO "
+        "e sub-servidos (Morpho, Moonwell, Seamless), onde há poucos liquidators competindo — vence quase sempre.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como ganha: embolsa o bônus de liquidação. Sem capital próprio — um flashloan paga a dívida, "
+        "o ZEUS recebe a garantia com desconto, vende, devolve o empréstimo e fica com a diferença.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "É como uma casa de penhor. Alguém empenhou um relógio de R$ 2.000 por um empréstimo de "
+        "R$ 1.500 e não pagou. A loja deixa você quitar os R$ 1.500 e levar o relógio. Você vende "
+        "por R$ 2.000 e lucra R$ 500. O ZEUS é o cliente que sempre chega primeiro — e na loja certa, "
+        "aquela vazia, sem fila.",
+        styles
+    ))
+
+    S.append(Paragraph("Motor 2 — Cross-DEX Arbitrage (arbitragem entre exchanges)", styles["h3"]))
+    S.append(Paragraph(
+        "O que faz: o mesmo token custa um pouco diferente em duas exchanges (pools) ao mesmo tempo. "
+        "O ZEUS compra na mais barata e vende na mais cara — no mesmo instante, sem risco de preço.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como se posiciona: NÃO disputa os pares óbvios (ETH/USDC é guerra de latência entre robôs — "
+        "perdemos). Foca em pares sub-servidos (LSDs como cbETH/wstETH, stables fragmentadas) onde a "
+        "diferença de preço PERSISTE por mais tempo (não some em 1 bloco). O radar (MIS) construído "
+        "hoje rankeia exatamente por PERSISTÊNCIA, e calcula o tamanho ótimo do empréstimo pra não "
+        "estragar o próprio preço.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como ganha: a diferença de preço entre os dois pools, menos a taxa e o slippage. Flashloan "
+        "paga, faz a ida-e-volta (compra barato / vende caro), devolve e fica com o lucro.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "É a feira de novo: a mesma manga custa R$ 1,00 numa barraca e R$ 1,10 na barraca do lado. "
+        "Você compra na barata e vende na cara na mesma hora. MAS se comprar manga demais numa "
+        "barraca só, o preço sobe na sua mão (slippage) — por isso o ZEUS calcula QUANTAS mangas dá "
+        "pra mexer sem estragar o negócio. Esse cálculo é o que entregamos hoje.",
+        styles
+    ))
+
+    S.append(Paragraph("Motor 3 — Backrun (operar atrás da baleia)", styles["h3"]))
+    S.append(Paragraph(
+        "O que faz: quando uma 'baleia' faz um swap GRANDE, ela empurra o preço do pool pra um lado "
+        "(dislocação temporária). Logo ATRÁS dela, o ZEUS opera pra lucrar com esse desequilíbrio "
+        "antes do preço voltar ao normal.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como se posiciona: precisa VER a transação da baleia antes dela confirmar (isso exige acesso "
+        "à 'mempool' premium). E opera LOGO ATRÁS (backrun) — não na frente da pessoa (não é o "
+        "'sandwich' predatório); é uma jogada mais limpa, só aproveitando o estrago que a baleia já causou.",
+        styles["body"]
+    ))
+    S.append(Paragraph(
+        "Como ganha: o preço dislocado tende a voltar ao normal; quem opera primeiro nessa volta "
+        "captura a diferença. Flashloan + operação atômica, igual aos outros.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "Imagina que alguém compra TODAS as mangas de uma barraca de uma vez — o preço dispara por "
+        "um instante. Você, logo atrás, vende as suas mangas pra essa barraca no preço inflado (ou "
+        "compra na barraca do lado, que ainda está barata, e revende). Você lucra com o tranco que a "
+        "compra gigante causou — sem ter empurrado ninguém.",
+        styles
+    ))
+
+    S.append(simple_box(
+        "COMO GANHAMOS DINHEIRO NOS TRÊS (o fio comum): sempre via flashloan (empréstimo instantâneo "
+        "que paga, opera e devolve na MESMA transação) — então NÃO precisamos de capital próprio "
+        "parado. E tudo é ATÔMICO: se a operação não fechar com lucro, ela inteira é cancelada e só "
+        "perdemos o gas (centavos). Nunca entra numa operação que pode dar prejuízo no meio. Dos "
+        "lucros, 45% viram capital próprio reinvestido.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    S.append(Paragraph("Estado dos 3 motores hoje (2026-05-28)", styles["h2"]))
+    estado_motores = [
+        ["Motor", "Estado de código", "O que falta pra ligar"],
+        [
+            "Motor 1: Liquidations",
+            "PRONTO — edge decidido (Fase 4c: nicho sub-servido) + 5 protocolos implementados (Aave, Compound, Seamless, Morpho, Moonwell)",
+            "Deploy mainnet + capital + multisig + 2 semanas DRY_RUN (NÃO é estratégia — é execução/validação)",
+        ],
+        [
+            "Motor 2: Cross-DEX Arb",
+            "RADAR PRONTO (hoje) — MIS varre/identifica/estima/ranqueia + sizing ótimo do empréstimo. Observação pura, não submete tx",
+            "RPC pago + dias de coleta de persistência + ponte radar→executor (passo futuro deliberado)",
+        ],
+        [
+            "Motor 3: Backrun",
+            "MÁQUINA PRONTA — planner, bribe, bundling (Flashbots/Atlas/Blocknative), trackers. Feed de mempool é placeholder",
+            "Mempool premium (~US$ 199/mês Alchemy) — único bloqueador; é ligar o cabo",
+        ],
+    ]
+    S.append(table_grid(estado_motores, [3.2 * cm, 7.3 * cm, 6 * cm]))
+    S.append(simple_box(
+        "Os três estão ALINHADOS: um cérebro, um dataset (os colaterais sub-servidos), três braços "
+        "descorrelacionados — zero retrabalho entre eles. Mas estão em FILA: cada um espera um "
+        "destravamento diferente. O gargalo de hoje não é mais código — é decisão (capital/edge do "
+        "Motor 1) + infra paga (RPC liga o Motor 2, mempool liga o Motor 3). Saímos da fase de "
+        "construir e entramos na de ligar.",
         styles
     ))
 
@@ -635,12 +758,13 @@ def build_story(styles):
         ["2 semanas DRY_RUN mainnet", "14 dias · ~R$ 50 Fly.io", "Onde hospedar (Fly.io)"],
         ["Calibração MAX_SLIPPAGE_BPS", "Auto (DRY_RUN gera)", "—"],
         ["Tenderly alerts", "1-2h · grátis", "Quais alertas ativar"],
-        ["Estratégia com edge", "Decisão", "BLOQUEADOR #1 — sugestão: niche advantage Morpho/Moonwell"],
+        ["Deploy contratos Base mainnet", "Técnico · ~horas", "Apertar o botão — destrava o resto"],
     ]
     S.append(table_grid(grupoa, [4 * cm, 3.5 * cm, 9 * cm]))
     S.append(simple_box(
-        "Estes são bloqueadores de NEGÓCIO, não de código. É a parte que depende de você decidir "
-        "(capital, edge) e configurar (Safe wallet, Tenderly, hospedagem). Sem isso, o ZEUS está "
+        "Estes são bloqueadores de NEGÓCIO e operação, não de estratégia (o edge já foi decidido "
+        "na Fase 4c: nicho sub-servido). É a parte que depende de você decidir (capital) e configurar "
+        "(Safe wallet, Tenderly, hospedagem) + o deploy técnico em mainnet. Sem isso, o ZEUS está "
         "pronto pra rodar mas não pode sair do teste pra produção.",
         styles
     ))

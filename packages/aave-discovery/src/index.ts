@@ -28,4 +28,5 @@ export {
   fetchAaveBorrowersOnChain,
   discoverAaveLiquidatablePositionsOnChain,
 } from './discovery';
+export { BorrowerCache, type BorrowerCacheOpts } from './borrowerCache';
 export type { AaveCandidate, AaveLiquidatablePosition } from './types';

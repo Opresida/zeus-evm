@@ -19,6 +19,7 @@ import type { Address, PublicClient } from 'viem';
 
 import { POOL_ABI, POOL_DATA_PROVIDER_ABI, POOL_BORROW_EVENT_ABI } from './abi';
 import { NOOP_LOGGER, type LoggerLike } from './logger';
+import type { BorrowerCache } from './borrowerCache';
 import type { AaveReservesCache } from './reserves';
 import { getReserveInfo } from './reserves';
 import type { AaveCandidate, AaveLiquidatablePosition } from './types';
@@ -449,6 +450,12 @@ export async function discoverAaveLiquidatablePositionsOnChain(opts: {
   hfThreshold: number;
   blockLookback?: number;
   evaluateAllPairs?: boolean;
+  /**
+   * Cache acumulativo de borrowers. Quando presente, o HF check roda em TODOS
+   * os borrowers conhecidos (não só os da janela atual) — fecha a lacuna de
+   * cobertura histórica do event scan. Auto-poda quem zerou dívida.
+   */
+  borrowerCache?: BorrowerCache;
   logger?: LoggerLike;
 }): Promise<AaveLiquidatablePosition[]> {
   const {
@@ -458,25 +465,56 @@ export async function discoverAaveLiquidatablePositionsOnChain(opts: {
     hfThreshold,
     blockLookback = 10_000,
     evaluateAllPairs = false,
+    borrowerCache,
     logger = NOOP_LOGGER,
   } = opts;
 
   // 1. Event scan on-chain (substitui o subgraph)
-  const candidates = await fetchAaveBorrowersOnChain({ client, poolAddress, blockLookback });
+  const scanned = await fetchAaveBorrowersOnChain({ client, poolAddress, blockLookback });
+
+  // Cache acumulativo: merge novos da janela + usa TODOS os conhecidos como candidatos
+  let candidates: Address[];
+  if (borrowerCache) {
+    const newCount = borrowerCache.add(scanned);
+    candidates = borrowerCache.all();
+    logger.debug(
+      { scanned: scanned.length, new: newCount, total: candidates.length },
+      `On-chain candidates (cache): ${candidates.length} (${newCount} novos da janela)`,
+    );
+  } else {
+    candidates = scanned;
+    logger.debug({ count: candidates.length }, `On-chain candidates (janela): ${candidates.length}`);
+  }
+
   if (candidates.length === 0) {
-    logger.info('📋 On-chain discovery: 0 borrowers no event scan');
+    logger.info('📋 On-chain discovery: 0 borrowers');
     return [];
   }
-  logger.debug({ count: candidates.length }, `On-chain candidates: ${candidates.length}`);
 
   // 2. HF batch on-chain (reusa fetchHealthFactorsBatch)
   const hfMap = await fetchHealthFactorsBatch({ client, poolAddress, users: candidates });
   const hfThresholdBigInt = BigInt(Math.floor(hfThreshold * 1e18));
   const atRisk: { user: Address; hf: bigint }[] = [];
+  const zeroDebt: Address[] = [];
   for (const user of candidates) {
     const data = hfMap.get(user.toLowerCase());
-    if (!data || data.hf === 0n) continue;
+    if (!data) continue;
+    // Auto-poda: borrower que zerou dívida sai do cache (não interessa mais)
+    if (data.totalDebtBase === 0n) {
+      zeroDebt.push(user);
+      continue;
+    }
+    if (data.hf === 0n) continue;
     if (data.hf < hfThresholdBigInt) atRisk.push({ user, hf: data.hf });
+  }
+
+  // Poda + persiste cache
+  if (borrowerCache) {
+    if (zeroDebt.length > 0) {
+      const removed = borrowerCache.remove(zeroDebt);
+      logger.debug({ removed }, `Cache auto-poda: ${removed} borrowers sem dívida removidos`);
+    }
+    borrowerCache.save();
   }
 
   logger.info(

@@ -28,6 +28,7 @@ import {
   buildAaveReservesCache,
   discoverAaveLiquidatablePositions,
   discoverAaveLiquidatablePositionsOnChain,
+  BorrowerCache,
   type AaveReservesCache,
 } from '@zeus-evm/aave-discovery';
 import { calculateOptimalLiquidation } from './protocols/aave/calculator';
@@ -102,6 +103,8 @@ interface AaveMarketRuntime {
   reservesCache: AaveReservesCache;
   oracleInstance: AavePriceOracle;
   subgraphId: string | undefined;
+  /** Cache acumulativo de borrowers — só pra markets on-chain (sem subgraph). */
+  borrowerCache?: BorrowerCache;
 }
 
 interface LiquidatorState {
@@ -393,6 +396,15 @@ export async function boot(): Promise<LiquidatorState> {
         logger,
       });
       const forkSubgraph = resolveForkSubgraphId(env, fork.label);
+      // Markets sem subgraph usam discovery on-chain + cache acumulativo de borrowers
+      const forkBorrowerCache = forkSubgraph
+        ? undefined
+        : new BorrowerCache({
+            baseDir: resolvePath('logs', 'borrowers'),
+            chain: ctx.chainConfig.shortName,
+            market: fork.label,
+            logger,
+          });
       aaveMarkets.push({
         label: fork.label,
         pool: fork.pool,
@@ -400,10 +412,11 @@ export async function boot(): Promise<LiquidatorState> {
         reservesCache: forkCache,
         oracleInstance: new AavePriceOracle(ctx.client, fork.oracle),
         subgraphId: forkSubgraph,
+        borrowerCache: forkBorrowerCache,
       });
       logger.info(
-        { fork: fork.label, pool: fork.pool, hasSubgraph: !!forkSubgraph },
-        `🌱 Aave fork '${fork.label}' carregado${forkSubgraph ? '' : ' (sem subgraph — discovery vai pular até configurar)'}`,
+        { fork: fork.label, pool: fork.pool, hasSubgraph: !!forkSubgraph, cachedBorrowers: forkBorrowerCache?.size() ?? 0 },
+        `🌱 Aave fork '${fork.label}' carregado${forkSubgraph ? ' (via subgraph)' : ` (on-chain + cache acumulativo: ${forkBorrowerCache?.size() ?? 0} borrowers)`}`,
       );
     } catch (err) {
       logger.error(
@@ -1302,6 +1315,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
               hfThreshold: env.HF_AT_RISK_THRESHOLD,
               blockLookback: env.AAVE_ONCHAIN_BLOCK_LOOKBACK,
               evaluateAllPairs: env.MULTI_COLLATERAL_EVAL_ENABLED,
+              borrowerCache: market.borrowerCache,
               logger,
             });
         stats.aave += positions.length;

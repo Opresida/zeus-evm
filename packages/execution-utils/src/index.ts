@@ -292,13 +292,20 @@ export {
   type CooccurrenceCluster,
 } from './competitors';
 
-// ─── Arb / Motor 2 (Token Safety) ───
+// ─── Arb / Motor 2 (Token Safety + MIS) ───
 export {
   buildArbAllowlist,
   isArbTokenAllowed,
   checkArbPair,
   checkArbRoute,
+  MarketInefficiencyScanner,
   type ArbAllowlist,
+  type PoolDex,
+  type PoolRef,
+  type PoolGroup,
+  type InefficiencyObservation,
+  type InefficiencyRanking,
+  type MISOpts,
 } from './arb';
 
 // ─── Alerting Sinks ───

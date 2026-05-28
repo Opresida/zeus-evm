@@ -243,7 +243,7 @@ def build_story(styles):
     # ───── CAPA ─────
     S.append(Spacer(1, 4 * cm))
     S.append(Paragraph("ZEUS EVM", styles["title"]))
-    S.append(Paragraph("Relatório Executivo de Estado — 2026-05-27", styles["subtitle"]))
+    S.append(Paragraph("Relatório Executivo de Estado — 2026-05-28", styles["subtitle"]))
     S.append(Spacer(1, 0.6 * cm))
     S.append(Paragraph(
         "Bot de arbitragem on-chain MEV em Base (com expansão multi-chain pronta). "
@@ -256,7 +256,7 @@ def build_story(styles):
         ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após 3 semanas de setup"],
         ["Testes automatizados", "194/194 verde · 53/53 contratos verde"],
         ["Workspaces validados", "9/9 typecheck verde"],
-        ["Última atualização", "Hoje (sessão 2026-05-27)"],
+        ["Última atualização", "Hoje (sessão 2026-05-28) — Grupo C completo (Seamless + Morpho + Moonwell)"],
         ["Pendência crítica", "Decidir capital inicial + qual edge perseguir"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
@@ -1017,9 +1017,87 @@ def build_story(styles):
         styles
     ))
 
-    # ───── 13. CONCLUSÃO ─────
+    # ───── 13. INVESTIMENTO DE INFRAESTRUTURA ─────
     S.append(PageBreak())
-    S.append(Paragraph("13. Resumo executivo final", styles["h1"]))
+    S.append(Paragraph("13. Investimento de infraestrutura (RPC, mempool, hosting)", styles["h1"]))
+    S.append(Paragraph(
+        "O ZEUS depende de provedores externos pra falar com a blockchain (RPC), ver "
+        "transações pendentes (mempool) e ficar online 24/7 (hosting). Esta seção lista "
+        "cada custo e QUANDO ele se torna necessário — pra não pagar por coisa que ainda não usamos.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "Pense nisso como as contas fixas de um restaurante: aluguel (hosting), conta de "
+        "luz (RPC) e o fornecedor premium de ingredientes raros (mempool). Você liga a luz "
+        "desde o dia 1, mas só contrata o fornecedor premium quando o prato que precisa dele "
+        "entra no cardápio.",
+        styles
+    ))
+
+    S.append(Paragraph("13.1 Provedores e função de cada um", styles["h2"]))
+    provedores = [
+        ["Provedor", "Função no ZEUS", "Necessário quando"],
+        ["dRPC", "RPC reads pesados (discovery on-chain: getLogs, multicall, posições). Agregador com fallback embutido.", "Já — fase DRY_RUN"],
+        ["Alchemy", "RPC + WSS + MEMPOOL (pending txs pro backrun). Cobre tudo numa conta, mas mempool é o diferencial premium.", "Mempool: só quando ativar backrun (motor 3)"],
+        ["Fly.io", "Hosting 24/7 do bot (1 instância por chain).", "Já — deploy DRY_RUN"],
+        ["Tenderly", "Alertas on-chain (tx revertida, owner mudou, saldo baixo).", "Antes do Phase 7 live"],
+        ["The Graph", "Subgraph Aave V3 core (discovery). Forks usam on-chain (sem custo).", "Já — coberto por API key existente"],
+    ]
+    S.append(table_grid(provedores, [2.5 * cm, 10 * cm, 4 * cm]))
+
+    S.append(Paragraph("13.2 Custo estimado por provedor", styles["h2"]))
+    custos = [
+        ["Provedor", "Plano", "Custo estimado/mês", "Observação"],
+        ["dRPC", "Pay-as-you-go / paid", "US$ 50-100", "Volume de reads dos 4 protocolos + cache acumulativo. Free tier NÃO aguenta."],
+        ["Alchemy", "Growth", "US$ 49", "RPC + WSS. Sem mempool premium ainda."],
+        ["Alchemy", "Growth+ (mempool)", "US$ 199", "Inclui alchemy_pendingTransactions (pro backrun). Só quando ativar motor 3."],
+        ["Fly.io", "Hobby/Launch", "US$ 5-30", "1 instância por chain. 3 chains DRY_RUN ≈ US$ 15-30."],
+        ["Tenderly", "Free / Pro", "US$ 0-50", "Free tier cobre ~30 alerts. Pro se escalar."],
+    ]
+    S.append(table_grid(custos, [2.5 * cm, 3.5 * cm, 3.5 * cm, 7 * cm]))
+    S.append(Paragraph(
+        "<b>⚠️ Valores são estimativas</b> (conhecimento até jan/2026). Confirmar no painel de "
+        "cada provedor antes de assinar — pricing muda, e verificar especificamente: (1) "
+        "alchemy_pendingTransactions disponível em Base no tier escolhido; (2) limite de CU/requests "
+        "do plano aguenta nosso volume de reads.",
+        styles["small"]
+    ))
+
+    S.append(Paragraph("13.3 Faseamento do investimento", styles["h2"]))
+    S.append(Paragraph(
+        "Estratégia: dRPC pros reads (barato, resiliente) + Alchemy pro mempool (premium) — "
+        "divisão de carga, não redundância. Mas o mempool só entra quando ativarmos o backrun. "
+        "Liquidations (motor principal) NÃO precisam de mempool.",
+        styles["body"]
+    ))
+    fases_infra = [
+        ["Fase", "O que assinar", "Custo total/mês"],
+        ["Fase atual (DRY_RUN + Phase 7 liquidations-first)", "dRPC paid OU Alchemy Growth + Fly.io + Tenderly free", "US$ 60-130"],
+        ["Fase backrun (ativar motor 3 + mempool)", "dRPC (reads) + Alchemy Growth+ (mempool) + Fly.io + Tenderly", "US$ 260-330"],
+        ["Fase escala (multi-chain + volume alto)", "dRPC + Alchemy Scale + Fly.io (N instâncias) + Tenderly Pro", "US$ 400-600"],
+    ]
+    S.append(table_grid(fases_infra, [6.5 * cm, 6 * cm, 4 * cm]))
+    S.append(simple_box(
+        "Decisão registrada: Alchemy pago cobre RPC + mempool numa conta só, mas usar Alchemy "
+        "pra TUDO (incluindo reads pesados) queima compute units rápido. Por isso a divisão: "
+        "dRPC carrega os reads (barato), Alchemy reservado pro mempool (premium). Assinar os "
+        "dois só vale a partir da fase backrun — agora, 1 provedor robusto basta.",
+        styles
+    ))
+
+    S.append(Paragraph("13.4 Por que o custo de RPC subiu", styles["h2"]))
+    S.append(Paragraph(
+        "Com a expansão pra 4-5 protocolos (Aave + Seamless + Compound + Morpho + Moonwell), o "
+        "discovery on-chain ficou RPC-intensivo: cada ciclo faz getLogs + multicall pra cada "
+        "protocolo, e a lista de devedores monitorados (cache acumulativo) cresce com o tempo. "
+        "Isso é o preço da cobertura ampla (123 → ~7.000 borrowers) — e justifica o RPC pago "
+        "desde a fase DRY_RUN.",
+        styles["body"]
+    ))
+
+    # ───── 14. CONCLUSÃO ─────
+    S.append(PageBreak())
+    S.append(Paragraph("14. Resumo executivo final", styles["h1"]))
 
     S.append(Paragraph("O que está pronto", styles["h2"]))
     S.append(Paragraph(
@@ -1055,8 +1133,9 @@ def build_story(styles):
 
     S.append(Spacer(1, 1 * cm))
     S.append(Paragraph(
-        "Este relatório foi gerado automaticamente do estado real do código em 2026-05-27. "
-        "204/204 testes verdes · Branch: main · Inclui ChainProfitabilityScorer recém-implementado.",
+        "Este relatório foi gerado automaticamente do estado real do código em 2026-05-28. "
+        "308 testes verdes (219 execution-utils + 22 liquidator + 67 Foundry) · Branch: main · "
+        "Grupo C completo (Seamless + Morpho + Moonwell) + investimento de infra documentado.",
         styles["small"]
     ))
 

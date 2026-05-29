@@ -1,5 +1,19 @@
 # TODO — ZEUS EVM
 
+> ## 📍 ESTADO ATUAL (2026-05-29)
+>
+> **Pronto (código):** 4 contratos v8 (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator) ·
+> Motor 1 com 5 protocolos (Aave/Compound/Morpho/Seamless/Moonwell) · multi-chain code-ready (Base/Arb/OP/Polygon/Avalanche) ·
+> Motor 2 radar MIS (multicall + derivação on-chain + flash sizing + gate de profundidade + Trader Joe LB) ·
+> Motor 3 backrun engine · **fork tests 34/34** (inclui prova de lucro dos 3 motores via Alchemy).
+>
+> **Falta pra produção:** deploy mainnet dos 4 contratos · capital + multisig · 2 semanas DRY_RUN + dias de coleta MIS ·
+> RPC pago + Fly.io (24/7) · Motor 3 ao vivo precisa mempool premium · audit externo (capital > $50k).
+>
+> **Lucro real até hoje: US$ 0** — lógica provada em fork, não deployado. (Detalhes no relatório PDF, §5.5/5.6.)
+>
+> O histórico abaixo (fases/sprints) é mantido como registro; o checklist pré-mainnet a seguir continua válido.
+
 ## ⚠️ PRÉ-ATIVAÇÃO MAINNET — CHECKLIST OBRIGATÓRIO
 
 **ANTES** de mudar `LIQUIDATOR_MODE` pra `mainnet` ou submeter qualquer tx real em chain de produção, validar TODOS os itens:

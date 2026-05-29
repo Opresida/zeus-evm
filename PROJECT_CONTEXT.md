@@ -6,7 +6,7 @@ Visão consolidada do projeto. Atualizado a cada fase aprovada.
 
 ## 🎯 O que é
 
-**ZEUS EVM** é um bot de arbitragem on-chain em EVM com **duas modalidades operacionais** (capital próprio e flashloan) e **três estratégias** (cross-DEX, triangular, liquidations) coexistindo no mesmo codebase.
+**ZEUS EVM** é um bot de MEV on-chain em EVM, **flashloan-first** (Aave V3), com **3 motores descorrelacionados** coexistindo no mesmo codebase: **Liquidations** (Motor 1), **Cross-DEX Arb** (Motor 2, via radar MIS) e **Backrun** (Motor 3).
 
 **Chain inicial:** Base (Coinbase L2). Por quê?
 - Gas barato (~$0.01/tx) viabiliza testes massivos
@@ -79,93 +79,62 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 📊 Status atual (snapshot 2026-05-26)
+## 📊 Status atual (snapshot 2026-05-29)
 
 ### ✅ Concluído
 
-**Fases 0-5a + Trilha 1 + Sprint 1 + Sprint 2 + Security Audit Pass 1+2 + Liquidator MVP**
+**Camada on-chain (4 contratos v8 split — resolve EIP-170):**
+- **BribeManager** (gorjeta MEV) + **ZeusLiquidator** (Aave/Compound/Morpho) + **ZeusArbExecutor** (arb/backrun) + **ZeusMoonwellLiquidator** (Moonwell)
+- Audit interno Pass 1-4 + fixes B-1 a B-7. Os 3 primeiros deployados em Base Sepolia; Moonwell entra no próximo deploy (já no Deploy.s.sol).
 
-- **Fases 0-3** — Monorepo + ZeusExecutor + Detector DRY_RUN + Flashloan Aave V3 (ver TODO.md histórico)
-- **Track A+B** — Deploy testnet + cross-DEX validado sem edge (declarado dead-end)
-- **Trilha 1 (Liquidações Aave V3)** — executeLiquidation() + 4 fork tests · **$8.643 profit em fork test mainnet**
-- **Sprint 1 (Aave V3 multi-chain)** — 3 chains testnet (Base/Arb/OP Sepolia) armed via revive+setOperator
-- **Sprint 3 Morpho (parcial)** — schema-fix do subgraph (Messari-format), 200 positions ativas reais detectadas em Base mainnet · contrato `executeMorphoLiquidation` pronto
-- **Redeploy v6 evolutivo** (2026-05-25) — 3 chains testnet com Aave + Compound + Morpho:
-  - Base Sepolia: [`0xe38298B4...`](https://sepolia.basescan.org/address/0xe38298B4d242d0D1C45696a96c4C588926Cf1139)
-  - Arbitrum Sepolia: [`0xe48473D7...`](https://sepolia.arbiscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
-  - Optimism Sepolia: [`0xe48473D7...`](https://sepolia-optimism.etherscan.io/address/0xe48473D75805886Ac4162B1304EAB6b8F93C5faa)
-- **Security Audit Pass 1 + Pass 2** (2026-05-25) — `ZeusExecutor.sol` revisado sob lente AppSec (Jim Manico) + vuln assessment (Omar Santos). Identificados **2 HIGH + 4 MEDIUM**. Todos **CORRIGIDOS**: H-01 approval Morpho bounded+reset, H-02 maxTradePerToken map, M-01 pre-existing balance snapshot, M-02 flashloanAmount explícito Morpho. 11 testes adversariais novos
-- **Liquidator MVP** (`apps/liquidator/` — 2026-05-25):
-  - Sprint 1 Aave V3 pipeline completo (calculator binary search + simulator + builder + dispatcher 3 modos)
-  - Sprint 2 Compound III pipeline (5+8 collaterals cacheados Base mainnet, event scan chunked, quoteCollateral on-chain)
-  - Discovery automática Aave V3: subgraph → Multicall3 HF → resolve par dominante (live: 29 at-risk Base mainnet)
-  - Event decoder pós-tx + log humanizado `💰 $12.45 (gas $0.32, líquido $12.13)` + calibração delta real-vs-esperado
-  - Slippage cache TTL 60s
-  - 3 modos operacionais: `dryrun` / `testnet` / `mainnet`
-- **Backend completo — 6 gaps críticos** (`apps/liquidator/` — 2026-05-26):
-  - **Gap #1 Daily loss limit** — `pnlTracker.ts` rolling 24h JSONL + auto kill switch on-chain
-  - **Gap #2 Cooldown após N falhas** — `failureTracker.ts` 3 falhas seguidas → 5min cooldown
-  - **Gap #3 Position deduplication** — `positionDedup.ts` pending/confirmed/failed + TTL
-  - **Gap #4 Gas reserve monitoring** — `gasReserveTracker.ts` 2 thresholds + anti-spam
-  - **Gap #5 EIP-1559 gas pricing** — `gasOracle.ts` baseFee × multiplier + cache por bloco
-  - **Gap #7 Event bus + alerting** — `eventBus.ts` + Discord/Generic webhook sinks (arquitetura prepara WebSocket pro futuro mobile app)
-  - **Gap #8 Stale position re-check** — `staleCheck.ts` re-checa HF on-chain antes do submit
-  - Pipeline integrado: 5 gates pre-dispatch + EIP-1559 + tracking de wins/losses + auto kill switch + alertas externos
-- **Shared package `@zeus-evm/aave-discovery`** — reusável entre apps (logger injetável, ABIs canônicas, reserves cache, discovery completa)
-- **Total**: **53/53 testes Foundry** · 6/6 vitest · **9/9 typecheck workspaces** (incluindo packages/aave-discovery + apps/liquidator)
+**Motor 1 — Liquidations (5 protocolos):** Aave V3 · Compound III · Morpho Blue · Seamless (fork Aave) · Moonwell (fork Compound V2). Discovery on-chain (event scan + BorrowerCache acumulativo) + subgraph. Pipeline com gates (kill/cooldown/dedup/gas/stale) + EIP-1559 + caixa-preta (intelligence DuckDB).
 
-### 🔍 Aprendizados consolidados
+**Multi-chain code-ready (Motor 1):** Base · Arbitrum · Optimism · **Polygon** · **Avalanche** — endereços verificados na fonte (aave-address-book, Uniswap sdk-core, LFJ docs).
 
-- **Cross-DEX em Base 2026 não tem edge** (backtest 0/1000 blocos) — radar passivo apenas
-- **Long tail $5-100 de liquidações = nicho viável** — bots top ignoram (infra cara não cobre)
-- **Princípio "validar antes de escalar"** continua sendo bússola — testnet 2 sem → mainnet capital pequeno → audit → scale
+**Motor 2 — Cross-DEX Arb (radar MIS):** `apps/mis-scanner` — pricing local (UniV3 tick / Aero / Trader Joe LB), varredura em multicall, derivação on-chain de tokens (colaterais dos protocolos), flash estimator via quoter, **sizing ótimo do empréstimo** + gate de profundidade (descarta pool raso). Ranqueia por PERSISTÊNCIA. Observação pura (não submete tx).
 
-### 🎯 Em andamento
+**Motor 3 — Backrun:** `apps/backrun-engine` — planner + bribe + bundling (Flashbots/Atlas/Blocknative) + trackers. Esperando feed de mempool premium (placeholder).
 
-**Sprint 3 Morpho pipeline TS** — discovery (com IRM enrichment on-chain) + calculator + builder + simulator pra `executeMorphoLiquidation`. Estimativa ~2 dias próxima sessão.
+**Validação contra mainnet (fork via Alchemy):** **34/34 fork tests verdes**, incluindo prova de LUCRO ponta-a-ponta dos 3 motores (Motor 1 liquidação +$6.157 realista; Motor 2/3 +$300k+ com gap inflado de propósito pra provar a mecânica). Endereços/ABIs/premium flashloan (0.05%) confirmados nas 3 chains via eth_call.
 
-**2 semanas DRY_RUN mainnet** — assim que Sprint 3 estiver pronto, rodar monitor + liquidator em Base mainnet em modo `dryrun` pra calibração de thresholds + slippage.
+- **Total**: 67 unit + 34 fork (Foundry) · execution-utils 256 · liquidator 22 · mis-scanner 6 · **13/13 typecheck**
 
-**Health endpoint HTTP** — adiado até decisão de infra (Fly.io / outra). Sem orquestrador externo não tem valor agora.
+### 🔍 Aprendizados consolidados (Doutrina de Edge)
 
-### 🔒 Backend readiness pra mainnet
+- **Edge NÃO é velocidade** (perdemos pros bots top em blue-chips) — é **cobertura + persistência** em pares sub-servidos (LSDs, stables fragmentadas) e protocolos de nicho (Morpho/Moonwell/Seamless).
+- **Cross-DEX repositionado:** não é "dead-end" — é o Motor 2, mirando ineficiência PERSISTENTE (não pico de 1 bloco). O MIS é o radar disso.
+- **Lucro real até hoje = US$ 0:** lógica provada (fork), mas não deployado. Oportunidade real exige movimento de mercado + ganhar a corrida + dias de coleta do MIS.
 
-Backend está em **estado pronto pra primeira tx real** assim que: (1) Sprint 3 Morpho concluir; (2) Deploy ZeusExecutor em Base mainnet; (3) 2 semanas DRY_RUN calibrar. 6 gaps críticos resolvidos garantem operação segura:
-- Kill switch automático (PnL > limit)
-- Cooldown após cascata de erros
-- Sem re-submit em race condition (dedup)
-- Sem dispatch sem ETH (gas reserve)
-- Pricing EIP-1559 correto pra Base/Arb/OP
-- Alertas externos via Discord webhook
-- Stale check elimina race contra outros bots
+### 🎯 Em andamento / próximos passos
 
-### 📅 Roadmap futuro (decisões consolidadas 2026-05-25)
+- **Deploy mainnet** dos 4 contratos (técnico) + capital + multisig.
+- **2 semanas DRY_RUN** mainnet + dias de coleta do MIS pra persistência emergir.
+- **RPC pago + Fly.io** pra rodar MIS/discovery 24/7 (dRPC free serve reads; fork test usa Alchemy).
 
-**Tese de 3 motores descorrelacionados:**
-- Motor #1 Liquidations (atual): ganha em CRASH
-- Motor #2 JIT Liquidity (Sprint 4): ganha em VOLUME
-- Motor #3 Backrun dislocation (Sprint 5): ganha em VOLATILIDADE
+### 📅 Roadmap futuro
 
-| Fase / Sprint | Entrega | Status |
-|---|---|---|
-| Sprint 3 Morpho pipeline TS | Cobertura completa nos 3 protocolos | 🟡 Em andamento |
-| Fase 5b — 2 semanas DRY_RUN mainnet | Calibração com dados reais | ⏳ Após Sprint 3 |
-| Fase 7 — Mainnet capital pequeno | Deploy executor Base mainnet + cap $1500 | ❌ Após 5b |
-| Sprint 4 — JIT Liquidity | Motor #2, requer Alchemy Mempool ($199/mês) | ❌ Após receita real |
-| Sprint 5 — Backrun dislocation | Motor #3, reusa mempool | ❌ Após Sprint 4 |
-| Avalanche expansion | Aave V3 only, +500-800 borrowers | ❌ Após Morpho |
-| Polygon expansion | Aave V3 only, MAS mercado saturado | ❌ Baixa prioridade |
-| Fase 8 — Audit externo | Trail of Bits / Spearbit quando capital > $50k | ❌ Pós-receita |
+**Tese de 3 motores descorrelacionados:** Motor 1 ganha em CRASH · Motor 2 em VOLUME · Motor 3 em VOLATILIDADE.
+
+| Item | Status |
+|---|---|
+| 4 contratos + 5 protocolos + multi-chain code-ready | ✅ |
+| Motor 2 radar MIS + Trader Joe LB (Avalanche) | ✅ |
+| Motor 3 backrun engine | ✅ código |
+| Fork tests de lucro dos 3 motores (Alchemy) | ✅ 34/34 |
+| Deploy mainnet (4 contratos) + capital + multisig | ❌ |
+| 2 semanas DRY_RUN + coleta MIS | ❌ |
+| Motor 3 ao vivo (mempool premium ~$199/mês) | ❌ pós-receita |
+| Audit externo (capital > $50k) | ❌ |
 
 ---
 
 ## 🔑 Decisões já tomadas
 
-- ✅ Chain inicial: **Base** (próximas: Avalanche → Polygon)
-- ✅ Estratégia atual: **Liquidations** em 3 protocolos (Aave V3 + Compound III + Morpho Blue)
-- ✅ Estratégias futuras: **3 motores descorrelacionados** (Liquidations + JIT Liquidity + Backrun dislocation)
+- ✅ Chain inicial: **Base**; code-ready: Arbitrum, Optimism, Polygon, Avalanche
+- ✅ Motor 1 (Liquidations): **5 protocolos** (Aave V3 + Compound III + Morpho Blue + Seamless + Moonwell)
+- ✅ **3 motores descorrelacionados**: Liquidations (1) + Cross-DEX Arb/MIS (2) + Backrun (3)
 - ✅ Princípio inviolável: **FLASHLOAN-ONLY** até primeiro lucro real ([[project-zeus-evm-capital-principle]])
-- ✅ Cross-DEX: dead-end confirmado em Base 2026 (radar passivo)
+- ✅ Edge = **cobertura + persistência** em sub-servidos (NÃO velocidade). Motor 2 mira ineficiência persistente, não pico de 1 bloco
 - ✅ Repo: `github.com/Opresida/zeus-evm`
 - ✅ Stack: TypeScript + viem + Foundry (Solidity 0.8.27 + via_ir + 1M optimizer runs)
 - ✅ Flashloan provider: Aave V3 universal (0.05% fee)

@@ -4,6 +4,24 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 
 ---
 
+> ## 🔄 ESTADO ATUAL (2026-05-29) — o que mudou desde o snapshot abaixo
+>
+> Este doc descreve fluxos que **continuam válidos conceitualmente**, mas a implementação evoluiu.
+> Mapeamento do que está desatualizado no texto antigo:
+>
+> | No texto antigo | Estado atual |
+> |---|---|
+> | `ZeusExecutor v6` (1 contrato monolítico) | **4 contratos v8 (split por EIP-170):** BribeManager + ZeusLiquidator (Aave/Compound/Morpho) + ZeusArbExecutor (arb/backrun) + ZeusMoonwellLiquidator |
+> | 3 protocolos (Aave/Compound/Morpho) | **5:** + Seamless (fork Aave) + Moonwell (fork Compound V2) |
+> | Cross-DEX "radar passivo / dead-end" | **Motor 2 = radar MIS** (`apps/mis-scanner`): pricing local + multicall + derivação on-chain + flash sizing + gate de profundidade. Ranqueia por persistência |
+> | Backrun "planejado" | **`apps/backrun-engine` construído** (planner + bribe + bundling); falta mempool premium |
+> | Chains: Base/Arb/OP (+Avax planejado) | **Code-ready: Base/Arb/OP/Polygon/Avalanche** |
+> | DEXs: UniV3 · Aerodrome | + Velodrome (OP) + **Trader Joe LB** (Avalanche, AMM por bins) |
+> | Fork tests | **34/34 verdes** via Alchemy, incl. prova de LUCRO dos 3 motores (`test/fork/MotorsProfit.fork.t.sol`) |
+>
+> Os fluxos 1/2/3 abaixo (executeArbitrage / executeFlashloanArbitrage / liquidation) continuam corretos —
+> só estão hoje distribuídos entre ZeusArbExecutor e ZeusLiquidator em vez de um único ZeusExecutor.
+
 ## 🧭 Visão geral
 
 ZEUS EVM é um **monorepo pnpm** com 3 camadas:

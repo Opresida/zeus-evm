@@ -25,15 +25,18 @@ import {
   arbDirection,
   uniV3SpotPrice1e18,
   aeroSpotPrice1e18,
+  lbSwapOutToSpot1e18,
+  quoteTraderJoe,
   UNIV3_POOL_ABI,
   AERO_POOL_ABI,
+  LB_PAIR_ABI,
 } from '@zeus-evm/dex-adapters';
 
 const WAD = 10n ** 18n;
 
 type AnyPublicClient = PublicClient<any, any>;
 
-export type PoolDex = 'univ3' | 'aerodrome';
+export type PoolDex = 'univ3' | 'aerodrome' | 'traderjoe';
 
 /** Referência a um pool específico dentro de um grupo (mesmo par de tokens). */
 export interface PoolRef {
@@ -45,6 +48,8 @@ export interface PoolRef {
   stable?: boolean;
   /** UniV3: fee tier (100/500/3000/10000) — pro quoter. Imutável — cacheado no resolve. */
   fee?: number;
+  /** Trader Joe LB: tokenX do par (pra orientar swapForY). Imutável — cacheado no resolve. */
+  lbTokenX?: Address;
 }
 
 /** Grupo de pools que negociam o MESMO par (tokenA/tokenB) em venues diferentes. */
@@ -172,7 +177,7 @@ export class MarketInefficiencyScanner {
           let spot = uniV3StateToSpot(state, d0, d1); // token1 por token0
           if (!aIsToken0 && spot > 0n) spot = (10n ** 18n * 10n ** 18n) / spot; // inverte p/ B-por-A consistente
           if (spot > 0n) out.push({ label: ref.label, spot });
-        } else {
+        } else if (ref.dex === 'aerodrome') {
           const state = await readAeroPoolState({ client, pool: ref.pool });
           if (!state) continue;
           const aIsToken0 = state.token0.toLowerCase() === group.tokenA.toLowerCase();
@@ -180,6 +185,17 @@ export class MarketInefficiencyScanner {
           const d1 = aIsToken0 ? group.decimalsB : group.decimalsA;
           let spot = aeroStateToSpot(state, d0, d1);
           if (!aIsToken0 && spot > 0n) spot = (10n ** 18n * 10n ** 18n) / spot;
+          if (spot > 0n) out.push({ label: ref.label, spot });
+        } else {
+          // Trader Joe LB: spot direto do getSwapOut (A→B), já orientado "B por A"
+          const swapForY = (ref.lbTokenX ?? '').toLowerCase() === group.tokenA.toLowerCase();
+          const probe = 10n ** BigInt(group.decimalsA);
+          const q = await quoteTraderJoe({ client, pair: ref.pool, amountIn: probe, swapForY });
+          if (!q) continue;
+          const spot = lbSwapOutToSpot1e18({
+            amountIn: probe, amountInLeft: q.amountInLeft, amountOut: q.amountOut, fee: q.fee,
+            decimalsIn: group.decimalsA, decimalsOut: group.decimalsB,
+          });
           if (spot > 0n) out.push({ label: ref.label, spot });
         }
       } catch {
@@ -257,8 +273,8 @@ export class MarketInefficiencyScanner {
    * N×5 calls pra ~N calls num round-trip — essencial pra escalar pra dezenas de pares.
    */
   async scanAllBatched(client: AnyPublicClient): Promise<InefficiencyObservation[]> {
-    type Idx = { group: PoolGroup; ref: PoolRef; aIsToken0: boolean };
-    const calls: Array<{ address: Address; abi: unknown; functionName: string }> = [];
+    type Idx = { group: PoolGroup; ref: PoolRef; aIsToken0: boolean; lbProbe?: bigint };
+    const calls: Array<{ address: Address; abi: unknown; functionName: string; args?: unknown[] }> = [];
     const index: Idx[] = [];
 
     for (const group of this.groups.values()) {
@@ -266,10 +282,17 @@ export class MarketInefficiencyScanner {
       for (const ref of group.pools) {
         if (ref.dex === 'univ3') {
           calls.push({ address: ref.pool, abi: UNIV3_POOL_ABI, functionName: 'slot0' });
-        } else {
+          index.push({ group, ref, aIsToken0 });
+        } else if (ref.dex === 'aerodrome') {
           calls.push({ address: ref.pool, abi: AERO_POOL_ABI, functionName: 'getReserves' });
+          index.push({ group, ref, aIsToken0 });
+        } else {
+          // Trader Joe LB: probe getSwapOut de 1 token A → B (spot vem direto do contrato)
+          const swapForY = (ref.lbTokenX ?? '').toLowerCase() === group.tokenA.toLowerCase();
+          const probe = 10n ** BigInt(group.decimalsA);
+          calls.push({ address: ref.pool, abi: LB_PAIR_ABI, functionName: 'getSwapOut', args: [probe, swapForY] });
+          index.push({ group, ref, aIsToken0, lbProbe: probe });
         }
-        index.push({ group, ref, aIsToken0 });
       }
     }
     if (calls.length === 0) return [];
@@ -283,21 +306,35 @@ export class MarketInefficiencyScanner {
     for (let i = 0; i < results.length; i++) {
       const r = results[i]!;
       if (r.status !== 'success') continue;
-      const { group, ref, aIsToken0 } = index[i]!;
+      const idx = index[i]!;
+      const { group, ref, aIsToken0 } = idx;
       const d0 = aIsToken0 ? group.decimalsA : group.decimalsB;
       const d1 = aIsToken0 ? group.decimalsB : group.decimalsA;
 
       let spot: bigint;
+      let oriented = false; // true = spot já está em "tokenB por tokenA" (não inverter)
       if (ref.dex === 'univ3') {
         const s = r.result as readonly [bigint, number, number, number, number, number, boolean];
         spot = uniV3SpotPrice1e18(s[0], d0, d1);
-      } else {
+      } else if (ref.dex === 'aerodrome') {
         const res = r.result as readonly [bigint, bigint, bigint];
         spot = aeroSpotPrice1e18(ref.stable ?? false, res[0], res[1], d0, d1);
+      } else {
+        // Trader Joe: getSwapOut(A→B) → spot já é "tokenB por tokenA"
+        const res = r.result as readonly [bigint, bigint, bigint]; // amountInLeft, amountOut, fee
+        spot = lbSwapOutToSpot1e18({
+          amountIn: idx.lbProbe ?? 0n,
+          amountInLeft: res[0],
+          amountOut: res[1],
+          fee: res[2],
+          decimalsIn: group.decimalsA,
+          decimalsOut: group.decimalsB,
+        });
+        oriented = true;
       }
       if (spot <= 0n) continue;
-      // Normaliza pra "tokenB por tokenA" consistente (inverte se A não é token0)
-      if (!aIsToken0) spot = (WAD * WAD) / spot;
+      // Normaliza pra "tokenB por tokenA" consistente (inverte se A não é token0; TJ já vem orientado)
+      if (!oriented && !aIsToken0) spot = (WAD * WAD) / spot;
 
       const list = spotsByGroup.get(group.label) ?? [];
       list.push({ label: ref.label, spot });

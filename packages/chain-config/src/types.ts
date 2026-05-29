@@ -83,5 +83,11 @@ export interface ChainConfig {
     comptroller: Address;
   };
 
+  /** Trader Joe v2.2 "Liquidity Book" (Avalanche). DEX nativo pro Motor 2 cross-DEX. */
+  traderJoe?: {
+    lbFactory: Address;
+    lbRouter: Address;
+  };
+
   multicall3: Address;
 }

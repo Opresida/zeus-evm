@@ -18,12 +18,19 @@ import { resolve } from 'node:path';
 
 import dotenv from 'dotenv';
 import { createPublicClient, http } from 'viem';
-import { base } from 'viem/chains';
+import { base, avalanche } from 'viem/chains';
 import pino from 'pino';
 
-import { BASE_MAINNET } from '@zeus-evm/chain-config';
+import { BASE_MAINNET, AVALANCHE_MAINNET, type ChainConfig } from '@zeus-evm/chain-config';
 import { MarketInefficiencyScanner, type InefficiencyObservation } from '@zeus-evm/execution-utils';
-import { BASE_CURATED_PAIRS, curatedPairsToResolved, dedupPairs, resolvePoolGroups, type ResolvedPair } from './poolGroups';
+import {
+  BASE_CURATED_PAIRS,
+  AVALANCHE_CURATED_PAIRS,
+  curatedPairsToResolved,
+  dedupPairs,
+  resolvePoolGroups,
+  type ResolvedPair,
+} from './poolGroups';
 import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
 import { optimizeFlashLoan, fetchEthUsd } from './flashEstimator';
 
@@ -33,38 +40,51 @@ dotenv.config({ path: resolve(process.cwd(), '..', '..', '.env') });
 
 const logger = pino({ transport: { target: 'pino-pretty' } });
 
-const RPC = process.env.BASE_RPC_HTTP;
-const SCAN_INTERVAL_MS = Number(process.env.MIS_SCAN_INTERVAL_MS ?? 12_000); // ~1 bloco Base
+const SCAN_INTERVAL_MS = Number(process.env.MIS_SCAN_INTERVAL_MS ?? 12_000); // ~1 bloco
 const SNAPSHOT_DIR = resolve(process.cwd(), 'logs', 'mis');
-const SNAPSHOT_PATH = resolve(SNAPSHOT_DIR, 'base-mis-snapshot.json');
 const RANKING_EVERY = Number(process.env.MIS_RANKING_EVERY ?? 25); // loga ranking a cada N scans
 
-function loadSnapshot(): Record<string, InefficiencyObservation[]> | null {
-  if (!existsSync(SNAPSHOT_PATH)) return null;
+/** Chains suportadas pelo scanner. Seleção via env MIS_CHAIN (default base). */
+const CHAINS: Record<string, { cfg: ChainConfig; viem: typeof base; rpc: string | undefined; pairs: typeof BASE_CURATED_PAIRS; snapshot: string }> = {
+  base: { cfg: BASE_MAINNET, viem: base, rpc: process.env.BASE_RPC_HTTP, pairs: BASE_CURATED_PAIRS, snapshot: 'base-mis-snapshot.json' },
+  avalanche: { cfg: AVALANCHE_MAINNET, viem: avalanche as unknown as typeof base, rpc: process.env.AVALANCHE_RPC_HTTP, pairs: AVALANCHE_CURATED_PAIRS, snapshot: 'avalanche-mis-snapshot.json' },
+};
+
+function loadSnapshot(path: string): Record<string, InefficiencyObservation[]> | null {
+  if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf-8'));
+    return JSON.parse(readFileSync(path, 'utf-8'));
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : err }, 'snapshot corrompido — começando vazio');
     return null;
   }
 }
 
-function saveSnapshot(data: Record<string, InefficiencyObservation[]>): void {
+function saveSnapshot(path: string, data: Record<string, InefficiencyObservation[]>): void {
   try {
     if (!existsSync(SNAPSHOT_DIR)) mkdirSync(SNAPSHOT_DIR, { recursive: true });
-    writeFileSync(SNAPSHOT_PATH, JSON.stringify(data), 'utf-8');
+    writeFileSync(path, JSON.stringify(data), 'utf-8');
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : err }, 'erro salvando snapshot');
   }
 }
 
 async function main(): Promise<void> {
-  if (!RPC) {
-    logger.fatal('BASE_RPC_HTTP não definido no .env — MIS precisa de RPC pra ler pools');
+  const chainKey = (process.env.MIS_CHAIN ?? 'base').toLowerCase();
+  const sel = CHAINS[chainKey];
+  if (!sel) {
+    logger.fatal({ chainKey, supported: Object.keys(CHAINS) }, 'MIS_CHAIN não suportada');
     process.exit(1);
   }
+  if (!sel.rpc) {
+    logger.fatal(`RPC não definido pra ${chainKey} no .env — MIS precisa de RPC pra ler pools`);
+    process.exit(1);
+  }
+  const chainConfig = sel.cfg;
+  const SNAPSHOT_PATH = resolve(SNAPSHOT_DIR, sel.snapshot);
+  logger.info({ chain: chainKey }, `⛓️  MIS na chain: ${chainKey}`);
 
-  const client = createPublicClient({ chain: base, transport: http(RPC) });
+  const client = createPublicClient({ chain: sel.viem, transport: http(sel.rpc) });
 
   // MIS com window de 7 dias (persistência precisa de tempo) + snapshot a cada sample
   const minDivergenceBps = Number(process.env.MIS_MIN_DIVERGENCE_BPS ?? 20);
@@ -74,14 +94,14 @@ async function main(): Promise<void> {
   });
 
   // Recarrega histórico acumulado (padrão liga/desliga)
-  const prev = loadSnapshot();
+  const prev = loadSnapshot(SNAPSHOT_PATH);
   if (prev) {
     mis.restore(prev);
     logger.info({ samples: mis.stats().totalSamples }, '📂 histórico anterior recarregado');
   }
 
   // Monta o universo de pares: curados (tese) + derivados on-chain (colaterais lending)
-  const curated = curatedPairsToResolved(BASE_CURATED_PAIRS, BASE_MAINNET);
+  const curated = curatedPairsToResolved(sel.pairs, chainConfig);
   let allPairs: ResolvedPair[] = curated;
 
   const deriveTokens = (process.env.MIS_DERIVE_TOKENS ?? 'true') !== 'false';
@@ -89,7 +109,7 @@ async function main(): Promise<void> {
     logger.info('🧬 derivando tokens dos colaterais Aave/Moonwell/Morpho...');
     const tokens = await deriveProtocolTokens({
       client,
-      chainConfig: BASE_MAINNET,
+      chainConfig,
       logger,
       opts: {
         includeMorpho: (process.env.MIS_DERIVE_MORPHO ?? 'true') !== 'false',
@@ -98,7 +118,7 @@ async function main(): Promise<void> {
     });
     const derived = buildDerivedPairs({
       tokens,
-      chainConfig: BASE_MAINNET,
+      chainConfig,
       opts: { maxPairs: Number(process.env.MIS_MAX_DERIVED_PAIRS ?? 60) },
     });
     logger.info({ tokens: tokens.length, derivedPairs: derived.length }, `🧬 ${tokens.length} tokens → ${derived.length} pares derivados`);
@@ -108,7 +128,7 @@ async function main(): Promise<void> {
 
   // Resolve pools on-chain de todos os pares (curados + derivados)
   logger.info({ pairs: allPairs.length }, '🔍 resolvendo pools on-chain...');
-  const groups = await resolvePoolGroups({ client, chainConfig: BASE_MAINNET, pairs: allPairs, logger });
+  const groups = await resolvePoolGroups({ client, chainConfig, pairs: allPairs, logger });
   for (const g of groups) mis.registerGroup(g);
 
   if (mis.groupCount() === 0) {
@@ -129,7 +149,7 @@ async function main(): Promise<void> {
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
-    saveSnapshot(mis.snapshot());
+    saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
     logger.info({ samples: mis.stats().totalSamples }, '💾 snapshot salvo — até a próxima varredura');
     process.exit(0);
   };
@@ -151,13 +171,13 @@ async function main(): Promise<void> {
 
         // Enriquece com dados do flash (quoter on-chain) só pras divergências fortes
         const strong = active.filter((o) => o.maxDivergenceBps >= flashMinBps && groupByLabel.has(o.groupLabel));
-        const ethUsd = strong.length > 0 ? await fetchEthUsd(client, BASE_MAINNET) : 0; // cotado 1x/tick
+        const ethUsd = strong.length > 0 ? await fetchEthUsd(client, chainConfig) : 0; // cotado 1x/tick
         for (const o of strong) {
           const group = groupByLabel.get(o.groupLabel)!;
           try {
             // Acha o TAMANHO ÓTIMO do empréstimo (pico de lucro antes do slippage matar)
             const opt = await optimizeFlashLoan({
-              client, chainConfig: BASE_MAINNET, group, observation: o,
+              client, chainConfig, group, observation: o,
               opts: { ethUsd, maxSlippageBps },
             });
             // Sem tamanho viável (mesmo o menor não lucra / pool raso) → fora do ranking
@@ -196,7 +216,7 @@ async function main(): Promise<void> {
           }
         }
       }
-      saveSnapshot(mis.snapshot());
+      saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
 
       if (scanCount % RANKING_EVERY === 0) {
         const ranking = mis.ranking().slice(0, 10);

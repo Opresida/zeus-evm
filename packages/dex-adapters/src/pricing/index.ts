@@ -30,6 +30,17 @@ export {
   type AeroPoolState,
 } from './poolStateReader';
 
+export {
+  LB_FACTORY_ABI,
+  LB_PAIR_ABI,
+  getTraderJoePairs,
+  readLBPairState,
+  quoteTraderJoe,
+  lbSwapOutToSpot1e18,
+  type LBPairRef,
+  type LBPairState,
+} from './traderJoe';
+
 const WAD = 10n ** 18n;
 const BPS = 10_000n;
 

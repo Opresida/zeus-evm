@@ -14,7 +14,7 @@
 
 import type { Address, PublicClient } from 'viem';
 import { formatUnits, parseUnits } from 'viem';
-import { quoteUniswapV3, quoteAerodrome, isQuote } from '@zeus-evm/dex-adapters';
+import { quoteUniswapV3, quoteAerodrome, quoteTraderJoe, isQuote } from '@zeus-evm/dex-adapters';
 import type { PoolGroup, InefficiencyObservation } from '@zeus-evm/execution-utils';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -100,6 +100,12 @@ async function quoteLeg(args: {
       decimalsOut,
     });
     return isQuote(q) ? q.amountOut : null;
+  }
+  if (ref.dex === 'traderjoe') {
+    // swapForY = entra tokenX. Quote exato via getSwapOut (view) no LBPair.
+    const swapForY = (ref.lbTokenX ?? '').toLowerCase() === tokenIn.toLowerCase();
+    const q = await quoteTraderJoe({ client, pair: ref.pool, amountIn, swapForY });
+    return q && q.amountOut > 0n ? q.amountOut : null;
   }
   if (!chainConfig.aerodrome) return null;
   const q = await quoteAerodrome({

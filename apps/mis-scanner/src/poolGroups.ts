@@ -17,6 +17,8 @@ import {
   getAeroPoolAddress,
   readUniV3PoolState,
   readAeroPoolState,
+  getTraderJoePairs,
+  readLBPairState,
 } from '@zeus-evm/dex-adapters';
 import type { PoolGroup, PoolRef } from '@zeus-evm/execution-utils';
 import type { ChainConfig } from '@zeus-evm/chain-config';
@@ -77,6 +79,21 @@ export const BASE_CURATED_PAIRS: CuratedPair[] = [
   { label: 'AERO/WETH', tokenAKey: 'AERO', tokenBKey: 'WETH', decimalsA: 18, decimalsB: 18, aeroStable: false, aeroVolatile: true },
 ];
 
+/**
+ * Pares curados Avalanche (tese: LSD sAVAX + stables + majors).
+ * aeroStable/aeroVolatile são irrelevantes aqui (Avalanche não tem Aerodrome) — o 2º venue
+ * é o Trader Joe LB, resolvido on-chain via getAllLBPairs.
+ */
+export const AVALANCHE_CURATED_PAIRS: CuratedPair[] = [
+  { label: 'sAVAX/WAVAX', tokenAKey: 'sAVAX', tokenBKey: 'WAVAX', decimalsA: 18, decimalsB: 18, aeroStable: false, aeroVolatile: false },
+  { label: 'WAVAX/USDC', tokenAKey: 'WAVAX', tokenBKey: 'USDC', decimalsA: 18, decimalsB: 6, aeroStable: false, aeroVolatile: false },
+  { label: 'sAVAX/USDC', tokenAKey: 'sAVAX', tokenBKey: 'USDC', decimalsA: 18, decimalsB: 6, aeroStable: false, aeroVolatile: false },
+  { label: 'WETH.e/WAVAX', tokenAKey: 'WETH.e', tokenBKey: 'WAVAX', decimalsA: 18, decimalsB: 18, aeroStable: false, aeroVolatile: false },
+  { label: 'WETH.e/USDC', tokenAKey: 'WETH.e', tokenBKey: 'USDC', decimalsA: 18, decimalsB: 6, aeroStable: false, aeroVolatile: false },
+  { label: 'USDC/USDT', tokenAKey: 'USDC', tokenBKey: 'USDT', decimalsA: 6, decimalsB: 6, aeroStable: false, aeroVolatile: false },
+  { label: 'WBTC.e/USDC', tokenAKey: 'WBTC.e', tokenBKey: 'USDC', decimalsA: 8, decimalsB: 6, aeroStable: false, aeroVolatile: false },
+];
+
 /** Resolve as chaves dos pares curados pra endereços (pula par com token ausente). */
 export function curatedPairsToResolved(pairs: CuratedPair[], chainConfig: ChainConfig): ResolvedPair[] {
   const out: ResolvedPair[] = [];
@@ -124,6 +141,7 @@ export async function resolvePoolGroups(opts: {
   const { client, chainConfig, pairs, logger } = opts;
   const uniFactory = chainConfig.uniswapV3?.factory as Address | undefined;
   const aeroFactory = chainConfig.aerodrome?.factory as Address | undefined;
+  const tjFactory = chainConfig.traderJoe?.lbFactory as Address | undefined;
   const feeTiers = chainConfig.uniswapV3?.feeTiers ?? [100, 500, 3000, 10000];
 
   const groups: PoolGroup[] = [];
@@ -171,6 +189,27 @@ export async function resolvePoolGroups(opts: {
         } catch (err) {
           logger?.debug?.({ pair: pair.label, variant: v.label, err: err instanceof Error ? err.message : err }, 'Aero resolve falhou (transiente) — pula');
         }
+      }
+    }
+
+    // Trader Joe v2.2 Liquidity Book (Avalanche) — resolve todos os bin steps + filtra pool morto
+    if (tjFactory) {
+      try {
+        const lbPairs = await withRetry(() => getTraderJoePairs({ client, factory: tjFactory, tokenA, tokenB }));
+        for (const lb of lbPairs) {
+          try {
+            const state = await withRetry(() => readLBPairState({ client, pair: lb.pair }));
+            if (!state || (state.reserveX === 0n && state.reserveY === 0n)) {
+              logger?.debug?.({ pair: pair.label, binStep: lb.binStep }, 'TJ LB pair morto/vazio — descartado');
+              continue;
+            }
+            pools.push({ dex: 'traderjoe', pool: lb.pair, label: `TJ-${lb.binStep}bps`, lbTokenX: state.tokenX });
+          } catch (err) {
+            logger?.debug?.({ pair: pair.label, binStep: lb.binStep, err: err instanceof Error ? err.message : err }, 'TJ read falhou (transiente) — pula');
+          }
+        }
+      } catch (err) {
+        logger?.debug?.({ pair: pair.label, err: err instanceof Error ? err.message : err }, 'TJ resolve falhou (transiente) — pula');
       }
     }
 

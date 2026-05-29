@@ -443,7 +443,7 @@ def build_story(styles):
         ["Arbitrum Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
         ["Optimism Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
         ["Polygon", "Code-ready (Motor 1)", "Config + Deploy + liquidator ligados (2026-05-28) — falta só o deploy on-chain"],
-        ["Avalanche", "Code-ready (Motor 1)", "Config + Deploy + liquidator ligados (2026-05-29). Motor 2 precisa adapter Trader Joe"],
+        ["Avalanche", "Code-ready (Motor 1 + 2)", "Motor 1 (29/05) + adapter Trader Joe LB pro Motor 2 (30/05). Falta deploy + fork test do TJ (requer RPC pago)"],
     ]
     S.append(table_grid(chains_rows, [3 * cm, 3.5 * cm, 10 * cm]))
     S.append(simple_box(

@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { Address } from 'viem';
+import { parseUnits, type Address } from 'viem';
 
 import {
   MarketInefficiencyScanner,
@@ -159,6 +159,40 @@ describe('MIS — sanity cap (descarta lixo de pool morto)', () => {
     });
     const obs = await mis.scanAllBatched(client);
     expect(obs[0]!.maxDivergenceBps).toBe(0); // divergência absurda ignorada
+  });
+});
+
+describe('MIS — Trader Joe (Liquidity Book) integrado', () => {
+  it('scanAllBatched lê spot via getSwapOut de pools TJ e detecta divergência', async () => {
+    const tj1 = '0xcCcC000000000000000000000000000000000001' as Address; // ~2000 USDC/WETH
+    const tj2 = '0xdDdD000000000000000000000000000000000001' as Address; // ~2020 USDC/WETH
+    // getSwapOut(1 WETH, swapForY=true) → (amountInLeft, amountOut USDC, fee)
+    const multicall = vi.fn().mockImplementation(({ contracts }: { contracts: Array<{ address: string }> }) =>
+      Promise.resolve(
+        contracts.map((c) => {
+          const out = c.address.toLowerCase() === tj1.toLowerCase() ? parseUnits('2000', 6) : parseUnits('2020', 6);
+          return { status: 'success', result: [0n, out, 0n] };
+        }),
+      ),
+    );
+    const client = { multicall } as any;
+    const mis = new MarketInefficiencyScanner({ minDivergenceBps: 20 });
+    mis.registerGroup({
+      label: 'WETH/USDC',
+      tokenA: WETH,
+      tokenB: USDC,
+      decimalsA: 18,
+      decimalsB: 6,
+      pools: [
+        { dex: 'traderjoe', pool: tj1, label: 'TJ-15bps', lbTokenX: WETH },
+        { dex: 'traderjoe', pool: tj2, label: 'TJ-25bps', lbTokenX: WETH },
+      ],
+    });
+    const obs = await mis.scanAllBatched(client);
+    expect(obs[0]!.poolsWithPrice).toBe(2);
+    expect(obs[0]!.maxDivergenceBps).toBeGreaterThan(90);
+    expect(obs[0]!.maxDivergenceBps).toBeLessThan(110);
+    expect(obs[0]!.cheapPool).toBe('TJ-15bps'); // 2000 < 2020
   });
 });
 

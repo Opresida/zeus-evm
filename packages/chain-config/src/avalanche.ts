@@ -55,5 +55,12 @@ export const AVALANCHE_MAINNET: ChainConfig = {
     feeTiers: [100, 500, 3000, 10000] as const,
   },
 
+  // ─── Trader Joe v2.2 Liquidity Book (DEX nativo — Motor 2 cross-DEX) ───
+  // Fonte: docs.lfj.gg (verificado 2026-05-29). LBQuoter não usado — quote via LBPair.getSwapOut (view).
+  traderJoe: {
+    lbFactory: '0xb43120c4745967fa9b93E79C149E66B0f2D6Fe0c',
+    lbRouter: '0x18556DA13313f3532c54711497A8FedAC273220E',
+  },
+
   multicall3: '0xcA11bde05977b3631167028862bE2a173976CA11',
 };

@@ -37,6 +37,7 @@ contract DeployScript is Script {
     address constant AAVE_V3_POOL_OPTIMISM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
     address constant AAVE_V3_POOL_OPTIMISM_SEPOLIA = 0xb50201558B00496A145fE76f7424749556E326D8;
     address constant AAVE_V3_POOL_POLYGON = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AAVE_V3_POOL_AVALANCHE = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
 
     // ─── WETH9 + UniV3 SwapRouter02 (pra bribe via swap inline) ───
     address constant WETH_BASE_MAINNET = 0x4200000000000000000000000000000000000006;
@@ -54,6 +55,9 @@ contract DeployScript is Script {
     // Polygon: nativo é POL → o "WETH" do bribe é o WRAPPED NATIVE (WPOL), não a WETH bridged.
     address constant WETH_POLYGON = 0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270; // WPOL (wrapped native)
     address constant UNIV3_SWAP_ROUTER_POLYGON = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45; // SwapRouter02
+    // Avalanche: nativo é AVAX → "WETH" do bribe é o WRAPPED NATIVE (WAVAX). UniV3 não-determinístico.
+    address constant WETH_AVALANCHE = 0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7; // WAVAX (wrapped native)
+    address constant UNIV3_SWAP_ROUTER_AVALANCHE = 0xbb00FF08d01D300023C629E8fFfFcb65A5a578cE; // SwapRouter02 Avalanche
 
     uint256 constant DEFAULT_MAX_TRADE_WEI_MAINNET = 0.1 ether;
     uint256 constant DEFAULT_MAX_TRADE_WEI_TESTNET = 0.01 ether;
@@ -124,6 +128,7 @@ contract DeployScript is Script {
         if (block.chainid == 10) return AAVE_V3_POOL_OPTIMISM;
         if (block.chainid == 11155420) return AAVE_V3_POOL_OPTIMISM_SEPOLIA;
         if (block.chainid == 137) return AAVE_V3_POOL_POLYGON;
+        if (block.chainid == 43114) return AAVE_V3_POOL_AVALANCHE;
 
         try vm.envAddress("DEPLOY_AAVE_V3_POOL_OVERRIDE") returns (address poolOverride) {
             if (poolOverride != address(0)) return poolOverride;
@@ -145,7 +150,7 @@ contract DeployScript is Script {
         } catch {}
         if (
             block.chainid == 8453 || block.chainid == 42161 || block.chainid == 10
-                || block.chainid == 137
+                || block.chainid == 137 || block.chainid == 43114
         ) {
             return DEFAULT_MAX_TRADE_WEI_MAINNET;
         }
@@ -168,6 +173,7 @@ contract DeployScript is Script {
         if (block.chainid == 10) return (WETH_OPTIMISM, UNIV3_SWAP_ROUTER_OPTIMISM);
         if (block.chainid == 11155420) return (WETH_OPTIMISM_SEPOLIA, UNIV3_SWAP_ROUTER_OPTIMISM_SEPOLIA);
         if (block.chainid == 137) return (WETH_POLYGON, UNIV3_SWAP_ROUTER_POLYGON);
+        if (block.chainid == 43114) return (WETH_AVALANCHE, UNIV3_SWAP_ROUTER_AVALANCHE);
         return (address(0), address(0));
     }
 }

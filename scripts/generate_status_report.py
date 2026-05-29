@@ -243,7 +243,7 @@ def build_story(styles):
     # ───── CAPA ─────
     S.append(Spacer(1, 4 * cm))
     S.append(Paragraph("ZEUS EVM", styles["title"]))
-    S.append(Paragraph("Relatório Executivo de Estado — 2026-05-28", styles["subtitle"]))
+    S.append(Paragraph(f"Relatório Executivo de Estado — {date.today().isoformat()}", styles["subtitle"]))
     S.append(Spacer(1, 0.6 * cm))
     S.append(Paragraph(
         "Bot de arbitragem on-chain MEV em Base (com expansão multi-chain pronta). "
@@ -256,7 +256,7 @@ def build_story(styles):
         ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após setup + 2 semanas DRY_RUN"],
         ["Testes automatizados", "execution-utils 255/255 · mis-scanner 6/6 · contratos 53/53 verde"],
         ["Workspaces validados", "13/13 typecheck verde"],
-        ["Última atualização", "Hoje (sessão 2026-05-28) — Motor 2 (radar MIS): multicall + derivação on-chain + flash sizing"],
+        ["Última atualização", "29/05: Avalanche code-ready (Motor 1) · 28/05: Motor 2 radar MIS (multicall + derivação + flash sizing)"],
         ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN (edge JÁ decidido — Fase 4c)"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
@@ -443,7 +443,7 @@ def build_story(styles):
         ["Arbitrum Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
         ["Optimism Sepolia", "Contratos v6 deployados", "Pronta pra promover mainnet"],
         ["Polygon", "Code-ready (Motor 1)", "Config + Deploy + liquidator ligados (2026-05-28) — falta só o deploy on-chain"],
-        ["Avalanche", "Multi-chain ready", "Falta config + adapter Trader Joe (DEX local)"],
+        ["Avalanche", "Code-ready (Motor 1)", "Config + Deploy + liquidator ligados (2026-05-29). Motor 2 precisa adapter Trader Joe"],
     ]
     S.append(table_grid(chains_rows, [3 * cm, 3.5 * cm, 10 * cm]))
     S.append(simple_box(
@@ -1319,9 +1319,9 @@ def build_story(styles):
 
     S.append(Spacer(1, 1 * cm))
     S.append(Paragraph(
-        "Este relatório foi gerado automaticamente do estado real do código em 2026-05-28. "
-        "308 testes verdes (219 execution-utils + 22 liquidator + 67 Foundry) · Branch: main · "
-        "Grupo C completo (Seamless + Morpho + Moonwell) + investimento de infra documentado.",
+        f"Este relatório foi gerado automaticamente do estado real do código em {date.today().isoformat()}. "
+        "Typecheck 13/13 · execution-utils 255/255 · mis-scanner 6/6 · liquidator 22/22 · Branch: main · "
+        "Motor 2 (radar MIS) + Polygon/Avalanche code-ready (Motor 1).",
         styles["small"]
     ))
 

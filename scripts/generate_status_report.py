@@ -719,19 +719,26 @@ def build_story(styles):
         "A lógica dos contratos (4 motores) está coberta por 67/68 unit tests verdes.",
         styles
     ))
-    S.append(Paragraph("Limite encontrado: fork test de EXECUÇÃO do flashloan exige RPC pago", styles["h3"]))
+    S.append(Paragraph("Fork test de EXECUÇÃO do flashloan: dRPC free bloqueia, Alchemy free RESOLVE", styles["h3"]))
     S.append(Paragraph(
-        "Tentamos rodar o fork test (que executa o flashloan ponta-a-ponta contra o estado real da "
-        "mainnet). O dRPC FREE tier BLOQUEIA isso: ao buscar o storage on-chain (eth_getStorageAt, que "
-        "todo fork test faz), retorna HTTP 408 'Request timeout on the free tier, please upgrade to paid'. "
-        "Vale pras 3 chains (todas dRPC free).",
+        "O fork test executa o flashloan ponta-a-ponta contra o estado REAL da mainnet. O dRPC FREE "
+        "BLOQUEIA: ao buscar storage on-chain (eth_getStorageAt) retorna HTTP 408 'upgrade to paid'. "
+        "MAS trocando pro Alchemy (free tier), funciona — o Alchemy serve archive/storage no grátis. "
+        "Rodamos a suíte de fork completa contra a Base mainnet via Alchemy: 31/31 PASSAM.",
         styles["body"]
     ))
+    fork_res = [
+        ["Suíte (fork Base mainnet via Alchemy free)", "Resultado"],
+        ["ZeusLiquidator (Motor 1)", "7/7 — flashloan→Aave, guards, kill switch, endereços reais"],
+        ["ZeusArbExecutor (Motor 2/3)", "9/9 — inclui quebrar preço e LUCRAR (arb) + flashloan + backrun"],
+        ["BribeManager (gorjeta MEV)", "15/15 — coinbase, anti-sandwich (H-01), refund, transient flag"],
+    ]
+    S.append(table_2col(fork_res, col1_w=8.5 * cm, col2_w=8 * cm))
     S.append(simple_box(
-        "Tradução: dá pra CONFIRMAR endereços/ABIs/premium e a LÓGICA (unit tests) no plano grátis — "
-        "e fizemos. Mas SIMULAR a execução real do flashloan contra a mainnet (o teste definitivo de "
-        "'funciona de verdade') exige RPC pago. É mais um item que a assinatura de RPC destrava — junto "
-        "com rodar o Motor 2 (radar) e a discovery 24/7.",
+        "Conclusão da infra de RPC: o ALCHEMY FREE já basta pra (a) confirmar endereços/ABIs/premium, "
+        "(b) rodar a lógica (unit), e (c) SIMULAR a execução real do flashloan contra a mainnet (fork "
+        "test) — o teste definitivo de 'funciona de verdade'. O tier PAGO só é necessário pro Motor 3 "
+        "(mempool ao vivo), não pros testes. O dRPC free serve pra leitura/discovery; pra fork test, Alchemy.",
         styles
     ))
 

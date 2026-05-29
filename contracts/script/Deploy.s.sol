@@ -7,6 +7,7 @@ import { console2 } from "forge-std/console2.sol";
 import { BribeManager } from "../src/BribeManager.sol";
 import { ZeusLiquidator } from "../src/ZeusLiquidator.sol";
 import { ZeusArbExecutor } from "../src/ZeusArbExecutor.sol";
+import { ZeusMoonwellLiquidator } from "../src/ZeusMoonwellLiquidator.sol";
 
 /**
  * @notice Deploy script v8 — deploya 2 contratos separados:
@@ -64,7 +65,12 @@ contract DeployScript is Script {
 
     function run()
         external
-        returns (BribeManager bribeManager, ZeusLiquidator liquidator, ZeusArbExecutor arbExecutor)
+        returns (
+            BribeManager bribeManager,
+            ZeusLiquidator liquidator,
+            ZeusArbExecutor arbExecutor,
+            ZeusMoonwellLiquidator moonwellLiquidator
+        )
     {
         address aavePool = _resolveAavePool();
         address owner = _resolveOwner();
@@ -99,6 +105,10 @@ contract DeployScript is Script {
             if (swapRouter != address(0)) arbExecutor.setUniV3SwapRouter(swapRouter);
         }
 
+        // 4) Deploy ZeusMoonwellLiquidator (Moonwell = Compound V2 fork; contrato próprio por EIP-170).
+        //    NÃO usa BribeManager. Owner precisa revive() + setOperator() pós-deploy.
+        moonwellLiquidator = new ZeusMoonwellLiquidator(aavePool, owner, maxTradeWei);
+
         vm.stopBroadcast();
 
         console2.log("BribeManager deployed:", address(bribeManager));
@@ -110,6 +120,8 @@ contract DeployScript is Script {
         console2.log("  BRIBE_MANAGER():", arbExecutor.BRIBE_MANAGER());
         console2.log("  weth():", arbExecutor.weth());
         console2.log("  uniV3SwapRouter():", arbExecutor.uniV3SwapRouter());
+        console2.log("ZeusMoonwellLiquidator deployed:", address(moonwellLiquidator));
+        console2.log("  AAVE_V3_POOL():", moonwellLiquidator.AAVE_V3_POOL());
         console2.log("");
         console2.log("Next steps (CADA executor - Liquidator + ArbExecutor):");
         console2.log("  1) Owner chama revive() pra desativar kill switch");

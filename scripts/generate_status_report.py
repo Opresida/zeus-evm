@@ -489,7 +489,7 @@ def build_story(styles):
     # ───── 3. CONTRATOS ON-CHAIN ─────
     S.append(Paragraph("3. O motor on-chain (smart contracts)", styles["h1"]))
     S.append(Paragraph(
-        "Toda operação do ZEUS executa via 3 contratos inteligentes deployados em cada chain. "
+        "Toda operação do ZEUS executa via 4 contratos inteligentes deployados em cada chain. "
         "Eles são o 'pé no acelerador' — o resto do código off-chain só dá as ordens, mas é o contrato "
         "que efetivamente movimenta dinheiro.",
         styles["body"]
@@ -497,14 +497,22 @@ def build_story(styles):
     contratos = [
         ["Contrato", "Responsabilidade"],
         ["BribeManager", "Paga gorjeta pro proposer do bloco quando precisamos passar à frente"],
-        ["ZeusLiquidator", "Executa as 3 funções de liquidation (Aave, Compound, Morpho)"],
-        ["ZeusArbExecutor", "Executa arbitragens cross-DEX e flashloan arbs"],
+        ["ZeusLiquidator", "Executa 3 tipos de liquidation: Aave, Compound e Morpho (Morpho é uma FUNÇÃO aqui dentro, não um contrato separado)"],
+        ["ZeusArbExecutor", "Executa arbitragens cross-DEX, flashloan arbs e backrun"],
+        ["ZeusMoonwellLiquidator", "Liquidation do Moonwell — contrato PRÓPRIO porque Moonwell é fork do Compound V2 (mecânica diferente) e não cabia junto (limite de tamanho)"],
     ]
-    S.append(table_2col(contratos, col1_w=4 * cm, col2_w=12.5 * cm))
+    S.append(table_2col(contratos, col1_w=4.3 * cm, col2_w=12.2 * cm))
     S.append(simple_box(
-        "É como ter um cofre com 3 chaves diferentes: uma pra cada tipo de operação. "
-        "Quebrar em 3 contratos foi necessário porque o Ethereum limita o tamanho de cada contrato. "
-        "Cada um deles passou por auditoria interna com 7 correções de bugs (B-1 a B-7).",
+        "É como um cofre com 4 chaves: uma pra cada tipo de operação. Atenção: 'Morpho' NÃO é um "
+        "contrato — é uma função dentro do ZeusLiquidator (junto de Aave e Compound). O 4º contrato é "
+        "o do MOONWELL, que precisou ser separado porque o Ethereum limita o tamanho de cada contrato. "
+        "Cada um passou por auditoria interna com 7 correções de bugs (B-1 a B-7).",
+        styles
+    ))
+    S.append(simple_box(
+        "STATUS DE DEPLOY: os 3 primeiros já estão deployados em testnet (Base Sepolia). O "
+        "ZeusMoonwellLiquidator (4º) foi adicionado ao script de deploy em 2026-05-29 e ainda NÃO foi "
+        "deployado — entra junto no próximo deploy.",
         styles
     ))
 
@@ -742,6 +750,8 @@ def build_story(styles):
         styles
     ))
 
+    S.append(PageBreak())
+
     S.append(Paragraph("5.5 Prova de LUCRO ponta-a-ponta dos 3 motores (fork Base mainnet)", styles["h2"]))
     S.append(Paragraph(
         "O teste definitivo: cada motor executa o flashloan ponta-a-ponta contra o estado REAL da Base "
@@ -765,7 +775,9 @@ def build_story(styles):
         "Suíte de fork completa: 34/34 verdes (31 de wiring/segurança + 3 de lucro).",
         styles
     ))
-    S.append(Paragraph("IMPORTANTE — o que o fork test prova (e o que NÃO prova)", styles["h3"]))
+    S.append(PageBreak())
+
+    S.append(Paragraph("5.6 O que o fork test prova (e o que NÃO prova) — leia com atenção", styles["h2"]))
     S.append(simple_box(
         "Esse lucro NÃO era dinheiro real esperando na mainnet. O cenário foi FABRICADO dentro do "
         "fork (sandbox descartável): nós criamos o borrower do zero e forçamos o preço cair via mock "

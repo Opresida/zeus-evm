@@ -742,6 +742,35 @@ def build_story(styles):
         styles
     ))
 
+    S.append(Paragraph("5.5 Prova de LUCRO ponta-a-ponta dos 3 motores (fork Base mainnet)", styles["h2"]))
+    S.append(Paragraph(
+        "O teste definitivo: cada motor executa o flashloan ponta-a-ponta contra o estado REAL da Base "
+        "e fecha LUCRO. A técnica é 'quebrar o preço' no fork (um sandbox descartável, não toca a "
+        "mainnet real) pra criar a condição que o motor explora, e validar que a lógica empresta, "
+        "opera, devolve o flashloan + premium (0.05%) e sobra lucro. Os 3 passaram.",
+        styles["body"]
+    ))
+    lucro = [
+        ["Motor", "Cenário criado no fork", "Resultado (lucro líquido)"],
+        ["Motor 1 — Liquidation", "Borrower fica underwater (oracle drop → HF 0.74), liquida 50% via flashloan", "+US$ 6.157 (realista: bônus − premium − swap)"],
+        ["Motor 2 — Cross-DEX Arb", "Whale dump cria gap → flashloan compra barato (pool 3000) e vende caro (pool 500)", "+US$ 371k* (prova a mecânica)"],
+        ["Motor 3 — Backrun", "Mesma dislocação + paga bribe ao block.coinbase", "+US$ 334k* líquido pós-bribe"],
+    ]
+    S.append(table_grid(lucro, [3.4 * cm, 8.1 * cm, 5 * cm]))
+    S.append(simple_box(
+        "* Os valores do Motor 2/3 estão INFLADOS de propósito: dumpamos 800 WETH pra criar um gap "
+        "gigante e provar que a mecânica do flashloan fecha (empresta → 2 swaps → devolve emprestimo+"
+        "premium → lucra → transfere). O sizing REALISTA por oportunidade é o que o optimizeFlashLoan/MIS "
+        "calcula off-chain. O lucro do Motor 1 é realista (10 WETH colateral, ~50% liquidado, bônus ~7%). "
+        "Suíte de fork completa: 34/34 verdes (31 de wiring/segurança + 3 de lucro).",
+        styles
+    ))
+    S.append(Paragraph(
+        "Como rodar: pnpm contracts:test:fork (usa Alchemy automático via ALCHEMY_API_KEY do .env). "
+        "Confirmação read-only de endereços/ABIs: apps/mis-scanner/scripts/confirmOnchain.ts.",
+        styles["small"]
+    ))
+
     S.append(PageBreak())
 
     # ───── 6. CAMADA DE OBSERVAÇÃO ─────

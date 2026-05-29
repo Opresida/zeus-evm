@@ -11,6 +11,7 @@
     "test": "pnpm -r --if-present run test",
     "contracts:build": "cd contracts && forge build",
     "contracts:test": "cd contracts && forge test -vvv",
+    "contracts:test:fork": "cd contracts && bash fork-test.sh",
     "contracts:fmt": "cd contracts && forge fmt",
     "detector:dev": "pnpm --filter @zeus-evm/detector dev"
   },

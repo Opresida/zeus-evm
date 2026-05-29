@@ -765,6 +765,31 @@ def build_story(styles):
         "Suíte de fork completa: 34/34 verdes (31 de wiring/segurança + 3 de lucro).",
         styles
     ))
+    S.append(Paragraph("IMPORTANTE — o que o fork test prova (e o que NÃO prova)", styles["h3"]))
+    S.append(simple_box(
+        "Esse lucro NÃO era dinheiro real esperando na mainnet. O cenário foi FABRICADO dentro do "
+        "fork (sandbox descartável): nós criamos o borrower do zero e forçamos o preço cair via mock "
+        "do oracle — nada disso aconteceu na Base real. Logo: se o bot estivesse ligado AGORA, NÃO "
+        "teríamos feito esses $6.157. O teste prova que a LÓGICA captura o lucro corretamente QUANDO "
+        "a oportunidade existe — não que ela existia.",
+        styles
+    ))
+    naoprova = [
+        ["O teste PROVA ✓", "O teste NÃO prova ✗"],
+        ["A matemática do lucro (bônus − premium − swap) está certa", "Que existia essa oportunidade na mainnet agora"],
+        ["A execução do flashloan funciona ponta-a-ponta", "Que o preço caiu de verdade (foi mock)"],
+        ["O bot captura o lucro quando a condição existe", "Que ganharíamos a corrida contra outros liquidadores"],
+    ]
+    S.append(table_grid(naoprova, [8 * cm, 8.5 * cm]))
+    S.append(simple_box(
+        "Pra virar dinheiro REAL precisa de TUDO junto: (1) bot deployado e ligado na mainnet; "
+        "(2) um borrower real ficando underwater — acontece em QUEDA de mercado, não em mercado calmo; "
+        "(3) a discovery achar antes dos concorrentes; (4) a tx ganhar a corrida (gas/MEV) e entrar no "
+        "bloco. Lucro real HOJE = US$ 0 (não está deployado + cenário fabricado). O que temos é o 'carro "
+        "provado na pista de testes' — falta ligar na rua, e a rua só paga quando o mercado se mexe e "
+        "chegamos primeiro.",
+        styles
+    ))
     S.append(Paragraph(
         "Como rodar: pnpm contracts:test:fork (usa Alchemy automático via ALCHEMY_API_KEY do .env). "
         "Confirmação read-only de endereços/ABIs: apps/mis-scanner/scripts/confirmOnchain.ts.",

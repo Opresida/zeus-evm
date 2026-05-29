@@ -698,6 +698,45 @@ def build_story(styles):
 
     S.append(PageBreak())
 
+    S.append(Paragraph("5.4 Validação on-chain — endereços, ABIs e flashloan (2026-05-29)", styles["h2"]))
+    S.append(Paragraph(
+        "Confirmamos contra a mainnet REAL (via eth_call read-only) que os endereços e ABIs que o "
+        "ZEUS usa batem com o que está deployado, e que o premium do flashloan da Aave é o que o "
+        "código assume (0.05%). Isso vale pras 3 chains de expansão do Motor 1 (Base/Polygon/Avalanche) "
+        "+ o adapter Trader Joe do Motor 2.",
+        styles["body"]
+    ))
+    valida = [
+        ["Chain", "Aave (premium / reserves / provider)", "DEXs (resolve + ABI)"],
+        ["Base", "0.05% ✓ · 15 reserves · provider ✓", "UniV3 WETH/USDC ✓"],
+        ["Polygon", "0.05% ✓ · 21 reserves · provider ✓", "UniV3 WETH/USDC ✓"],
+        ["Avalanche", "0.05% ✓ · 18 reserves · provider ✓", "UniV3 WETH.e/USDC ✓ · Trader Joe LB: 4 pairs, spot WAVAX≈$8.82 ✓"],
+    ]
+    S.append(table_grid(valida, [2.6 * cm, 7.4 * cm, 6.5 * cm]))
+    S.append(simple_box(
+        "O spot do Trader Joe (AMM por bins) saiu correto ($8.82/AVAX, faixa sã) lendo direto do "
+        "getSwapOut on-chain — isso valida a orientação/decimais do adapter LB SEM precisar de fork. "
+        "A lógica dos contratos (4 motores) está coberta por 67/68 unit tests verdes.",
+        styles
+    ))
+    S.append(Paragraph("Limite encontrado: fork test de EXECUÇÃO do flashloan exige RPC pago", styles["h3"]))
+    S.append(Paragraph(
+        "Tentamos rodar o fork test (que executa o flashloan ponta-a-ponta contra o estado real da "
+        "mainnet). O dRPC FREE tier BLOQUEIA isso: ao buscar o storage on-chain (eth_getStorageAt, que "
+        "todo fork test faz), retorna HTTP 408 'Request timeout on the free tier, please upgrade to paid'. "
+        "Vale pras 3 chains (todas dRPC free).",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "Tradução: dá pra CONFIRMAR endereços/ABIs/premium e a LÓGICA (unit tests) no plano grátis — "
+        "e fizemos. Mas SIMULAR a execução real do flashloan contra a mainnet (o teste definitivo de "
+        "'funciona de verdade') exige RPC pago. É mais um item que a assinatura de RPC destrava — junto "
+        "com rodar o Motor 2 (radar) e a discovery 24/7.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
     # ───── 6. CAMADA DE OBSERVAÇÃO ─────
     S.append(Paragraph("6. Camada de aprendizado — o cérebro do bot", styles["h1"]))
     S.append(Paragraph(

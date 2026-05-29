@@ -1429,6 +1429,62 @@ def build_story(styles):
         styles["callout"]
     ))
 
+    # ───── 15. PRIMEIRO VOO INSTRUMENTADO ─────
+    S.append(PageBreak())
+    S.append(Paragraph("15. Primeiro Voo Instrumentado — o plano de validação na mainnet", styles["h1"]))
+    S.append(Paragraph(
+        "O primeiro voo NÃO é pra lucrar — é pra a caixa-preta responder, com dado real e risco mínimo, "
+        "se existe dinheiro no nosso nicho. Estreito, instrumentado, flashloan-only. A ideia: em vez de "
+        "adivinhar (eu ou você), deixar os DADOS decidirem se a tese vive.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "Temos um carro de corrida com motor testado no dinamômetro (fork tests) — mas que nunca saiu da "
+        "garagem. Este plano é a primeira volta na pista real: devagar, com todos os sensores ligados, "
+        "medindo tudo. A caixa-preta do ZEUS é o que torna isso seguro — cada volta (boa ou ruim) vira dado.",
+        styles
+    ))
+
+    S.append(Paragraph("15.1 Escopo — deliberadamente estreito", styles["h2"]))
+    escopo = [
+        ["Dentro do voo", "Fora (por enquanto, de propósito)"],
+        ["1 chain: Base", "Polygon / Avalanche"],
+        ["Motor 1: só Aave V3 + Compound III (os mais validados)", "Moonwell (sem fork test) · Morpho · Seamless"],
+        ["Motor 2 (MIS): observação pura em paralelo (zero risco)", "Motor 3 (precisa mempool) · ponte MIS→executor"],
+    ]
+    S.append(table_grid(escopo, [8 * cm, 8.5 * cm]))
+    S.append(simple_box(
+        "Por que estreito: a caixa-preta gera sinal LIMPO com 1-2 frentes. Com 5 motores/chains ao mesmo "
+        "tempo, vira ruído e a gente não sabe o que funcionou.",
+        styles
+    ))
+
+    S.append(Paragraph("15.2 As 3 fases", styles["h2"]))
+    fases_voo = [
+        ["Fase", "O que", "Risco"],
+        ["0 — DRY_RUN mainnet (dias 1-3)", "Deploy + liquidator em modo observação. Valida os INSTRUMENTOS da caixa-preta contra fluxo real (o cockpit nunca rodou ao vivo)", "ZERO"],
+        ["1 — Armado, cap mínimo (sem 1-2)", "Flip pra mainnet, MAX_TRADE ~US$ 200-500. Flashloan-only + atômico → downside é só gas", "Baixo"],
+        ["2 — Decisão (sem 2-4)", "Lê as 4 métricas → tese vive, morre ou pivota", "—"],
+    ]
+    S.append(table_grid(fases_voo, [4.2 * cm, 9.3 * cm, 3 * cm]))
+
+    S.append(Paragraph("15.3 As 4 métricas que decidem (vive ou morre)", styles["h2"]))
+    metricas = [
+        ["Métrica", "Vive se...", "Morre/pivota se..."],
+        ["1. Densidade (oport./semana)", "> punhado/semana", "≈ 0 → nicho seco; ir pros sub-servidos"],
+        ["2. Win rate (das tentadas, % ganhas)", "> 0 e subindo", "≈ 0% → gap de velocidade fatal aqui"],
+        ["3. Net real por captura (pós gas)", "positivo", "negativo consistente → não fecha"],
+        ["4. MIS: pares persistentes no gate", "≥ 1 par", "0 pares → tese de arb falsificada (por ora)"],
+    ]
+    S.append(table_grid(metricas, [5 * cm, 4.5 * cm, 7 * cm]))
+    S.append(simple_box(
+        "O melhor cenário do plano NÃO é 'lucrar' — é DESCOBRIR a verdade barato. Se ambos os motores "
+        "derem seco em 4 semanas, a tese precisa mudar — e a gente descobriu isso com ~US$ 0 de risco, "
+        "em vez de gastar meses construindo o 6º protocolo pra um mercado que não paga. Detalhe operacional "
+        "em docs/FIRST_FLIGHT.md.",
+        styles
+    ))
+
     S.append(Spacer(1, 1 * cm))
     S.append(Paragraph(
         f"Este relatório foi gerado automaticamente do estado real do código em {date.today().isoformat()}. "

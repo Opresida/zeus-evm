@@ -4,9 +4,26 @@ Especificação detalhada dos smart contracts do bot. Incluindo padrões, audit 
 
 ---
 
+> ## 🔄 ESTADO ATUAL (2026-05-29) — SPLIT v8 em 4 contratos
+>
+> O `ZeusExecutor` monolítico descrito abaixo **foi dividido em 4 contratos (v8)** pra respeitar o limite de
+> tamanho do Ethereum (EIP-170, 24KB). A lógica de cada função continua igual — só mudou onde mora:
+>
+> | Contrato | Funções | Herança |
+> |---|---|---|
+> | **BribeManager** | `pay()` — gorjeta MEV ao block.coinbase (compartilhado) | ReentrancyGuard |
+> | **ZeusLiquidator** | `executeLiquidation` (Aave) · `executeCompoundLiquidation` · `executeMorphoLiquidation` (+ variantes WithBribe) | Ownable2Step + ReentrancyGuard |
+> | **ZeusArbExecutor** | `executeArbitrage` · `executeFlashloanArbitrage` · `executeFlashloanBackrun` + `executeOperation` | Ownable2Step + ReentrancyGuard |
+> | **ZeusMoonwellLiquidator** | liquidation Moonwell (fork Compound V2 — não usa BribeManager) | Ownable2Step + ReentrancyGuard |
+>
+> Mudanças vs. o texto antigo: **Pausable removido** (kill switch `_killed` é o circuit breaker primário) ·
+> **Morpho é função do ZeusLiquidator, não contrato** · **Moonwell é contrato próprio** · cobertura agora é
+> **5 protocolos** (Aave/Compound/Morpho/Seamless/Moonwell). Validado: 67 unit + 34 fork tests (Alchemy).
+> A spec abaixo descreve a lógica/funções (ainda fiel) usando o nome antigo `ZeusExecutor`.
+
 ## 🧭 Visão geral
 
-ZEUS EVM tem **1 contrato principal (`ZeusExecutor`)** + adapters modulares por DEX + strategies opcionais. Toda a lógica hot-path passa pelo `ZeusExecutor` que orquestra as operações.
+ZEUS EVM tem **4 contratos v8** (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator) + adapters modulares por DEX (UniV3, Aerodrome, Trader Joe LB). Toda a lógica hot-path passa por esses contratos atômicos.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐

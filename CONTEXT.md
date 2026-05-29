@@ -10,7 +10,7 @@ Regras, padrões e lógica de negócio. **Leia antes de qualquer alteração.**
 Toda operação de arb é **uma única transação**. Se qualquer step falha, tudo reverte. Sem estado intermediário travado, sem inventário órfão.
 
 ### 2. Self-custody com circuit breakers no contrato
-O bot tem chave privada própria, mas o contrato `ZeusExecutor` valida:
+O bot tem chave privada própria, mas os contratos Zeus (ZeusLiquidator / ZeusArbExecutor / ZeusMoonwellLiquidator) validam:
 - `MAX_TRADE_ETH` cap absoluto por tx
 - `MIN_PROFIT_WEI` obrigatório — tx reverte se profit < threshold
 - Kill switch global controlado por `owner` (multisig idealmente)

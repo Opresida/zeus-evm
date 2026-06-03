@@ -1,13 +1,16 @@
 /**
- * BlocknativeRelay — submete bundles via Blocknative MEV-Share/Private RPC.
+ * BlocknativeRelay — DEPRECATED 2026-05-29.
  *
- * Blocknative oferece endpoints compatíveis com `eth_sendBundle` em várias chains
- * (Ethereum, Polygon, Arbitrum, Optimism, Base). Configurável via `BLOCKNATIVE_RELAY_URL`.
+ * ⚠️ A Blocknative Corporation CESSOU OPERAÇÕES em junho/2025:
+ *   - Mempool Archive descontinuado em 01/03/2025
+ *   - APIs + Gas Network desligadas até 19/06/2025
+ *   - Equipe foi pra Deloitte
+ *   Fontes: crypto-economy.com/blocknative-winds-down-core-services (2025)
+ *           docs.blocknative.com/data-archive/mempool-archive
  *
- * Vantagem: API simples (igual Flashbots), múltiplas chains com 1 wrapper.
- * Desvantagem: Blocknative cobra API key (free tier limitado).
- *
- * STATUS: implementação básica funcional. Auth opcional via header X-Api-Key.
+ * NÃO usar mais. O arquivo é mantido só por contexto histórico — quando o relayRouter
+ * for refeito pro Motor 3 (ver docs/MOTOR3_REFIT.md), este adapter sai. Por enquanto
+ * o adapter ainda existe mas o BLOCKNATIVE_RELAY_URL no .env não vai resolver.
  */
 
 import type { LoggerLike } from '@zeus-evm/aave-discovery';

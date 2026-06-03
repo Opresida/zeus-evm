@@ -1,17 +1,13 @@
 /**
- * AtlasRelay — submete bundles privados via FastLane Atlas (Base + Polygon principalmente).
+ * AtlasRelay — DEPRECATED 2026-05-29.
  *
- * Atlas usa um protocolo diferente do Flashbots — auction-based. Detalhes:
- *   https://docs.fastlane.xyz/atlas/protocol
+ * ⚠️ A Chainlink ADQUIRIU o Atlas da FastLane em janeiro/2026 — agora é exclusivo
+ * do Chainlink SVR (Smart Value Recovery), não é mais OFA permissionless pra searchers.
+ *   Fontes: chainlinktoday.com/chainlink-acquires-fastlane-atlas (2026-01)
+ *           crowdfundinsider.com/2026/01/258239-chainlink-acquires-atlas-by-fastlane
  *
- * STATUS: PLACEHOLDER.
- * - O protocolo Atlas exige uma struct `UserOperation` + `SolverOperation[]` codificada,
- *   não é eth_sendBundle simples.
- * - Pra MVP, este wrapper RETORNA NÃO SUPORTADO. Quando ativarmos Atlas integration
- *   de verdade, substituir submit() pela call real.
- *
- * Por enquanto, em chains onde Atlas faria sentido (Base/Polygon), o relayRouter usa
- * Blocknative como fallback (que já tem MEV-Share-style endpoint genérico).
+ * NÃO usar mais. Arquivo mantido como contexto histórico — sai quando refizermos
+ * o relayRouter pro Motor 3 (ver docs/MOTOR3_REFIT.md). Era placeholder de qualquer forma.
  */
 
 import type { LoggerLike } from '@zeus-evm/aave-discovery';

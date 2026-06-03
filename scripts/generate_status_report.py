@@ -1485,11 +1485,93 @@ def build_story(styles):
         styles
     ))
 
+    # ───── 16. MOTOR 3 — REFIT PRA REALIDADE BASE 2026 ─────
+    S.append(PageBreak())
+    S.append(Paragraph("16. Motor 3 — refit pra realidade da Base em 2026", styles["h1"]))
+    S.append(Paragraph(
+        "Pesquisa web (2026-05-29) revelou que o conceito original do Motor 3 (backrun via bundle "
+        "atômico privado) está PARCIALMENTE inválido pra Base. A boa notícia: a versão refit pode sair "
+        "MAIS BARATA do que pensávamos.",
+        styles["body"]
+    ))
+
+    S.append(Paragraph("16.1 O que mudou no mercado (e nos pegou desatualizados)", styles["h2"]))
+    mortos = [
+        ["Provedor", "Status atual", "Impacto no ZEUS"],
+        ["Blocknative", "Cessou operações jun/2025 (equipe → Deloitte)", "blocknativeRelay.ts virou letra morta"],
+        ["Atlas (FastLane)", "Chainlink comprou jan/2026 — agora exclusivo Chainlink SVR", "atlasRelay.ts virou letra morta"],
+        ["Eden Network", "Fechou oficialmente", "Nem entrava no nosso código"],
+        ["Flashbots", "Vivo no L1. Na Base construiu o Flashblocks (op-rbuilder) — outro modelo", "Endpoint relay clássico NÃO se aplica à Base"],
+        ["bloXroute", "Vivo, suporta Base (streams + submission). Bundle atômico em ETH/BSC (Base a confirmar)", "Candidato pago"],
+    ]
+    S.append(table_grid(mortos, [3.5 * cm, 7 * cm, 6 * cm]))
+    S.append(simple_box(
+        "É a evolução natural do mercado MEV: a era dos relays L1-style (2021-2024) deu lugar ao "
+        "modelo L2 com sequenciador centralizado + preconfirmações rápidas. A Base é o caso emblemático.",
+        styles
+    ))
+
+    S.append(Paragraph("16.2 A realidade técnica da Base — e por que muda o Motor 3", styles["h2"]))
+    S.append(Paragraph(
+        "A Base NÃO TEM mempool público — o sequencer da Coinbase não faz gossip. Único caminho de "
+        "entrada é via RPC. Em julho/2025 a Base lançou os Flashblocks (pré-blocos a cada 200ms) via "
+        "op-rbuilder, construído pela Flashbots. O jogo de MEV ali é leilão de PRIORITY FEE dentro da "
+        "janela de 200ms — NÃO é bundle atômico Flashbots-style.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "Em uma frase: a premissa antiga ('compro Alchemy mempool US$ 199/mês pra ver a baleia') era "
+        "DE Ethereum L1. Na Base não há mempool pra assinar — o que há é o feed de Flashblocks (que é "
+        "OUTRO produto). Isso muda a conta de infra do Motor 3 pra baixo.",
+        styles
+    ))
+
+    S.append(Paragraph('16.3 Motor 3 REFIT — "Flashblocks-Priority Backrun"', styles["h2"]))
+    refit = [
+        ["Passo", "Como funciona"],
+        ["1. Ver a baleia", "Assina WebSocket de Flashblocks (pré-blocos 200ms) via provider que suporte"],
+        ["2. Classificar", "Detecta swap grande no pré-bloco que cria dislocação explorável"],
+        ["3. Montar arb", "Cross-DEX que captura a dislocação (mesmo motor do MIS)"],
+        ["4. Submeter", "Via RPC com priority fee competitivo pra entrar no pré-bloco N ou N+1"],
+        ["5. Atomicidade", "Flashloan + minProfitWei no contrato: ou lucra, ou reverte (só perde gas)"],
+    ]
+    S.append(table_2col(refit, col1_w=4 * cm, col2_w=12.5 * cm))
+    S.append(simple_box(
+        "Trade-off honesto: sem bundle atômico, em alguns cenários a tx da baleia pode sumir/reverter "
+        "e a nossa fica desencaixada. Mas o flashloan + min profit no contrato garantem o pior caso = "
+        "só gas perdido (zero risco de capital). O edge passa a ser LATÊNCIA + PRICING DE GAS, não bundle.",
+        styles
+    ))
+
+    S.append(Paragraph("16.4 Implicação de custo (boa notícia)", styles["h2"]))
+    custo_motor3 = [
+        ["", "Antes (estimado)", "Refit (provável)"],
+        ["Mempool feed", "Alchemy Growth+ US$ 199/mês", "Flashblocks WS (incluído em Alchemy free? Chainstack? a confirmar)"],
+        ["Relay pago", "Blocknative/Atlas (mortos)", "Nenhum — priority fee auction direto no sequencer"],
+        ["Hosting", "Comum", "Low-latency próximo ao sequencer (US-East no Fly.io)"],
+        ["Custo extra/mês", "~US$ 199", "Provavelmente próximo de zero além do já planejado"],
+    ]
+    S.append(table_grid(custo_motor3, [4 * cm, 5 * cm, 7.5 * cm]))
+    S.append(simple_box(
+        "Conclusão: o Motor 3 nessa formatação NÃO precisa de novo investimento de infra significativo. "
+        "Mas EXIGE pesquisa de fechamento antes de codar: (1) qual provider serve Flashblocks WS de "
+        "verdade, (2) atomic bundle no bloXroute Base é viável e a que preço, (3) Coinbase Searcher "
+        "Program existe? Detalhe técnico em docs/MOTOR3_REFIT.md.",
+        styles
+    ))
+
+    S.append(Spacer(1, 0.5 * cm))
+    S.append(Paragraph(
+        "Princípio que sobreviveu: o flashloan atômico do contrato continua sendo a peça que torna "
+        "isso seguro. O Motor 3 refit muda COMO a tx entra no bloco, não muda o que o contrato faz.",
+        styles["callout"]
+    ))
+
     S.append(Spacer(1, 1 * cm))
     S.append(Paragraph(
         f"Este relatório foi gerado automaticamente do estado real do código em {date.today().isoformat()}. "
-        "Typecheck 13/13 · execution-utils 255/255 · mis-scanner 6/6 · liquidator 22/22 · Branch: main · "
-        "Motor 2 (radar MIS) + Polygon/Avalanche code-ready (Motor 1).",
+        "Typecheck 13/13 · execution-utils 256/256 · mis-scanner 6/6 · liquidator 22/22 · contratos 67 unit + 34 fork · Branch: main · "
+        "Motor 2 (radar MIS) + Polygon/Avalanche code-ready · Motor 3 refit pesquisado.",
         styles["small"]
     ))
 

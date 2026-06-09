@@ -16,6 +16,7 @@
 import type { LiquidatorEnv } from '../../config';
 import type { MoonwellLiquidatablePosition, LiquidationDecision } from '../../types';
 import { estimateUsd } from '@zeus-evm/execution-utils';
+import { FlashSource } from '../../types';
 
 const WAD = 10n ** 18n;
 const AAVE_FLASHLOAN_PREMIUM_BPS = 5n; // 0.05%
@@ -92,6 +93,9 @@ export function calculateOptimalMoonwellLiquidation(
     estimatedSlippageBps: 0, // estimado pós-swap; guarda real é minProfitWei on-chain
     // minProfit floor conservador: 50% do estimado (Compound V2 swap pode ter slippage maior)
     minProfitWei: (grossProfitWei * 5n) / 10n,
+    // Default Aave; pipeline sobrescreve via seletor de fonte 0% quando há liquidez.
+    flashSource: FlashSource.Aave,
+    flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
   };
 
   return { ok: true, decision, expectedSwapOutputWei: expectedSwapOutput };

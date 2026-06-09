@@ -37,6 +37,7 @@ import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math'
 import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calculator';
 import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
 import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
+import { selectFlashSource } from './flashSourceSelector';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import {
   aavePositionKey,
@@ -374,6 +375,18 @@ async function _runAavePipelineInner(
     decision.expectedProfitWei,
     decision.expectedProfitUsd,
   );
+  // Seletor de fonte de flashloan: Morpho/Balancer (0%) se houver liquidez, senão Aave (0,05%).
+  // Sobrescreve a decision; o profit math dos calculators permanece conservador a 0,05%
+  // (o ganho de 5bps é capturado on-chain ao executar a fonte 0%).
+  const aaveFlashSel = await selectFlashSource(
+    ctx.client,
+    ctx.chainConfig,
+    position.debtAsset as Address,
+    decision.flashloanAmount,
+  );
+  decision.flashSource = aaveFlashSel.flashSource;
+  decision.flashPremiumBps = aaveFlashSel.flashPremiumBps;
+
   const built = buildLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
     chainConfig: ctx.chainConfig,
@@ -638,6 +651,16 @@ async function _runCompoundPipelineInner(
     ? (position.collateralBalanceWei * baseAmountFraction * 95n) / (10_000n * 100n)
     : 1n;
 
+  // Seletor de fonte de flashloan (Morpho/Balancer 0% → Aave 0,05%). Token = base do Comet.
+  const compoundFlashSel = await selectFlashSource(
+    ctx.client,
+    ctx.chainConfig,
+    position.baseToken as Address,
+    decision.flashloanAmount,
+  );
+  decision.flashSource = compoundFlashSel.flashSource;
+  decision.flashPremiumBps = compoundFlashSel.flashPremiumBps;
+
   // Compound não suporta bribe em v7.1 (removido por EIP-170 size limit).
   const built = buildCompoundLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
@@ -830,6 +853,17 @@ async function _runMorphoPipelineInner(
     return { status: 'dryrun_skipped', reason: 'no executor deployed on chain' };
   }
 
+  // Seletor de fonte de flashloan. Em Morpho liquidations, o próprio singleton empresta a 0%
+  // (ganho mais óbvio — o contrato do Morpho já está no fluxo). Token = loanToken.
+  const morphoFlashSel = await selectFlashSource(
+    ctx.client,
+    ctx.chainConfig,
+    position.loanToken as Address,
+    decision.flashloanAmount,
+  );
+  decision.flashSource = morphoFlashSel.flashSource;
+  decision.flashPremiumBps = morphoFlashSel.flashPremiumBps;
+
   // 2. Builder
   const built = buildMorphoLiquidationTx(position, decision, plan, {
     executorAddress: ctx.executorContractAddress,
@@ -985,6 +1019,16 @@ async function _runMoonwellPipelineInner(
     return { status: 'reverted_pre_dispatch', reason: outcome.reason ?? 'moonwell calc falhou' };
   }
   const decision = outcome.decision;
+
+  // Seletor de fonte de flashloan (Morpho/Balancer 0% → Aave 0,05%). Token = borrowedUnderlying.
+  const moonwellFlashSel = await selectFlashSource(
+    ctx.client,
+    ctx.chainConfig,
+    position.borrowedUnderlying as Address,
+    decision.flashloanAmount,
+  );
+  decision.flashSource = moonwellFlashSel.flashSource;
+  decision.flashPremiumBps = moonwellFlashSel.flashPremiumBps;
 
   // 2. Builder
   const built = buildMoonwellLiquidationTx(position, decision, {

@@ -30,6 +30,7 @@ import type {
 } from '../../types';
 import { logger } from '../../logger';
 import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
+import { FlashSource } from '../../types';
 import { COMET_ABI } from './abi';
 import { AavePriceOracle, usdToWei, weiToUsd } from '../aave/oracle';
 
@@ -137,6 +138,9 @@ export async function calculateOptimalCompoundLiquidation(
     expectedProfitUsd: profitUsd,
     estimatedSlippageBps: best.slippageBps,
     minProfitWei: (best.profit * 7n) / 10n,
+    // Default Aave; pipeline sobrescreve via seletor de fonte 0% quando há liquidez.
+    flashSource: FlashSource.Aave,
+    flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
   };
 
   logger.info(

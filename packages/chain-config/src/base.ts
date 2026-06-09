@@ -88,6 +88,11 @@ export const BASE_MAINNET: ChainConfig = {
     morphoBlue: '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb',
   },
 
+  // ─── Balancer V2 Vault (fonte de flashloan 0% — endereço canônico em toda chain EVM) ───
+  balancer: {
+    vault: '0xBA12222222228d8Ba445958a75a0704d566BF2C8',
+  },
+
   // ─── Moonwell (Compound V2 fork — Doutrina: mercado sub-servido) ───
   // Comptroller oficial Base: https://docs.moonwell.fi/moonwell/protocol-information/contracts
   moonwell: {

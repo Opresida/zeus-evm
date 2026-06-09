@@ -13,11 +13,12 @@ import {
     MorphoLiquidationParams,
     LiquidatorOpType
 } from "./interfaces/IZeusLiquidator.sol";
-import {SwapStep, DexType} from "./interfaces/IZeusExecutor.sol";
+import {SwapStep, DexType, FlashSource} from "./interfaces/IZeusExecutor.sol";
 import {IFlashLoanSimpleReceiver} from "./interfaces/aave/IFlashLoanSimpleReceiver.sol";
 import {IPool} from "./interfaces/aave/IPool.sol";
 import {IComet} from "./interfaces/compound/IComet.sol";
-import {IMorpho, MarketParams} from "./interfaces/morpho/IMorpho.sol";
+import {IMorpho, MarketParams, IMorphoFlashLoanCallback} from "./interfaces/morpho/IMorpho.sol";
+import {IBalancerVault, IFlashLoanRecipient} from "./interfaces/balancer/IBalancerVault.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
@@ -31,10 +32,21 @@ import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
 ///   - Self-custody com circuit breakers (kill + maxTrade + minProfit obrigatório)
 ///   - Owner = multisig em produção
 ///   - Sem proxy upgradeable
-contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2Step, ReentrancyGuard {
+contract ZeusLiquidator is
+    IZeusLiquidator,
+    IFlashLoanSimpleReceiver,
+    IMorphoFlashLoanCallback,
+    IFlashLoanRecipient,
+    Ownable2Step,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     address public immutable AAVE_V3_POOL;
+    /// @notice Morpho Blue singleton — fonte de flashloan 0% e auth do callback onMorphoFlashLoan.
+    address public immutable MORPHO_SINGLETON;
+    /// @notice Balancer V2 Vault — fonte de flashloan 0% e auth do callback receiveFlashLoan.
+    address public immutable BALANCER_VAULT;
     /// @notice BribeManager standalone — paga bribe ao block.coinbase em paths WithBribe.
     /// @dev Imutável após deploy. Compartilhado com ZeusArbExecutor pra reuso de lógica.
     address public immutable BRIBE_MANAGER;
@@ -46,15 +58,49 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
     address public weth;
     address public uniV3SwapRouter;
 
+    /// @dev Flag transiente "eu iniciei este flashloan" (TSTORE/TLOAD Cancun, mesmo padrão do
+    ///      BribeManager._PAY_IN_PROGRESS_SLOT, namespace keccak distinto → sem collision).
+    ///      OBRIGATÓRIA contra hijack do Balancer: qualquer um pode chamar `vault.flashLoan(NÓS,...)`
+    ///      e o Vault invoca nosso receiveFlashLoan com userData hostil; `msg.sender == vault` passa.
+    ///      A flag (= keccak256(asset, amount), setada pelo entrypoint) é a única defesa.
+    ///      Reset automático no fim da tx — impossível travar.
+    uint256 private constant _FLASH_EXPECTED_SLOT =
+        uint256(keccak256("zeus.liquidator.flashexpected.v1")) - 1;
+
+    function _setFlashExpected(bytes32 v) internal {
+        uint256 slot = _FLASH_EXPECTED_SLOT;
+        assembly {
+            tstore(slot, v)
+        }
+    }
+
+    /// @dev Verifica que o callback corresponde a um flash que NÓS iniciamos e limpa a flag (one-shot).
+    function _consumeFlashExpected(bytes32 expected) internal {
+        uint256 slot = _FLASH_EXPECTED_SLOT;
+        bytes32 stored;
+        assembly {
+            stored := tload(slot)
+        }
+        if (expected == bytes32(0) || stored != expected) revert InvalidCaller();
+        assembly {
+            tstore(slot, 0)
+        }
+    }
+
     constructor(
         address aaveV3Pool,
+        address morphoSingleton,
+        address balancerVault,
         address bribeManager,
         address initialOwner,
         uint256 initialMaxTradeWei
     ) Ownable(initialOwner) {
         if (aaveV3Pool == address(0) || initialOwner == address(0)) revert NotAuthorized();
+        if (morphoSingleton == address(0) || balancerVault == address(0)) revert NotAuthorized();
         if (bribeManager == address(0)) revert NotAuthorized();
         AAVE_V3_POOL = aaveV3Pool;
+        MORPHO_SINGLETON = morphoSingleton;
+        BALANCER_VAULT = balancerVault;
         BRIBE_MANAGER = bribeManager;
         maxTradeWei = initialMaxTradeWei;
         _killed = true;
@@ -108,9 +154,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 debtBalanceBefore = IERC20(params.debtAsset).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.Aave,
+            params.debtAsset,
             abi.encode(params, msg.sender, debtBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), params.debtAsset, params.debtToCover, encoded, 0);
+        _initiateFlash(params.flashSource, params.debtAsset, params.debtToCover, encoded);
     }
 
     /// @inheritdoc IZeusLiquidator
@@ -130,9 +177,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 baseBalanceBefore = IERC20(baseAsset).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.Compound,
+            baseAsset,
             abi.encode(params, msg.sender, baseBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), baseAsset, params.baseAmount, encoded, 0);
+        _initiateFlash(params.flashSource, baseAsset, params.baseAmount, encoded);
     }
 
     /// @inheritdoc IZeusLiquidator
@@ -151,9 +199,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 loanBalanceBefore = IERC20(params.loanToken).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.Morpho,
+            params.loanToken,
             abi.encode(params, msg.sender, loanBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), params.loanToken, params.flashloanAmount, encoded, 0);
+        _initiateFlash(params.flashSource, params.loanToken, params.flashloanAmount, encoded);
     }
 
     // ════════ ENTRYPOINTS — com bribe (v7) ════════
@@ -176,9 +225,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 debtBalanceBefore = IERC20(params.debtAsset).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.AaveWithBribe,
+            params.debtAsset,
             abi.encode(params, bribe, msg.sender, debtBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), params.debtAsset, params.debtToCover, encoded, 0);
+        _initiateFlash(params.flashSource, params.debtAsset, params.debtToCover, encoded);
     }
 
     /// @inheritdoc IZeusLiquidator
@@ -196,9 +246,10 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 baseBalanceBefore = IERC20(baseAsset).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.CompoundWithBribe,
+            baseAsset,
             abi.encode(params, bribe, msg.sender, baseBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), baseAsset, params.baseAmount, encoded, 0);
+        _initiateFlash(params.flashSource, baseAsset, params.baseAmount, encoded);
     }
 
     /// @inheritdoc IZeusLiquidator
@@ -215,13 +266,41 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         uint256 loanBalanceBefore = IERC20(params.loanToken).balanceOf(address(this));
         bytes memory encoded = abi.encode(
             LiquidatorOpType.MorphoWithBribe,
+            params.loanToken,
             abi.encode(params, bribe, msg.sender, loanBalanceBefore)
         );
-        IPool(AAVE_V3_POOL).flashLoanSimple(address(this), params.loanToken, params.flashloanAmount, encoded, 0);
+        _initiateFlash(params.flashSource, params.loanToken, params.flashloanAmount, encoded);
     }
 
-    // ════════ AAVE V3 FLASHLOAN CALLBACK ════════
+    // ════════ FLASHLOAN: INICIAÇÃO + CALLBACKS MULTI-FONTE ════════
 
+    /// @notice Inicia o flashloan na fonte escolhida off-chain. O blob `encoded` é idêntico
+    ///         entre fontes (`abi.encode(opType, asset, inner)`) → os cores decodificam igual.
+    /// @dev Seta a flag transiente ANTES de chamar o provider — base da defesa anti-hijack.
+    function _initiateFlash(
+        FlashSource src,
+        address asset,
+        uint256 amount,
+        bytes memory encoded
+    ) internal {
+        _setFlashExpected(keccak256(abi.encodePacked(asset, amount)));
+
+        if (src == FlashSource.Aave) {
+            IPool(AAVE_V3_POOL).flashLoanSimple(address(this), asset, amount, encoded, 0);
+        } else if (src == FlashSource.Morpho) {
+            IMorpho(MORPHO_SINGLETON).flashLoan(asset, amount, encoded);
+        } else if (src == FlashSource.Balancer) {
+            IERC20[] memory tokens = new IERC20[](1);
+            tokens[0] = IERC20(asset);
+            uint256[] memory amounts = new uint256[](1);
+            amounts[0] = amount;
+            IBalancerVault(BALANCER_VAULT).flashLoan(address(this), tokens, amounts, encoded);
+        } else {
+            revert InvalidCaller();
+        }
+    }
+
+    /// @notice Callback Aave V3. Premium = 0,05%.
     /// @inheritdoc IFlashLoanSimpleReceiver
     function executeOperation(
         address asset,
@@ -232,9 +311,67 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
     ) external override returns (bool) {
         if (msg.sender != AAVE_V3_POOL) revert InvalidCaller();
         if (initiator != address(this)) revert InvalidCaller();
+        _consumeFlashExpected(keccak256(abi.encodePacked(asset, amount)));
 
-        (LiquidatorOpType opType, bytes memory inner) = abi.decode(params, (LiquidatorOpType, bytes));
+        (LiquidatorOpType opType, address encAsset, bytes memory inner) =
+            abi.decode(params, (LiquidatorOpType, address, bytes));
+        if (encAsset != asset) revert InvalidCaller();
 
+        _dispatchCore(opType, asset, amount, premium, inner);
+        _repay(FlashSource.Aave, asset, amount, premium);
+        return true;
+    }
+
+    /// @notice Callback Morpho Blue. Fee 0% → premium = 0. O callback NÃO recebe o token,
+    ///         então lemos `asset` do params encodado pelo nosso próprio entrypoint.
+    /// @inheritdoc IMorphoFlashLoanCallback
+    function onMorphoFlashLoan(uint256 assets, bytes calldata params) external override {
+        if (msg.sender != MORPHO_SINGLETON) revert InvalidCaller();
+
+        (LiquidatorOpType opType, address asset, bytes memory inner) =
+            abi.decode(params, (LiquidatorOpType, address, bytes));
+        _consumeFlashExpected(keccak256(abi.encodePacked(asset, assets)));
+
+        _dispatchCore(opType, asset, assets, 0, inner);
+        _repay(FlashSource.Morpho, asset, assets, 0);
+    }
+
+    /// @notice Callback Balancer V2. Fee 0% hoje (feeAmounts[0] == 0), mas repagamos
+    ///         `amount + premium` por robustez caso o protocolo ligue fee no futuro.
+    /// @dev 🔴 `_consumeFlashExpected` é a ÚNICA defesa contra hijack — sem ela, um atacante
+    ///      chamaria `vault.flashLoan(NÓS, ...)` com userData hostil e cairia aqui com msg.sender == vault.
+    /// @inheritdoc IFlashLoanRecipient
+    function receiveFlashLoan(
+        IERC20[] memory tokens,
+        uint256[] memory amounts,
+        uint256[] memory feeAmounts,
+        bytes memory params
+    ) external override {
+        if (msg.sender != BALANCER_VAULT) revert InvalidCaller();
+
+        address asset = address(tokens[0]);
+        uint256 amount = amounts[0];
+        uint256 premium = feeAmounts[0];
+        _consumeFlashExpected(keccak256(abi.encodePacked(asset, amount)));
+
+        (LiquidatorOpType opType, address encAsset, bytes memory inner) =
+            abi.decode(params, (LiquidatorOpType, address, bytes));
+        if (encAsset != asset) revert InvalidCaller();
+
+        _dispatchCore(opType, asset, amount, premium, inner);
+        _repay(FlashSource.Balancer, asset, amount, premium);
+    }
+
+    /// @notice Despacha pro core de protocolo correto. Reusado pelos 3 callbacks de fonte.
+    /// @dev Os cores `_aaveCore`/`_compoundCore`/`_morphoCore` ficam INTACTOS — `premium` já é
+    ///      parâmetro deles, então 0 (Morpho/Balancer) ou 0,05% (Aave) não exige editá-los.
+    function _dispatchCore(
+        LiquidatorOpType opType,
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        bytes memory inner
+    ) internal {
         if (opType == LiquidatorOpType.Aave) {
             _aaveCore(asset, amount, premium, inner, /*withBribe*/ false);
         } else if (opType == LiquidatorOpType.AaveWithBribe) {
@@ -250,9 +387,18 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         } else {
             revert InvalidCaller();
         }
+    }
 
-        IERC20(asset).forceApprove(AAVE_V3_POOL, amount + premium);
-        return true;
+    /// @notice Repaga o flashloan à fonte, no estilo que cada protocolo exige.
+    /// @dev Aave/Morpho: approve (provider puxa via transferFrom). Balancer: transfer direto pro Vault.
+    function _repay(FlashSource src, address asset, uint256 amount, uint256 premium) internal {
+        if (src == FlashSource.Aave) {
+            IERC20(asset).forceApprove(AAVE_V3_POOL, amount + premium);
+        } else if (src == FlashSource.Morpho) {
+            IERC20(asset).forceApprove(MORPHO_SINGLETON, amount); // premium == 0
+        } else {
+            IERC20(asset).safeTransfer(BALANCER_VAULT, amount + premium);
+        }
     }
 
     // ════════ INTERNAL HANDLERS ════════
@@ -466,8 +612,11 @@ contract ZeusLiquidator is IZeusLiquidator, IFlashLoanSimpleReceiver, Ownable2St
         if (p.profitReceiver == address(0)) revert NotAuthorized();
     }
 
-    function _validateMorphoParams(MorphoLiquidationParams calldata p) internal pure {
-        if (p.morpho == address(0) || p.borrower == address(0)) revert NotAuthorized();
+    function _validateMorphoParams(MorphoLiquidationParams calldata p) internal view {
+        // Morpho Blue é singleton (1 endereço/chain) — trava o alvo de liquidate ao mesmo
+        // endereço usado como fonte de flashloan, impedindo divergência.
+        if (p.morpho != MORPHO_SINGLETON) revert NotAuthorized();
+        if (p.borrower == address(0)) revert NotAuthorized();
         if (p.loanToken == address(0) || p.collateralToken == address(0)) revert NotAuthorized();
         if (p.profitReceiver == address(0)) revert NotAuthorized();
         if (p.flashloanAmount == 0) revert EmptySteps();

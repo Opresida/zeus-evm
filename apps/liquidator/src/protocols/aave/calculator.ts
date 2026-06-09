@@ -37,6 +37,7 @@ import type {
 } from '../../types';
 import { logger } from '../../logger';
 import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
+import { FlashSource } from '../../types';
 import { AavePriceOracle, convertWeiByPrice, usdToWei, weiToUsd } from './oracle';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -177,6 +178,10 @@ export async function calculateOptimalLiquidation(
     expectedProfitUsd: profitUsd,
     estimatedSlippageBps: best.slippageBps,
     minProfitWei: (best.profit * 7n) / 10n, // 70% do esperado como floor (margem de segurança)
+    // Default conservador (Aave 0,05%). O pipeline pode sobrescrever via seletor de fonte 0%
+    // (Morpho/Balancer) quando há liquidez — o profit estimado fica 5bps conservador, errando a favor.
+    flashSource: FlashSource.Aave,
+    flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
   };
 
   logger.info(

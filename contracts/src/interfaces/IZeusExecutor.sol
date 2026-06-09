@@ -10,6 +10,21 @@ enum DexType {
     Balancer      // 4 (futuro)
 }
 
+/// @notice Fonte do flashloan que financia uma operação. Selecionada off-chain por
+///         disponibilidade de liquidez e custo. Prioridade econômica: Morpho/Balancer (0%)
+///         antes de Aave (0,05%). `Aave` é o default (valor 0) — preserva comportamento legado
+///         quando o campo `flashSource` vem zerado.
+/// @dev Deve bater com `enum FlashSource` no TypeScript shared-types.
+///      O estilo de repago difere por fonte:
+///        - Aave:     approve(pool, amount + premium)   [premium = 0,05%]
+///        - Morpho:   approve(singleton, amount)        [fee 0%, repago via transferFrom do singleton]
+///        - Balancer: transfer(vault, amount + premium) [fee 0%, premium=0 hoje; à prova de futuro]
+enum FlashSource {
+    Aave,      // 0 — fallback universal, 0,05% premium
+    Morpho,    // 1 — Morpho Blue singleton flashLoan, 0%
+    Balancer   // 2 — Balancer V2 Vault flashLoan, 0%
+}
+
 /// @notice Um swap individual numa cadeia de arbitragem
 /// @dev Pra multi-step: amountIn=0 significa "usar saldo atual deste contrato"
 struct SwapStep {
@@ -28,6 +43,7 @@ struct ArbitrageParams {
     uint256 minProfitWei;    // tx reverte se profit < esse valor
     address profitToken;     // token em que o lucro deve estar no final (geralmente tokenIn do step 0)
     address profitReceiver;  // pra onde enviar o lucro residual
+    FlashSource flashSource; // fonte do flashloan (ignorado em executeArbitrage wallet-mode). 0 = Aave.
 }
 
 /// @notice Parâmetros de uma operação de liquidação Aave V3

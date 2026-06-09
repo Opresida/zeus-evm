@@ -9,7 +9,7 @@ import {ZeusArbExecutor} from "../../src/ZeusArbExecutor.sol";
 import {ZeusLiquidator} from "../../src/ZeusLiquidator.sol";
 import {IZeusArbExecutor, BackrunParams} from "../../src/interfaces/IZeusArbExecutor.sol";
 import {IZeusLiquidator, LiquidationParams} from "../../src/interfaces/IZeusLiquidator.sol";
-import {SwapStep, ArbitrageParams, DexType} from "../../src/interfaces/IZeusExecutor.sol";
+import {SwapStep, ArbitrageParams, DexType, FlashSource} from "../../src/interfaces/IZeusExecutor.sol";
 import {BribeConfig} from "../../src/interfaces/IBribeManager.sol";
 
 interface IUniRouter {
@@ -44,6 +44,8 @@ interface IAaveOracle { function getAssetPrice(address asset) external view retu
 /// cada motor explora, e validamos que a lógica fecha LUCRO + paga o flashloan.
 contract MotorsProfitForkTest is Test {
     address constant AAVE_V3_POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
+    address constant MORPHO_SINGLETON = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address constant BALANCER_VAULT = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant SWAP_ROUTER_V3 = 0x2626664c2603336E57B271c5C0b26F421741e481;
@@ -64,8 +66,8 @@ contract MotorsProfitForkTest is Test {
         vm.createSelectFork(rpc, FORK_BLOCK);
 
         bribeManager = new BribeManager();
-        arb = new ZeusArbExecutor(AAVE_V3_POOL, address(bribeManager), owner, MAX_TRADE);
-        liq = new ZeusLiquidator(AAVE_V3_POOL, address(bribeManager), owner, MAX_TRADE);
+        arb = new ZeusArbExecutor(AAVE_V3_POOL, MORPHO_SINGLETON, BALANCER_VAULT, address(bribeManager), owner, MAX_TRADE);
+        liq = new ZeusLiquidator(AAVE_V3_POOL, MORPHO_SINGLETON, BALANCER_VAULT, address(bribeManager), owner, MAX_TRADE);
 
         vm.startPrank(owner);
         arb.setWeth(WETH); arb.setUniV3SwapRouter(SWAP_ROUTER_V3); arb.setOperator(operator, true); arb.revive();
@@ -95,7 +97,7 @@ contract MotorsProfitForkTest is Test {
         _dumpWethOn3000(800 ether); // cria a dislocação (custo nosso, simula a ineficiência)
         uint256 flash = 30_000e6; // flashloan modesto: captura o gap sem desfazer a dislocação
 
-        ArbitrageParams memory p = ArbitrageParams({ steps: _arbSteps(), minProfitWei: 1, profitToken: USDC, profitReceiver: profitReceiver });
+        ArbitrageParams memory p = ArbitrageParams({ steps: _arbSteps(), minProfitWei: 1, profitToken: USDC, profitReceiver: profitReceiver, flashSource: FlashSource.Aave });
         uint256 before = IERC20(USDC).balanceOf(profitReceiver);
 
         vm.prank(operator);
@@ -117,6 +119,7 @@ contract MotorsProfitForkTest is Test {
             minProfitWei: 1,
             profitToken: USDC,
             profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave,
             bribe: BribeConfig({ bribeBps: 1_000, minBribeWei: 0, bribeMaxBps: 5_000, swapFeeTier: 500, swapSlippageBps: 300 })
         });
         uint256 before = IERC20(USDC).balanceOf(profitReceiver);
@@ -163,7 +166,7 @@ contract MotorsProfitForkTest is Test {
 
         LiquidationParams memory p = LiquidationParams({
             user: borrower, collateralAsset: WETH, debtAsset: USDC, debtToCover: debtToCover,
-            swapSteps: steps, minProfitWei: 1, profitReceiver: profitReceiver
+            swapSteps: steps, minProfitWei: 1, profitReceiver: profitReceiver, flashSource: FlashSource.Aave
         });
         uint256 before = IERC20(USDC).balanceOf(profitReceiver);
 

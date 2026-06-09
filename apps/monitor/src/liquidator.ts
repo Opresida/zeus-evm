@@ -203,6 +203,7 @@ export function buildLiquidationCalldata(plan: LiquidationPlan, profitReceiver: 
         swapSteps: plan.swapSteps,
         minProfitWei: plan.minProfitWei,
         profitReceiver,
+        flashSource: 0, // FlashSource.Aave (monitor é DRY_RUN/observação)
       },
     ],
   });

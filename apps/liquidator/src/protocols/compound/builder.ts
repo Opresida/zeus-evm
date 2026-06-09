@@ -86,6 +86,7 @@ export function buildCompoundLiquidationTx(
     swapSteps,
     minProfitWei: decision.minProfitWei,
     profitReceiver,
+    flashSource: decision.flashSource as number,
   };
 
   const data = encodeFunctionData({

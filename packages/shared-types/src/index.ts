@@ -16,6 +16,23 @@ export enum DexType {
   Balancer = 4,
 }
 
+/**
+ * Fonte do flashloan que financia uma operação (deve bater com `enum FlashSource` no Solidity).
+ * Prioridade econômica: Morpho/Balancer (0%) antes de Aave (0,05%). Aave = 0 (default legado).
+ */
+export enum FlashSource {
+  Aave = 0,     // 0,05% premium, fallback universal
+  Morpho = 1,   // 0% — Morpho Blue singleton
+  Balancer = 2, // 0% — Balancer V2 Vault
+}
+
+/** Fee em basis points por fonte de flashloan (Aave 0,05% = 5 bps; Morpho/Balancer 0%). */
+export const FLASH_SOURCE_PREMIUM_BPS: Record<FlashSource, bigint> = {
+  [FlashSource.Aave]: 5n,
+  [FlashSource.Morpho]: 0n,
+  [FlashSource.Balancer]: 0n,
+};
+
 /** Espelha `struct SwapStep` no ZeusExecutor.sol */
 export interface SwapStep {
   router: Address;
@@ -33,6 +50,7 @@ export interface ArbitrageParams {
   minProfitWei: bigint;
   profitToken: Address;
   profitReceiver: Address;
+  flashSource: FlashSource;
 }
 
 // ─── Tipos da camada off-chain (não vão pro contrato) ───

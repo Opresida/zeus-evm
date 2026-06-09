@@ -254,9 +254,9 @@ def build_story(styles):
     S.append(Spacer(1, 1.5 * cm))
     summary_rows = [
         ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após setup + 2 semanas DRY_RUN"],
-        ["Testes automatizados", "execution-utils 255/255 · mis-scanner 6/6 · contratos 53/53 verde"],
+        ["Testes automatizados", "114 contratos verde (unit + fork Base mainnet) · 7 vitest seletor de flashloan · 0 falhas"],
         ["Workspaces validados", "13/13 typecheck verde"],
-        ["Última atualização", "29/05: Avalanche code-ready (Motor 1) · 28/05: Motor 2 radar MIS (multicall + derivação + flash sizing)"],
+        ["Última atualização", "09/06: flashloan multi-fonte 0% (Morpho + Balancer → Aave) validado on-chain · 29/05: Avalanche code-ready"],
         ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN (edge JÁ decidido — Fase 4c)"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
@@ -806,6 +806,89 @@ def build_story(styles):
         "Como rodar: pnpm contracts:test:fork (usa Alchemy automático via ALCHEMY_API_KEY do .env). "
         "Confirmação read-only de endereços/ABIs: apps/mis-scanner/scripts/confirmOnchain.ts.",
         styles["small"]
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.7 FLASHLOAN MULTI-FONTE 0% ─────
+    S.append(Paragraph("5.7 Flashloan multi-fonte 0% — Morpho + Balancer (2026-06-09)", styles["h2"]))
+    S.append(Paragraph(
+        "Até agora, TODA operação do ZEUS pegava o empréstimo-relâmpago (flashloan) na Aave V3, que "
+        "cobra 0,05% de taxa SEMPRE — inclusive nas liquidations de Morpho, onde o próprio Morpho "
+        "emprestaria de graça. Inspirado na documentação de flashloans da Enso, tornamos a FONTE do "
+        "empréstimo selecionável: o ZEUS agora escolhe a mais barata COM liquidez — prioridade "
+        "Morpho (0%) → Balancer (0%) → Aave (0,05%, sempre disponível como rede de segurança). "
+        "Vale pros 3 contratos (Liquidator, ArbExecutor, Moonwell).",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "É como pegar dinheiro emprestado pra quitar uma dívida: você estava indo no banco que cobra "
+        "juros (Aave 0,05%) toda vez — mesmo quando o banco da esquina te emprestaria DE GRAÇA pra "
+        "isso. Agora o ZEUS olha primeiro o de graça (Morpho/Balancer) e só usa o que cobra juros se "
+        "os de graça não tiverem o valor na hora.",
+        styles
+    ))
+    S.append(Paragraph(
+        "Por que importa em dinheiro: num flash de US$ 50k, 0,05% = US$ 25 jogados fora por operação. "
+        "Pior: numa liquidation disputada (vários bots brigando), esses 0,05% são exatamente a "
+        "diferença entre fechar no lucro e reverter. Eliminar a taxa aumenta o win rate marginal.",
+        styles["body"]
+    ))
+    fontes_rows = [
+        ["Fonte", "Taxa", "Liquidez disponível"],
+        ["Morpho Blue", "0%", "Saldo inteiro do token no singleton (todos os mercados + colateral somados) — funda em tokens majoritários"],
+        ["Balancer V2 Vault", "0%", "Saldo do token no Vault — funda em WETH/USDC"],
+        ["Aave V3 (fallback)", "0,05%", "Universal — presente em quase todo token; rede de segurança"],
+    ]
+    S.append(table_grid(fontes_rows, [3.6 * cm, 1.8 * cm, 11.1 * cm]))
+
+    S.append(Paragraph("Segurança: o vetor de hijack do Balancer (e como foi fechado)", styles["h3"]))
+    S.append(Paragraph(
+        "O callback do Balancer tem um risco real: qualquer um pode chamar o Vault mandando ELE invocar "
+        "nosso contrato com dados maliciosos (o 'msg.sender' seria o Vault legítimo, então passaria a "
+        "checagem ingênua). A defesa é uma 'flag de bilhete' em transient storage: o nosso entrypoint "
+        "marca 'EU iniciei este flash' ANTES de chamar a fonte, e o callback só aceita se o bilhete "
+        "bater. Sem o bilhete, reverte — fechando o vetor. Os cores de liquidation/arb auditados "
+        "ficaram INTACTOS (a taxa já era um parâmetro deles → passar 0 não exigiu reescrevê-los).",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "É como a catraca de um show: o segurança (Vault) pode te levar até a porta, mas só entra quem "
+        "tem a pulseira que NÓS colocamos na entrada. Um impostor que o segurança trouxe sem pulseira "
+        "é barrado na catraca.",
+        styles
+    ))
+
+    S.append(Paragraph("Validação on-chain (fork Base mainnet via Alchemy)", styles["h3"]))
+    S.append(Paragraph(
+        "Rodamos o fluxo ponta-a-ponta contra os contratos REAIS da Base e lemos o trace de execução. "
+        "Confirmado: o Morpho aceitou nosso flashLoan de 100 USDC e transferiu SEM taxa; nosso callback "
+        "onMorphoFlashLoan disparou; a flag anti-hijack foi consumida corretamente; e o fluxo seguiu "
+        "até o liquidationCall (que reverte só porque o usuário de teste é saudável — exatamente onde "
+        "deveria). No Balancer, o trace mostrou feeAmounts=[0] — 0% confirmado on-chain.",
+        styles["body"]
+    ))
+    flash06_rows = [
+        ["O que foi validado", "Resultado"],
+        ["Round-trip Morpho 0% (fork Base real)", "flashLoan aceito → transfer s/ premium → callback → dispatch → revert no HF (correto)"],
+        ["Round-trip Balancer 0% (fork Base real)", "flashLoan aceito → feeAmounts=[0] → receiveFlashLoan → dispatch → revert no HF (correto)"],
+        ["Anti-hijack + caller-spoof (unit)", "Reverte InvalidCaller mesmo fingindo ser o Vault sem a flag"],
+        ["Suíte completa (unit + fork)", "114 testes verdes · 0 falhas · 13/13 typecheck"],
+    ]
+    S.append(table_2col(flash06_rows, col1_w=6.5 * cm, col2_w=10 * cm))
+    S.append(simple_box(
+        "O revert acontecer DENTRO do fluxo (no liquidationCall, porque o usuário de teste é saudável) "
+        "e NÃO na hora de pegar o empréstimo é a prova de que a chamada do flashloan 0% funciona de "
+        "verdade — o Morpho/Balancer emprestou, nosso contrato recebeu e o caminho seguiu. Faltou só "
+        "um devedor de verdade no vermelho pra fechar lucro.",
+        styles
+    ))
+    S.append(simple_box(
+        "RESSALVA HONESTA: isso mexeu em código que já passou por auditoria interna — então NÃO vai pra "
+        "mainnet sem auditoria interna nova + 2 semanas de DRY_RUN, igual à regra de todo o resto. E o "
+        "motor de arbitragem (ArbExecutor) ganhou a CAPACIDADE on-chain, mas o seletor 0% ainda não foi "
+        "ligado a ele (segue em fase radar — usa Aave por padrão lá). O ganho garantido hoje é no Motor 1.",
+        styles
     ))
 
     S.append(PageBreak())

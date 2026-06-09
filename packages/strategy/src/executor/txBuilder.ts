@@ -99,6 +99,7 @@ export function buildArbitrageCalldata(params: BuildArbCalldataParams): Hex {
         minProfitWei: minProfit,
         profitToken: opp.pair.tokenA,
         profitReceiver,
+        flashSource: 0, // FlashSource.Aave — wallet-mode ignora, mas o struct exige o campo
       },
     ],
   });
@@ -131,6 +132,7 @@ export function buildFlashloanCalldata(params: BuildFlashloanCalldataParams): He
         minProfitWei: minProfit,
         profitToken: opp.pair.tokenA,
         profitReceiver,
+        flashSource: 0, // FlashSource.Aave (default; seletor 0% será wired ao motor arb depois)
       },
     ],
   });
@@ -249,6 +251,7 @@ export function buildBackrunCalldata(params: BuildBackrunCalldataParams): Hex {
         profitToken: profitToken ?? opp.pair.tokenA,
         profitReceiver,
         bribe,
+        flashSource: 0, // FlashSource.Aave (default; seletor 0% será wired ao motor backrun depois)
       },
     ],
   });
@@ -287,6 +290,7 @@ export function buildLiquidationWithBribeCalldata(
         swapSteps: params.swapSteps,
         minProfitWei: params.minProfitWei,
         profitReceiver: params.profitReceiver,
+        flashSource: 0, // FlashSource.Aave (default)
       },
       params.bribe,
     ],

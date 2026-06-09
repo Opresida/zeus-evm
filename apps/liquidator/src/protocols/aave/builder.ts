@@ -89,6 +89,7 @@ export function buildLiquidationTx(
     swapSteps,
     minProfitWei: decision.minProfitWei,
     profitReceiver,
+    flashSource: decision.flashSource as number,
   };
 
   // V7: quando bribe configurado, usa variante WithBribe. Caso contrário fallback v6.

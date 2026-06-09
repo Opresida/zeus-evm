@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.27;
 
-import {SwapStep, DexType} from "./IZeusExecutor.sol";
+import {SwapStep, DexType, FlashSource} from "./IZeusExecutor.sol";
 import {BribeConfig} from "./IBribeManager.sol";
 
 /// @notice Parâmetros de uma operação de liquidação Aave V3 (mantida idêntica ao v6/v7 pra compat).
@@ -13,6 +13,7 @@ struct LiquidationParams {
     SwapStep[] swapSteps;
     uint256 minProfitWei;
     address profitReceiver;
+    FlashSource flashSource; // fonte do flashloan (0 = Aave, default legado)
 }
 
 struct CompoundLiquidationParams {
@@ -24,6 +25,7 @@ struct CompoundLiquidationParams {
     SwapStep[] swapSteps;
     uint256 minProfitWei;
     address profitReceiver;
+    FlashSource flashSource; // fonte do flashloan (0 = Aave, default legado)
 }
 
 struct MorphoLiquidationParams {
@@ -40,6 +42,7 @@ struct MorphoLiquidationParams {
     SwapStep[] swapSteps;
     uint256 minProfitWei;
     address profitReceiver;
+    FlashSource flashSource; // fonte do flashloan (0 = Aave, default legado)
 }
 
 /// @notice Discriminator interno pro callback executeOperation.

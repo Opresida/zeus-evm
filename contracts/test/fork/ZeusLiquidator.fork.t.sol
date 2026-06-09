@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BribeManager} from "../../src/BribeManager.sol";
 import {ZeusLiquidator} from "../../src/ZeusLiquidator.sol";
 import {IZeusLiquidator, LiquidationParams} from "../../src/interfaces/IZeusLiquidator.sol";
-import {SwapStep, DexType} from "../../src/interfaces/IZeusExecutor.sol";
+import {SwapStep, DexType, FlashSource} from "../../src/interfaces/IZeusExecutor.sol";
 import {BribeConfig} from "../../src/interfaces/IBribeManager.sol";
 
 /// @title ZeusLiquidator fork tests — wire + callback security em Base mainnet.
@@ -24,6 +24,8 @@ import {BribeConfig} from "../../src/interfaces/IBribeManager.sol";
 contract ZeusLiquidatorForkTest is Test {
     // Base mainnet
     address constant AAVE_V3_POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
+    address constant MORPHO_SINGLETON = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address constant BALANCER_VAULT = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address constant WETH = 0x4200000000000000000000000000000000000006;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address constant SWAP_ROUTER_V3 = 0x2626664c2603336E57B271c5C0b26F421741e481;
@@ -46,7 +48,7 @@ contract ZeusLiquidatorForkTest is Test {
         vm.createSelectFork(rpc, FORK_BLOCK);
 
         bribeManager = new BribeManager();
-        liquidator = new ZeusLiquidator(AAVE_V3_POOL, address(bribeManager), owner, INITIAL_MAX_TRADE);
+        liquidator = new ZeusLiquidator(AAVE_V3_POOL, MORPHO_SINGLETON, BALANCER_VAULT, address(bribeManager), owner, INITIAL_MAX_TRADE);
 
         vm.startPrank(owner);
         liquidator.setWeth(WETH);
@@ -114,13 +116,57 @@ contract ZeusLiquidatorForkTest is Test {
             debtToCover: 100e6, // 100 USDC
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
 
         vm.prank(operator);
         // Aave reverte com erro custom (NotLiquidatable / HealthFactor okay) —
         // não conseguimos prever o seletor exato, então usa expectRevert genérico.
         vm.expectRevert();
+        liquidator.executeLiquidation(p);
+    }
+
+    /// @dev Mesmo round-trip, mas financiado pelo flashloan 0% do Morpho Blue (singleton real na Base).
+    ///      Valida que o Morpho aceitou nosso flashLoan(USDC, ...), invocou onMorphoFlashLoan, o decode
+    ///      + flag transiente funcionaram, e o fluxo chegou no liquidationCall (que reverte por HF).
+    function test_Fork_ExecuteLiquidation_FlashSourceMorpho_RoundTrip() public {
+        SwapStep[] memory steps;
+        LiquidationParams memory p = LiquidationParams({
+            user: makeAddr("notUnderwaterUser"),
+            collateralAsset: WETH,
+            debtAsset: USDC,
+            debtToCover: 100e6,
+            swapSteps: steps,
+            minProfitWei: 1,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Morpho
+        });
+
+        vm.prank(operator);
+        vm.expectRevert(); // reverte no liquidationCall (HF ok), não na iniciação do flash
+        liquidator.executeLiquidation(p);
+    }
+
+    /// @dev Round-trip financiado pelo flashloan 0% do Balancer V2 Vault (real na Base).
+    ///      Valida flashLoan(recipient, [USDC], [amount], ...) → receiveFlashLoan → flag transiente
+    ///      → dispatch → liquidationCall (reverte por HF). Prova que a flag anti-hijack é setada
+    ///      pelo entrypoint e consumida corretamente no caminho legítimo.
+    function test_Fork_ExecuteLiquidation_FlashSourceBalancer_RoundTrip() public {
+        SwapStep[] memory steps;
+        LiquidationParams memory p = LiquidationParams({
+            user: makeAddr("notUnderwaterUser"),
+            collateralAsset: WETH,
+            debtAsset: USDC,
+            debtToCover: 100e6,
+            swapSteps: steps,
+            minProfitWei: 1,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Balancer
+        });
+
+        vm.prank(operator);
+        vm.expectRevert(); // reverte no liquidationCall (HF ok), não na iniciação do flash
         liquidator.executeLiquidation(p);
     }
 
@@ -137,7 +183,8 @@ contract ZeusLiquidatorForkTest is Test {
             debtToCover: 100e6, // > maxTrade USDC (50e6)
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
 
         vm.prank(operator);
@@ -163,7 +210,8 @@ contract ZeusLiquidatorForkTest is Test {
             debtToCover: 100e6,
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
 
         vm.prank(operator);

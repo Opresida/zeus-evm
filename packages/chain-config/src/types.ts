@@ -78,6 +78,12 @@ export interface ChainConfig {
     morphoBlue: Address;
   };
 
+  /** Balancer V2 Vault — fonte de flashloan 0% (endereço canônico em todas as chains EVM).
+   *  Usado pelo seletor de fonte de flashloan como alternativa 0% à Aave (0,05%). */
+  balancer?: {
+    vault: Address;
+  };
+
   /** Moonwell (Compound V2 fork) — Comptroller. mTokens via getAllMarkets() on-chain. */
   moonwell?: {
     comptroller: Address;

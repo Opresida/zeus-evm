@@ -48,6 +48,15 @@ interface IMorpho {
         bytes calldata data
     ) external returns (uint256 assetsLiquidated, uint256 seizedAssetsReturned);
 
+    /// @notice Flashloan a 0% de fee do saldo do singleton (liquidez + colateral de todos os markets combinados).
+    /// @dev O singleton transfere `assets` do `token` pro caller, invoca `onMorphoFlashLoan(assets, data)`
+    ///      no caller, e ao retornar puxa de volta EXATAMENTE `assets` via transferFrom (sem premium).
+    ///      O caller DEVE ter aprovado o singleton pra `assets` ao fim do callback.
+    /// @param token endereço do ERC20 a emprestar
+    /// @param assets quantidade (wei). Máx = saldo do token no singleton.
+    /// @param data payload arbitrário repassado pro callback onMorphoFlashLoan
+    function flashLoan(address token, uint256 assets, bytes calldata data) external;
+
     /// @notice Lê position de um borrower em um market
     /// @param id market id (hash do MarketParams)
     /// @param user borrower address
@@ -58,4 +67,13 @@ interface IMorpho {
 
     /// @notice Lê params de um market dado seu id
     function idToMarketParams(bytes32 id) external view returns (MarketParams memory);
+}
+
+/// @title IMorphoFlashLoanCallback — callback que o tomador do flashloan Morpho deve implementar.
+/// @dev Invocado pelo singleton DENTRO de `flashLoan`. Note que o callback NÃO recebe o endereço
+///      do token — o tomador deve re-derivá-lo do `data` que ele mesmo encodou.
+interface IMorphoFlashLoanCallback {
+    /// @param assets quantidade emprestada (= a quantia a repagar, fee 0%)
+    /// @param data payload que o tomador passou pra `flashLoan`
+    function onMorphoFlashLoan(uint256 assets, bytes calldata data) external;
 }

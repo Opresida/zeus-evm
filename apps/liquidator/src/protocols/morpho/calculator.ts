@@ -21,6 +21,7 @@ import {
   type Quote,
 } from '@zeus-evm/dex-adapters';
 import { cachedQuoteUniswapV3, estimateUsd } from '@zeus-evm/execution-utils';
+import { FlashSource } from '../../types';
 
 import type { LiquidatorEnv } from '../../config';
 import type { MorphoLiquidatablePosition, LiquidationDecision } from '../../types';
@@ -163,6 +164,9 @@ export async function calculateOptimalMorphoLiquidation(
     expectedProfitUsd: netProfitUsd,
     estimatedSlippageBps: slippageBps,
     minProfitWei: (profitWei * 7n) / 10n, // 70% floor (margem segurança)
+    // Default Aave; pipeline sobrescreve via seletor (Morpho 0% é o ganho óbvio aqui).
+    flashSource: FlashSource.Aave,
+    flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
   };
 
   return { ok: true, decision, plan, expectedSwapOutputWei: quote.amountOut };

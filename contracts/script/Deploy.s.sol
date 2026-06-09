@@ -40,6 +40,12 @@ contract DeployScript is Script {
     address constant AAVE_V3_POOL_POLYGON = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
     address constant AAVE_V3_POOL_AVALANCHE = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
 
+    // ─── Fontes de flashloan 0% (prioridade econômica sobre Aave) ───
+    // Morpho Blue: singleton deterministic-deploy, mesmo endereço em Base/Ethereum (e default p/ demais).
+    address constant MORPHO_SINGLETON_CANONICAL = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    // Balancer V2 Vault: endereço canônico em TODAS as chains EVM (Base/ETH/Arb/OP/Polygon/Avalanche).
+    address constant BALANCER_VAULT_CANONICAL = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
+
     // ─── WETH9 + UniV3 SwapRouter02 (pra bribe via swap inline) ───
     address constant WETH_BASE_MAINNET = 0x4200000000000000000000000000000000000006;
     address constant UNIV3_SWAP_ROUTER_BASE_MAINNET = 0x2626664c2603336E57B271c5C0b26F421741e481;
@@ -73,6 +79,8 @@ contract DeployScript is Script {
         )
     {
         address aavePool = _resolveAavePool();
+        address morpho = _resolveMorpho();
+        address balancer = _resolveBalancer();
         address owner = _resolveOwner();
         uint256 maxTradeWei = _resolveMaxTradeWei();
         (address weth, address swapRouter) = _resolveWethAndSwapRouter();
@@ -80,6 +88,8 @@ contract DeployScript is Script {
         console2.log("=== Zeus Deploy v8 (3 contracts) ===");
         console2.log("Chain ID:", block.chainid);
         console2.log("Aave V3 Pool:", aavePool);
+        console2.log("Morpho singleton:", morpho);
+        console2.log("Balancer V2 Vault:", balancer);
         console2.log("Initial owner:", owner);
         console2.log("Initial maxTradeWei:", maxTradeWei);
         console2.log("WETH:", weth);
@@ -91,15 +101,15 @@ contract DeployScript is Script {
         // 1) Deploy BribeManager (compartilhado pelos 2 executors)
         bribeManager = new BribeManager();
 
-        // 2) Deploy ZeusLiquidator (recebe BribeManager imutável)
-        liquidator = new ZeusLiquidator(aavePool, address(bribeManager), owner, maxTradeWei);
+        // 2) Deploy ZeusLiquidator (recebe BribeManager imutável + fontes de flashloan)
+        liquidator = new ZeusLiquidator(aavePool, morpho, balancer, address(bribeManager), owner, maxTradeWei);
         if (owner == msg.sender) {
             if (weth != address(0)) liquidator.setWeth(weth);
             if (swapRouter != address(0)) liquidator.setUniV3SwapRouter(swapRouter);
         }
 
-        // 3) Deploy ZeusArbExecutor (recebe MESMO BribeManager imutável)
-        arbExecutor = new ZeusArbExecutor(aavePool, address(bribeManager), owner, maxTradeWei);
+        // 3) Deploy ZeusArbExecutor (recebe MESMO BribeManager imutável + fontes de flashloan)
+        arbExecutor = new ZeusArbExecutor(aavePool, morpho, balancer, address(bribeManager), owner, maxTradeWei);
         if (owner == msg.sender) {
             if (weth != address(0)) arbExecutor.setWeth(weth);
             if (swapRouter != address(0)) arbExecutor.setUniV3SwapRouter(swapRouter);
@@ -107,7 +117,7 @@ contract DeployScript is Script {
 
         // 4) Deploy ZeusMoonwellLiquidator (Moonwell = Compound V2 fork; contrato próprio por EIP-170).
         //    NÃO usa BribeManager. Owner precisa revive() + setOperator() pós-deploy.
-        moonwellLiquidator = new ZeusMoonwellLiquidator(aavePool, owner, maxTradeWei);
+        moonwellLiquidator = new ZeusMoonwellLiquidator(aavePool, morpho, balancer, owner, maxTradeWei);
 
         vm.stopBroadcast();
 
@@ -147,6 +157,24 @@ contract DeployScript is Script {
         } catch {}
 
         revert("Unsupported chain - set DEPLOY_AAVE_V3_POOL_OVERRIDE env var");
+    }
+
+    /// @dev Morpho Blue singleton. Override via env p/ chains onde o endereço diverge do canônico.
+    ///      Nunca retorna address(0): em chains sem Morpho, o canônico é placeholder não-zero (a fonte
+    ///      Morpho simplesmente nunca é selecionada off-chain ali — fluxos usam Aave).
+    function _resolveMorpho() internal view returns (address) {
+        try vm.envAddress("DEPLOY_MORPHO_SINGLETON_OVERRIDE") returns (address o) {
+            if (o != address(0)) return o;
+        } catch {}
+        return MORPHO_SINGLETON_CANONICAL;
+    }
+
+    /// @dev Balancer V2 Vault. Endereço canônico em todas as chains EVM; override disponível p/ robustez.
+    function _resolveBalancer() internal view returns (address) {
+        try vm.envAddress("DEPLOY_BALANCER_VAULT_OVERRIDE") returns (address o) {
+            if (o != address(0)) return o;
+        } catch {}
+        return BALANCER_VAULT_CANONICAL;
     }
 
     function _resolveOwner() internal view returns (address) {

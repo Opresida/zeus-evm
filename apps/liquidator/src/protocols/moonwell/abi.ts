@@ -134,6 +134,7 @@ export const ZEUS_MOONWELL_LIQUIDATOR_ABI = [
           },
           { type: 'uint256', name: 'minProfitWei' },
           { type: 'address', name: 'profitReceiver' },
+          { type: 'uint8', name: 'flashSource' },
         ],
       },
     ],

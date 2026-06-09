@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.27;
 
-import {SwapStep} from "./IZeusExecutor.sol";
+import {SwapStep, FlashSource} from "./IZeusExecutor.sol";
 
 /// @notice Params pra liquidation Moonwell (Compound V2 fork).
 /// @dev Fluxo: flashloan borrowedUnderlying → liquidateBorrow → redeem mTokenCollateral
@@ -24,6 +24,7 @@ struct MoonwellLiquidationParams {
     SwapStep[] swapSteps;
     uint256 minProfitWei;
     address profitReceiver;
+    FlashSource flashSource; // fonte do flashloan (0 = Aave, default legado)
 }
 
 /// @title IZeusMoonwellLiquidator — interface do contrato dedicado a liquidations Moonwell.

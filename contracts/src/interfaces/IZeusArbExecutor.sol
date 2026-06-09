@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.27;
 
-import {SwapStep, ArbitrageParams, DexType} from "./IZeusExecutor.sol";
+import {SwapStep, ArbitrageParams, DexType, FlashSource} from "./IZeusExecutor.sol";
 import {BribeConfig} from "./IBribeManager.sol";
 
 /// @notice Parâmetros do backrun de dislocation cross-DEX. Reusa SwapStep do v6.
@@ -11,6 +11,7 @@ struct BackrunParams {
     address profitToken;
     address profitReceiver;
     BribeConfig bribe;
+    FlashSource flashSource; // fonte do flashloan (0 = Aave, default legado)
 }
 
 enum ArbOpType {

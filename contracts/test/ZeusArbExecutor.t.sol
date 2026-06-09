@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BribeManager} from "../src/BribeManager.sol";
 import {ZeusArbExecutor} from "../src/ZeusArbExecutor.sol";
 import {IZeusArbExecutor, BackrunParams} from "../src/interfaces/IZeusArbExecutor.sol";
-import {SwapStep, ArbitrageParams, DexType} from "../src/interfaces/IZeusExecutor.sol";
+import {SwapStep, ArbitrageParams, DexType, FlashSource} from "../src/interfaces/IZeusExecutor.sol";
 import {BribeConfig} from "../src/interfaces/IBribeManager.sol";
 
 /// @title ZeusArbExecutorTest — adversariais cobrindo:
@@ -25,6 +25,8 @@ contract ZeusArbExecutorTest is Test {
     address public profitReceiver = makeAddr("profitReceiver");
 
     address constant FAKE_AAVE_POOL = address(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5);
+    address constant FAKE_MORPHO = address(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
+    address constant FAKE_BALANCER = address(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
     address constant FAKE_USDC = address(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
     address constant FAKE_WETH = address(0x4200000000000000000000000000000000000006);
 
@@ -32,7 +34,8 @@ contract ZeusArbExecutorTest is Test {
 
     function setUp() public {
         bribeManager = new BribeManager();
-        arbExecutor = new ZeusArbExecutor(FAKE_AAVE_POOL, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+        arbExecutor =
+            new ZeusArbExecutor(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
         vm.startPrank(owner);
         arbExecutor.revive();
         arbExecutor.setOperator(operator, true);
@@ -52,13 +55,28 @@ contract ZeusArbExecutorTest is Test {
 
     function test_Constructor_RevertsOnZeroBribeManager() public {
         vm.expectRevert(IZeusArbExecutor.NotAuthorized.selector);
-        new ZeusArbExecutor(FAKE_AAVE_POOL, address(0), owner, INITIAL_MAX_TRADE_WEI);
+        new ZeusArbExecutor(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(0), owner, INITIAL_MAX_TRADE_WEI);
+    }
+
+    function test_Constructor_RevertsOnZeroMorpho() public {
+        vm.expectRevert(IZeusArbExecutor.NotAuthorized.selector);
+        new ZeusArbExecutor(FAKE_AAVE_POOL, address(0), FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+    }
+
+    function test_Constructor_RevertsOnZeroBalancer() public {
+        vm.expectRevert(IZeusArbExecutor.NotAuthorized.selector);
+        new ZeusArbExecutor(FAKE_AAVE_POOL, FAKE_MORPHO, address(0), address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
     }
 
     function test_Constructor_StartsKilled() public {
         ZeusArbExecutor fresh =
-            new ZeusArbExecutor(FAKE_AAVE_POOL, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+            new ZeusArbExecutor(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
         assertTrue(fresh.isKilled());
+    }
+
+    function test_Constructor_SetsFlashSourceImmutables() public view {
+        assertEq(arbExecutor.MORPHO_SINGLETON(), FAKE_MORPHO);
+        assertEq(arbExecutor.BALANCER_VAULT(), FAKE_BALANCER);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -203,7 +221,8 @@ contract ZeusArbExecutorTest is Test {
             steps: steps,
             minProfitWei: 1,
             profitToken: FAKE_USDC,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
     }
 
@@ -220,7 +239,8 @@ contract ZeusArbExecutorTest is Test {
                 bribeMaxBps: 0,
                 swapFeeTier: 0,
                 swapSlippageBps: 0
-            })
+            }),
+            flashSource: FlashSource.Aave
         });
     }
 

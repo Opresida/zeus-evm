@@ -8,6 +8,24 @@ export type { AaveLiquidatablePosition } from '@zeus-evm/aave-discovery';
 
 import type { Address } from 'viem';
 
+/**
+ * Fonte do flashloan (deve bater com `enum FlashSource` no Solidity e em @zeus-evm/shared-types).
+ * Definido localmente pra evitar adicionar dependência nova (pnpm install é bloqueado no repo).
+ * Prioridade econômica: Morpho/Balancer (0%) antes de Aave (0,05%). Aave = 0 (default legado).
+ */
+export enum FlashSource {
+  Aave = 0,
+  Morpho = 1,
+  Balancer = 2,
+}
+
+/** Fee em basis points por fonte (Aave 0,05% = 5 bps; Morpho/Balancer 0%). */
+export const FLASH_SOURCE_PREMIUM_BPS: Record<FlashSource, bigint> = {
+  [FlashSource.Aave]: 5n,
+  [FlashSource.Morpho]: 0n,
+  [FlashSource.Balancer]: 0n,
+};
+
 /** Position liquidável detectada em Morpho Blue (market isolado). */
 export interface MorphoLiquidatablePosition {
   /** Market id (keccak256 dos marketParams). */
@@ -91,6 +109,13 @@ export interface LiquidationDecision {
   estimatedSlippageBps: number;
   /** Min profit threshold em wei (pra encodar no params). */
   minProfitWei: bigint;
+  /**
+   * Fonte do flashloan escolhida pelo seletor (default Aave). Encodada no struct on-chain.
+   * Morpho/Balancer = 0% premium; Aave = 0,05%.
+   */
+  flashSource: FlashSource;
+  /** Premium da fonte em bps (0 pra Morpho/Balancer, 5 pra Aave) — usado no profit math. */
+  flashPremiumBps: bigint;
   /** Razão se decision = null (descarte). */
   rejectReason?: string;
 }

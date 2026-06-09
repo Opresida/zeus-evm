@@ -10,8 +10,9 @@ import {
     CompoundLiquidationParams,
     MorphoLiquidationParams
 } from "../src/interfaces/IZeusLiquidator.sol";
-import {SwapStep, DexType} from "../src/interfaces/IZeusExecutor.sol";
+import {SwapStep, DexType, FlashSource} from "../src/interfaces/IZeusExecutor.sol";
 import {BribeConfig} from "../src/interfaces/IBribeManager.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title ZeusLiquidatorTest — adversariais cobrindo:
 ///   1. Constructor (BribeManager + Aave Pool + owner + maxTrade)
@@ -30,6 +31,8 @@ contract ZeusLiquidatorTest is Test {
     address public profitReceiver = makeAddr("profitReceiver");
 
     address constant FAKE_AAVE_POOL = address(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5);
+    address constant FAKE_MORPHO = address(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb);
+    address constant FAKE_BALANCER = address(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
     address constant FAKE_USDC = address(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
     address constant FAKE_WETH = address(0x4200000000000000000000000000000000000006);
     address constant FAKE_UNIV3 = address(0x2626664c2603336E57B271c5C0b26F421741e481);
@@ -38,7 +41,8 @@ contract ZeusLiquidatorTest is Test {
 
     function setUp() public {
         bribeManager = new BribeManager();
-        liquidator = new ZeusLiquidator(FAKE_AAVE_POOL, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+        liquidator =
+            new ZeusLiquidator(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
         vm.startPrank(owner);
         liquidator.revive();
         liquidator.setOperator(operator, true);
@@ -58,25 +62,79 @@ contract ZeusLiquidatorTest is Test {
 
     function test_Constructor_RevertsOnZeroAavePool() public {
         vm.expectRevert(IZeusLiquidator.NotAuthorized.selector);
-        new ZeusLiquidator(address(0), address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+        new ZeusLiquidator(address(0), FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+    }
+
+    function test_Constructor_RevertsOnZeroMorpho() public {
+        vm.expectRevert(IZeusLiquidator.NotAuthorized.selector);
+        new ZeusLiquidator(FAKE_AAVE_POOL, address(0), FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
+    }
+
+    function test_Constructor_RevertsOnZeroBalancer() public {
+        vm.expectRevert(IZeusLiquidator.NotAuthorized.selector);
+        new ZeusLiquidator(FAKE_AAVE_POOL, FAKE_MORPHO, address(0), address(bribeManager), owner, INITIAL_MAX_TRADE_WEI);
     }
 
     function test_Constructor_RevertsOnZeroBribeManager() public {
         vm.expectRevert(IZeusLiquidator.NotAuthorized.selector);
-        new ZeusLiquidator(FAKE_AAVE_POOL, address(0), owner, INITIAL_MAX_TRADE_WEI);
+        new ZeusLiquidator(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(0), owner, INITIAL_MAX_TRADE_WEI);
     }
 
     function test_Constructor_RevertsOnZeroOwner() public {
         vm.expectRevert();
-        new ZeusLiquidator(FAKE_AAVE_POOL, address(bribeManager), address(0), INITIAL_MAX_TRADE_WEI);
+        new ZeusLiquidator(FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), address(0), INITIAL_MAX_TRADE_WEI);
     }
 
     function test_Constructor_StartsKilled() public {
         // Deploy novo (sem o revive do setUp)
         ZeusLiquidator fresh = new ZeusLiquidator(
-            FAKE_AAVE_POOL, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI
+            FAKE_AAVE_POOL, FAKE_MORPHO, FAKE_BALANCER, address(bribeManager), owner, INITIAL_MAX_TRADE_WEI
         );
         assertTrue(fresh.isKilled());
+    }
+
+    function test_Constructor_SetsFlashSourceImmutables() public view {
+        assertEq(liquidator.MORPHO_SINGLETON(), FAKE_MORPHO);
+        assertEq(liquidator.BALANCER_VAULT(), FAKE_BALANCER);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Callbacks multi-fonte — autenticação + anti-hijack (controle crítico)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// @dev EOA aleatório não pode invocar o callback do Morpho (só o singleton).
+    function test_OnMorphoFlashLoan_RejectsNonSingletonCaller() public {
+        vm.prank(unauthorized);
+        vm.expectRevert(IZeusLiquidator.InvalidCaller.selector);
+        liquidator.onMorphoFlashLoan(100e6, bytes(""));
+    }
+
+    /// @dev EOA aleatório não pode invocar o callback do Balancer (só o Vault).
+    function test_ReceiveFlashLoan_RejectsNonVaultCaller() public {
+        IERC20[] memory tokens = new IERC20[](1);
+        tokens[0] = IERC20(FAKE_USDC);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 100e6;
+        uint256[] memory fees = new uint256[](1);
+
+        vm.prank(unauthorized);
+        vm.expectRevert(IZeusLiquidator.InvalidCaller.selector);
+        liquidator.receiveFlashLoan(tokens, amounts, fees, bytes(""));
+    }
+
+    /// @dev 🔴 TESTE CRÍTICO: hijack do Balancer. Mesmo COM msg.sender == Vault (o atacante
+    ///      chama `vault.flashLoan(NÓS, ...)`), o callback DEVE reverter porque a flag transiente
+    ///      "eu iniciei isso" não foi setada por nenhum entrypoint nosso.
+    function test_ReceiveFlashLoan_RejectsHijackWithoutFlag() public {
+        IERC20[] memory tokens = new IERC20[](1);
+        tokens[0] = IERC20(FAKE_USDC);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 100e6;
+        uint256[] memory fees = new uint256[](1);
+
+        vm.prank(FAKE_BALANCER); // finge ser o Vault — passa o 1º gate
+        vm.expectRevert(IZeusLiquidator.InvalidCaller.selector); // mas a flag não está setada
+        liquidator.receiveFlashLoan(tokens, amounts, fees, bytes(""));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -275,7 +333,8 @@ contract ZeusLiquidatorTest is Test {
             debtToCover: 100e6,
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
     }
 
@@ -289,14 +348,15 @@ contract ZeusLiquidatorTest is Test {
             minCollateralReceived: 1,
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
     }
 
     function _emptyMorphoParams() internal view returns (MorphoLiquidationParams memory) {
         SwapStep[] memory steps;
         return MorphoLiquidationParams({
-            morpho: address(0xBEEF),
+            morpho: FAKE_MORPHO,
             loanToken: FAKE_USDC,
             collateralToken: FAKE_WETH,
             oracle: address(0xACE1),
@@ -308,7 +368,8 @@ contract ZeusLiquidatorTest is Test {
             flashloanAmount: 100e6,
             swapSteps: steps,
             minProfitWei: 1,
-            profitReceiver: profitReceiver
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
         });
     }
 }

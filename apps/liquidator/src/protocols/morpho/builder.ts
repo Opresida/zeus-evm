@@ -77,6 +77,7 @@ export function buildMorphoLiquidationTx(
     swapSteps,
     minProfitWei: decision.minProfitWei,
     profitReceiver,
+    flashSource: decision.flashSource as number,
   };
 
   const data = encodeFunctionData({

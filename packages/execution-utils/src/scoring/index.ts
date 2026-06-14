@@ -14,3 +14,38 @@ export {
   type ChainScore,
   type ScoreComponents,
 } from './chainProfitabilityScorer';
+
+// ─── OIE Fase 4 — Opportunity Score (primitivo de ranking universal) ───
+export {
+  scoreOpportunity,
+  rankOpportunities,
+  OPPORTUNITY_WEIGHTS,
+  OPPORTUNITY_NORMALIZE,
+  type OpportunityScoreInput,
+  type OpportunityScore,
+  type OpportunityScoreComponents,
+  type RankedOpportunity,
+} from './opportunityScorer';
+
+// ─── OIE Fases 2-3 — Protocol / Pool / Token Score ───
+export {
+  scoreDimension,
+  rankDimension,
+  formatDimensionRankingMarkdown,
+  DIMENSION_WEIGHTS,
+  DIMENSION_NORMALIZE,
+  type Dimension,
+  type DimensionStats,
+  type DimensionScore,
+  type DimensionScoreComponents,
+  type DimensionScoreOpts,
+  type DimensionWeights,
+} from './dimensionScorer';
+
+export {
+  queryDimensionStats,
+  buildDimensionStatsSql,
+  SUCCESS_CATEGORIES,
+  FAILED_CATEGORIES,
+  type DimensionStatsQueryOpts,
+} from './dimensionStatsQuery';

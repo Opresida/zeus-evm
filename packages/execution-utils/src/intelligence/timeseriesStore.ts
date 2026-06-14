@@ -261,7 +261,14 @@ export class TimeseriesStore {
         } else if (typeof v === 'number') {
           // Distingue int vs double pra binding correto
           if (Number.isInteger(v)) {
-            prepared.bindInteger(i + 1, v);
+            // INTEGER do DuckDB é INT32 — `timestamp` (Unix ms, ~1.7e12) estoura.
+            // Inteiros fora do range de 32 bits vão como BIGINT (coluna timestamp é BIGINT,
+            // usada pras rolling windows de scoring/analytics).
+            if (v > 2_147_483_647 || v < -2_147_483_648) {
+              prepared.bindBigInt(i + 1, BigInt(v));
+            } else {
+              prepared.bindInteger(i + 1, v);
+            }
           } else {
             prepared.bindDouble(i + 1, v);
           }

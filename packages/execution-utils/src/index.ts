@@ -348,6 +348,37 @@ export {
   type ScoreComponents,
 } from './scoring';
 
+// ─── OIE Master Blueprint — Opportunity / Protocol / Pool / Token Score ───
+export {
+  // Opportunity Score (Fase 4 — ranking universal por EV)
+  scoreOpportunity,
+  rankOpportunities,
+  OPPORTUNITY_WEIGHTS,
+  OPPORTUNITY_NORMALIZE,
+  type OpportunityScoreInput,
+  type OpportunityScore,
+  type OpportunityScoreComponents,
+  type RankedOpportunity,
+  // Protocol / Pool / Token Score (Fases 2-3)
+  scoreDimension,
+  rankDimension,
+  formatDimensionRankingMarkdown,
+  DIMENSION_WEIGHTS,
+  DIMENSION_NORMALIZE,
+  type Dimension,
+  type DimensionStats,
+  type DimensionScore,
+  type DimensionScoreComponents,
+  type DimensionScoreOpts,
+  type DimensionWeights,
+  // Agregação DuckDB → DimensionStats
+  queryDimensionStats,
+  buildDimensionStatsSql,
+  SUCCESS_CATEGORIES,
+  FAILED_CATEGORIES,
+  type DimensionStatsQueryOpts,
+} from './scoring';
+
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───
 export {
   subscribeWhaleSwaps,

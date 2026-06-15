@@ -8,7 +8,10 @@ import {
   scoreOpportunity,
   rankOpportunities,
   scoreBackrunOpportunity,
+  scoreLiquidationOpportunity,
+  oevRecaptureFor,
   GAS_WAR_PRIORS,
+  OEV_RECAPTURE_PRIORS,
   OPPORTUNITY_WEIGHTS,
 } from '../src/scoring';
 
@@ -130,5 +133,50 @@ describe('scoreBackrunOpportunity — competitor-aware via gas war', () => {
     const comBribe = scoreBackrunOpportunity({ profitUsd: 50, gasUsd: 2, bribeUsd: 20, gasWarLevel: 'normal' });
     expect(comBribe.evUsd).toBeLessThan(semBribe.evUsd);
     expect(comBribe.netProfitUsd).toBe(28); // 50 - 2 - 20
+  });
+});
+
+describe('scoreLiquidationOpportunity — OEV-aware (prioriza Morpho)', () => {
+  it('oevRecaptureFor mapeia protocolos corretamente', () => {
+    expect(oevRecaptureFor('morpho-blue')).toBe(0);
+    expect(oevRecaptureFor('aave-v3')).toBe(OEV_RECAPTURE_PRIORS.aave);
+    expect(oevRecaptureFor('compound-v3')).toBe(OEV_RECAPTURE_PRIORS.compound);
+    expect(oevRecaptureFor('moonwell')).toBe(OEV_RECAPTURE_PRIORS.moonwell);
+    // fork de Aave (label sem 'aave', ex.: Seamless) → aberto (0)
+    expect(oevRecaptureFor('seamless')).toBe(0);
+    // desconhecido → 0 (não penaliza)
+    expect(oevRecaptureFor('qualquer-coisa')).toBe(0);
+  });
+
+  it('mesma liquidação: Morpho domina Aave/Compound/Moonwell pós-OEV', () => {
+    const base = { profitUsd: 100, gasUsd: 1, slippageBps: 30 };
+    const morpho = scoreLiquidationOpportunity({ ...base, protocol: 'morpho-blue' });
+    const aave = scoreLiquidationOpportunity({ ...base, protocol: 'aave-v3' });
+    const moonwell = scoreLiquidationOpportunity({ ...base, protocol: 'moonwell' });
+
+    // edge realista pós-OEV: morpho mantém $100, aave ~$15, moonwell ~$1
+    expect(morpho.edgeAdjustedProfitUsd).toBe(100);
+    expect(aave.edgeAdjustedProfitUsd).toBeCloseTo(15, 1);
+    expect(moonwell.edgeAdjustedProfitUsd).toBeCloseTo(1, 1);
+
+    // EV e score ordenam morpho > aave > moonwell
+    expect(morpho.evUsd).toBeGreaterThan(aave.evUsd);
+    expect(aave.evUsd).toBeGreaterThan(moonwell.evUsd);
+    expect(morpho.score).toBeGreaterThan(aave.score);
+  });
+
+  it('Moonwell com MEV tax 99%: EV vira quase nada (cai no gate)', () => {
+    const moonwell = scoreLiquidationOpportunity({ profitUsd: 50, gasUsd: 1, protocol: 'moonwell' });
+    // edge = 50 × 0.01 = $0.50, menos gas $1 → líquido negativo
+    expect(moonwell.netProfitUsd).toBeLessThan(0);
+    expect(moonwell.evUsd).toBeLessThan(0);
+  });
+
+  it('override de recapture permite calibração', () => {
+    const s = scoreLiquidationOpportunity({
+      profitUsd: 100, gasUsd: 1, protocol: 'aave-v3', oevRecaptureOverride: 0.5,
+    });
+    expect(s.oevRecapture).toBe(0.5);
+    expect(s.edgeAdjustedProfitUsd).toBe(50);
   });
 });

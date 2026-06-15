@@ -20,15 +20,20 @@ export {
   scoreOpportunity,
   rankOpportunities,
   scoreBackrunOpportunity,
+  scoreLiquidationOpportunity,
+  oevRecaptureFor,
   OPPORTUNITY_WEIGHTS,
   OPPORTUNITY_NORMALIZE,
   GAS_WAR_PRIORS,
+  OEV_RECAPTURE_PRIORS,
   type OpportunityScoreInput,
   type OpportunityScore,
   type OpportunityScoreComponents,
   type RankedOpportunity,
   type GasWarLevel,
   type BackrunOpportunityScoreInput,
+  type LiquidationOpportunityScoreInput,
+  type LiquidationOpportunityScore,
 } from './opportunityScorer';
 
 // ─── OIE Fases 2-3 — Protocol / Pool / Token Score ───

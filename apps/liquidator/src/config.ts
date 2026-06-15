@@ -127,6 +127,17 @@ const envSchema = z.object({
   POOL_LIQUIDITY_CAP_PCT: z.coerce.number().min(0.01).max(0.5).default(0.1),
   /** Gas estimate em USD pra liquidations (Base ~ $0.20-0.50, ajustar via observação). */
   GAS_COST_USD_ESTIMATE: z.coerce.number().positive().default(0.5),
+  /**
+   * OIE Etapa B — gate opt-in por EV ajustado a OEV (prioriza Morpho).
+   * Vazio/ausente = desligado (comportamento inalterado; só loga o score). Quando setado,
+   * descarta liquidações cujo EV REALISTA pós-OEV < este valor (USD) ANTES de gastar gas.
+   * Como Aave/Compound/Moonwell na Base têm OEV capture (~80-99%), elas tendem a cair no
+   * gate e o bot foca em Morpho Blue (recapture 0). Ver docs/refs/competitive-landscape.md.
+   */
+  MIN_OPPORTUNITY_EV_USD: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().optional(),
+  ),
   /** Preço estimado de ETH em USD pra calcular gasCostUsd nos logs.
    *  ⚠️ Hardcoded MVP — refinar via Chainlink oracle on-chain depois. */
   ETH_USD_PRICE_ESTIMATE: z.coerce.number().positive().default(3000),

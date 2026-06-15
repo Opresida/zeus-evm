@@ -44,6 +44,7 @@ import {
   compoundPositionKey,
   morphoPositionKey,
   computeBribeSlippageFloor,
+  scoreLiquidationOpportunity,
   ChainlinkStalenessChecker,
   PauseDetector,
   type PnlTracker,
@@ -180,6 +181,57 @@ async function buildBribeWithSlippageFloor(
     swapFeeTier: env.BRIBE_SWAP_FEE_TIER,
     swapSlippageBps,
   };
+}
+
+/**
+ * OIE Etapa B — gate de edge ciente de OEV (prioriza Morpho).
+ *
+ * Pontua a liquidação pelo lucro REALISTA pós-OEV (Aave/Compound/Moonwell na Base têm
+ * OEV capture ~80-99% via SVR/MEV tax; Morpho segue aberto). Ver
+ * docs/refs/competitive-landscape.md.
+ *
+ * - SEMPRE loga o score (observabilidade) — o operador enxerga quais protocolos viraram
+ *   antieconômicos pós-OEV mesmo com o gate desligado.
+ * - Quando `MIN_OPPORTUNITY_EV_USD` está setado (opt-in), descarta a liquidação cujo EV
+ *   ajustado a OEV fica abaixo do mínimo → o bot foca em Morpho naturalmente.
+ *
+ * Default (env ausente) = comportamento inalterado (só loga).
+ */
+function liquidationEdgeGate(
+  protocol: string,
+  decision: { expectedProfitUsd: number; estimatedSlippageBps?: number },
+  deps: PipelineDeps,
+  borrower: string,
+): { skip: true; reason: string } | { skip: false } {
+  const env = deps.env;
+  const score = scoreLiquidationOpportunity({
+    profitUsd: decision.expectedProfitUsd,
+    gasUsd: env.GAS_COST_USD_ESTIMATE,
+    slippageBps: decision.estimatedSlippageBps ?? 0,
+    protocol,
+    opportunityId: borrower,
+  });
+
+  logger.debug(
+    {
+      protocol,
+      borrower,
+      profitUsdNominal: decision.expectedProfitUsd.toFixed(2),
+      oevRecapturePct: Math.round(score.oevRecapture * 100),
+      edgeAdjustedProfitUsd: score.edgeAdjustedProfitUsd.toFixed(2),
+      evUsd: score.evUsd.toFixed(2),
+      score: score.score,
+    },
+    `🧮 OIE liquidation score (${protocol}): nominal $${decision.expectedProfitUsd.toFixed(2)} → pós-OEV $${score.edgeAdjustedProfitUsd.toFixed(2)} (recapture ${Math.round(score.oevRecapture * 100)}%)`,
+  );
+
+  if (env.MIN_OPPORTUNITY_EV_USD != null && score.evUsd < env.MIN_OPPORTUNITY_EV_USD) {
+    return {
+      skip: true,
+      reason: `OIE edge gate: EV pós-OEV $${score.evUsd.toFixed(2)} < min $${env.MIN_OPPORTUNITY_EV_USD.toFixed(2)} (recapture=${Math.round(score.oevRecapture * 100)}% protocol=${protocol})`,
+    };
+  }
+  return { skip: false };
 }
 
 export async function runAavePipeline(
@@ -348,6 +400,13 @@ async function _runAavePipelineInner(
   }
 
   const decision = outcome.decision;
+
+  // OIE Etapa B — gate de edge ciente de OEV (prioriza Morpho; opt-in via MIN_OPPORTUNITY_EV_USD)
+  const aaveEdge = liquidationEdgeGate(marketLabel, decision, deps, position.borrower);
+  if (aaveEdge.skip) {
+    logger.info({ borrower: position.borrower, reason: aaveEdge.reason }, `⏭️  ${aaveEdge.reason}`);
+    return { status: 'reverted_pre_dispatch', reason: aaveEdge.reason };
+  }
 
   // Gate executor: sem executor deployado, marca como dryrun_skipped
   // (decision foi calculada e LOGADA pelo calculator — alimenta cache + calibração)
@@ -624,6 +683,13 @@ async function _runCompoundPipelineInner(
 
   const decision = outcome.decision;
 
+  // OIE Etapa B — gate de edge ciente de OEV (prioriza Morpho; opt-in via MIN_OPPORTUNITY_EV_USD)
+  const compoundEdge = liquidationEdgeGate('compound-v3', decision, deps, position.borrower);
+  if (compoundEdge.skip) {
+    logger.info({ borrower: position.borrower, reason: compoundEdge.reason }, `⏭️  ${compoundEdge.reason}`);
+    return { status: 'reverted_pre_dispatch', reason: compoundEdge.reason };
+  }
+
   // Gate executor: sem executor, log e retorna dryrun_skipped
   if (!ctx.executorContractAddress) {
     logger.info(
@@ -837,6 +903,13 @@ async function _runMorphoPipelineInner(
   const decision = outcome.decision;
   const plan = outcome.plan;
 
+  // OIE Etapa B — gate de edge ciente de OEV. Morpho tem recapture 0 → edge inteiro preservado.
+  const morphoEdge = liquidationEdgeGate('morpho-blue', decision, deps, position.borrower);
+  if (morphoEdge.skip) {
+    logger.info({ borrower: position.borrower, reason: morphoEdge.reason }, `⏭️  ${morphoEdge.reason}`);
+    return { status: 'reverted_pre_dispatch', reason: morphoEdge.reason };
+  }
+
   // Gate executor: sem executor, loga decision teórica (calibração DRY_RUN)
   if (!ctx.executorContractAddress) {
     logger.info(
@@ -1019,6 +1092,13 @@ async function _runMoonwellPipelineInner(
     return { status: 'reverted_pre_dispatch', reason: outcome.reason ?? 'moonwell calc falhou' };
   }
   const decision = outcome.decision;
+
+  // OIE Etapa B — gate de edge ciente de OEV. Moonwell tem MEV tax (~99% recapture) → tende a cair.
+  const moonwellEdge = liquidationEdgeGate('moonwell', decision, deps, position.borrower);
+  if (moonwellEdge.skip) {
+    logger.info({ borrower: position.borrower, reason: moonwellEdge.reason }, `⏭️  ${moonwellEdge.reason}`);
+    return { status: 'reverted_pre_dispatch', reason: moonwellEdge.reason };
+  }
 
   // Seletor de fonte de flashloan (Morpho/Balancer 0% → Aave 0,05%). Token = borrowedUnderlying.
   const moonwellFlashSel = await selectFlashSource(

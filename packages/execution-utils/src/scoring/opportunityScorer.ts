@@ -167,6 +167,87 @@ export function scoreBackrunOpportunity(input: BackrunOpportunityScoreInput): Op
   });
 }
 
+/**
+ * OEV recapture priors por protocolo (fração [0,1] do valor da liquidação capturada
+ * pelo PROTOCOLO via OEV auction / MEV tax / Chainlink SVR — ou seja, NÃO sobra pro
+ * liquidador externo). Baseado na pesquisa de mercado (ver docs/refs/competitive-landscape.md,
+ * 2026-06): liquidação na Base está se fechando por OEV capture, exceto Morpho Blue.
+ *
+ * Efeito prático: o lucro "realista" de uma liquidação = profit nominal × (1 − recapture).
+ * Isso faz o bot PRIORIZAR Morpho (edge inteiro) e descartar Aave/Compound/Moonwell quando
+ * o que sobra não paga gas+risco. Valores são DEFAULTS calibráveis — ajustar com dado real.
+ */
+export const OEV_RECAPTURE_PRIORS: Record<string, number> = {
+  morpho: 0.0,    // aberto/permissionless — LIF inteiro pro liquidador
+  aave: 0.85,     // Chainlink SVR live na Base (~80-90% recapturado)
+  compound: 0.85, // SVR/Atlas live
+  moonwell: 0.99, // MEV tax / OEV auction on-chain (fev/2025)
+} as const;
+
+/**
+ * Resolve o recapture OEV a partir do label do protocolo. Forks de Aave (ex.: Seamless)
+ * NÃO têm SVR por padrão → tratados como abertos (0). Desconhecido → 0 (não penaliza).
+ */
+export function oevRecaptureFor(protocol: string): number {
+  const p = protocol.toLowerCase();
+  if (p.includes('morpho')) return OEV_RECAPTURE_PRIORS.morpho!;
+  if (p.includes('moonwell')) return OEV_RECAPTURE_PRIORS.moonwell!;
+  if (p.includes('compound')) return OEV_RECAPTURE_PRIORS.compound!;
+  // Só o core Aave V3 tem SVR; forks (labels sem "aave") ficam abertos (0).
+  if (p === 'aave-v3' || p === 'aave' || p.startsWith('aave-v3')) return OEV_RECAPTURE_PRIORS.aave!;
+  return 0;
+}
+
+export interface LiquidationOpportunityScoreInput {
+  /** Lucro bruto esperado (bônus nominal), USD. */
+  profitUsd: number;
+  /** Custo de gas estimado, USD. */
+  gasUsd: number;
+  /** Label do protocolo: 'aave-v3', 'compound-v3', 'morpho-blue', 'moonwell', forks. */
+  protocol: string;
+  /** Slippage esperado em bps. Default 0. */
+  slippageBps?: number;
+  /** Intensidade de competição [0,1] (ex.: senderRegistry). Default 0. */
+  competitionIntensity?: number;
+  /** Probabilidade de sucesso [0,1]. Default 0.7 (liquidação depende de descoberta+ser 1º). */
+  successProbability?: number;
+  /** Força um recapture específico [0,1] (calibração). Senão usa o prior do protocolo. */
+  oevRecaptureOverride?: number;
+  opportunityId?: string;
+}
+
+export interface LiquidationOpportunityScore extends OpportunityScore {
+  /** Fração [0,1] do valor capturada por OEV (não sobra pro liquidador). */
+  oevRecapture: number;
+  /** Lucro realista pós-OEV usado no score = profitUsd × (1 − recapture). */
+  edgeAdjustedProfitUsd: number;
+}
+
+/**
+ * Pontua uma oportunidade de liquidação aplicando o "OEV haircut" do protocolo.
+ * O score/EV refletem o lucro REALISTA pós-OEV — não o bônus nominal — então Morpho
+ * (recapture 0) domina Aave/Compound/Moonwell naturalmente no ranking.
+ */
+export function scoreLiquidationOpportunity(
+  input: LiquidationOpportunityScoreInput,
+): LiquidationOpportunityScore {
+  const recapture = input.oevRecaptureOverride ?? oevRecaptureFor(input.protocol);
+  const edgeAdjustedProfitUsd = input.profitUsd * (1 - recapture);
+  const score = scoreOpportunity({
+    expectedProfitUsd: edgeAdjustedProfitUsd,
+    gasCostUsd: input.gasUsd,
+    successProbability: input.successProbability ?? 0.7,
+    slippageBps: input.slippageBps ?? 0,
+    competitionIntensity: input.competitionIntensity ?? 0,
+    opportunityId: input.opportunityId,
+  });
+  return {
+    ...score,
+    oevRecapture: recapture,
+    edgeAdjustedProfitUsd: Math.round(edgeAdjustedProfitUsd * 100) / 100,
+  };
+}
+
 export interface RankedOpportunity<T> {
   item: T;
   opportunity: OpportunityScore;

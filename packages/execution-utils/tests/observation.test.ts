@@ -61,7 +61,9 @@ describe('resolveIntelligenceDbPath', () => {
   it('fallback pra logs/<basename> sem env', () => {
     const prev = process.env.INTELLIGENCE_DB_PATH;
     delete process.env.INTELLIGENCE_DB_PATH;
-    expect(resolveIntelligenceDbPath('intelligence-detector.duckdb')).toMatch(/logs\/intelligence-detector\.duckdb$/);
+    // Agnóstico de separador (Windows usa '\', Linux '/').
+    const resolved = resolveIntelligenceDbPath('intelligence-detector.duckdb');
+    expect(resolved.endsWith(join('logs', 'intelligence-detector.duckdb'))).toBe(true);
     if (prev !== undefined) process.env.INTELLIGENCE_DB_PATH = prev;
   });
 });
@@ -145,6 +147,9 @@ describe('attachAndRankPairs — unificação cross-motor', () => {
       mis.ingest(buildObservationEvent({ chain: 'Base', category: 'mis_observed', protocol: 'mis', pair: 'AERO/USDC', profit_usd: 5 }));
     }
     await mis.flush();
+    // Fecha o mis antes do ATTACH — reflete o uso real (análise offline de arquivos não-ativos)
+    // e evita lock de arquivo no Windows.
+    await mis.shutdown();
 
     // Unifica: primary = det, anexa mis
     const ranking = await attachAndRankPairs(det, [misPath], { windowMs: 24 * 3600_000 });

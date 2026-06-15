@@ -14,7 +14,7 @@
 import { createPublicClient, http, parseUnits, type Address, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 
-import { BASE_MAINNET, BASE_TARGET_PAIRS, type TargetPair } from '@zeus-evm/chain-config';
+import { BASE_MAINNET, getTargetPairsForChain, type TargetPair } from '@zeus-evm/chain-config';
 import {
   findCrossDexArb,
   filterOpportunity,
@@ -129,12 +129,13 @@ async function scanPairs(
   filterCriteria: Omit<FilterCriteria, 'maxTradeWei'>,
   simContext: SimulationContext | undefined,
   store: TimeseriesStore | undefined,
+  pairs: readonly TargetPair[],
 ): Promise<{ scanned: number; detected: number; filtered: number; simulated: number }> {
   let detected = 0;
   let filtered = 0;
   let simulated = 0;
 
-  for (const pair of BASE_TARGET_PAIRS) {
+  for (const pair of pairs) {
     const amountInA = getAmountInForPair(pair);
     const maxTradeWei = amountInA * 10n; // cap em 10x o amount testado
 
@@ -212,17 +213,22 @@ async function scanPairs(
     }
   }
 
-  return { scanned: BASE_TARGET_PAIRS.length, detected, filtered, simulated };
+  return { scanned: pairs.length, detected, filtered, simulated };
 }
 
 async function main() {
   const env = loadConfig();
 
+  // Varredura dinâmica: curados (target-pairs.ts) + auto-targets do discovery-scraper.
+  // Sem arquivo auto-targets, cai nos curados (comportamento idêntico ao anterior).
+  // Resolvido 1x no boot — restart pega novos auto-targets gerados pelo scraper.
+  const targetPairs = getTargetPairsForChain(BASE_MAINNET.chainId);
+
   logger.info(
     {
       chain: BASE_MAINNET.name,
       chainId: BASE_MAINNET.chainId,
-      targetPairs: BASE_TARGET_PAIRS.length,
+      targetPairs: targetPairs.length,
       mode: 'DRY_RUN',
     },
     '🚀 Detector boot',
@@ -293,8 +299,8 @@ async function main() {
   }
 
   // ─── Scan inicial ───
-  logger.info('Executando scan inicial nos 5 pares alvo...');
-  const initial = await scanPairs(publicClient, blockNumber, filterCriteria, simContext, store);
+  logger.info(`Executando scan inicial em ${targetPairs.length} pares alvo...`);
+  const initial = await scanPairs(publicClient, blockNumber, filterCriteria, simContext, store, targetPairs);
   logger.info(
     { ...initial, blockNumber: blockNumber.toString() },
     `✅ Scan inicial: ${initial.scanned} pares, ${initial.detected} brutas, ${initial.filtered} filtradas, ${initial.simulated} simuladas`,
@@ -306,7 +312,7 @@ async function main() {
     setInterval(async () => {
       try {
         const block = await publicClient.getBlockNumber();
-        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store, targetPairs);
         if (stats.detected > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[poll] scan`);
         }
@@ -318,7 +324,7 @@ async function main() {
     subscribeToBlocks({
       wsUrl: env.BASE_RPC_WS,
       onBlock: async (block) => {
-        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store, targetPairs);
         if (stats.detected > 0 || stats.filtered > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[block ${block}] scan`);
         }

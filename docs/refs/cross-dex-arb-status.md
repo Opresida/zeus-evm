@@ -72,14 +72,16 @@ varredura ADICIONA o novo). Dir configurável via env `AUTO_TARGETS_DIR`.
 Ainda há o **`apps/mis-scanner`** ("Motor 2") — observação pura on-chain, ranqueia ineficiências por
 **persistência**, persiste snapshot em disco.
 
-### ⚠️ O CATCH crítico
-**O `detector` (radar de arb) NÃO está ligado na varredura.** Ele importa `BASE_TARGET_PAIRS`
-**direto** (`apps/detector/src/index.ts:131`), não usa `getTargetPairsForChain`. Quem usa a varredura
-é só o **backrun-engine**.
+### ✅ Detector ligado na varredura (resolvido 2026-06-15)
+O `detector` agora usa `getTargetPairsForChain(BASE_MAINNET.chainId)` — consome **curados +
+auto-targets** do `discovery-scraper` (antes lia `BASE_TARGET_PAIRS` direto). Sem arquivo
+auto-targets, cai nos curados (comportamento idêntico). Rodar o scraper amplia a cobertura do
+detector sem mexer em código. Resolvido 1x no boot (restart pega novos auto-targets).
 
-→ Se a config de varredura for ajustada, ela alimenta o **backrun**, mas o **detector continua vendo
-só os 3 pares fixos**. **Fix de ~1 linha:** trocar `BASE_TARGET_PAIRS` por `getTargetPairsForChain(8453)`
-no detector. **Pendente — fazer pra o radar enxergar o mercado todo no DRY_RUN.**
+Nota: a varredura de **colaterais de lending derivados** (até 60 pares) é do **MIS scanner** —
+formato de pool diferente (`ResolvedPair` vs `TargetPair` do detector). Não foi duplicada no
+detector (seria redundante: o MIS já faz e já alimenta o ledger). Pro detector, a amplitude vem
+dos auto-targets do scraper.
 
 ---
 

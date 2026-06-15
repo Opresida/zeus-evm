@@ -28,8 +28,9 @@
 - Liquidator/backrun passam a honrar `INTELLIGENCE_DB_PATH` (volume persistente).
 - Deploy Fly.io: `Dockerfile` + `deploy/fly/*.toml` (volume persistente obrigatório).
   Guia: [`refs/fly-deploy.md`](./refs/fly-deploy.md).
-- ⏳ **Pendente:** ligar o detector na varredura (`getTargetPairsForChain`) — aguarda push da
-  config de varredura do Humberto pra não conflitar.
+- ✅ **Detector ligado na varredura dinâmica** (`getTargetPairsForChain`): consome curados +
+  auto-targets do `discovery-scraper`. Sem arquivo auto-targets, cai nos curados (idêntico ao
+  anterior). Rodar o scraper amplia a cobertura do detector sem mexer em código.
 
 ---
 

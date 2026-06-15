@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   scoreOpportunity,
   rankOpportunities,
+  scoreBackrunOpportunity,
+  GAS_WAR_PRIORS,
   OPPORTUNITY_WEIGHTS,
 } from '../src/scoring';
 
@@ -97,5 +99,36 @@ describe('OpportunityScorer — OIE Fase 4', () => {
     }));
     expect(ranked.map((r) => r.item.id)).toEqual(['b', 'a', 'c']);
     expect(ranked[0]!.opportunity.evUsd).toBe(50);
+  });
+});
+
+describe('scoreBackrunOpportunity — competitor-aware via gas war', () => {
+  it('priors: war é mais competitivo e menos provável que normal', () => {
+    expect(GAS_WAR_PRIORS.war.competition).toBeGreaterThan(GAS_WAR_PRIORS.normal.competition);
+    expect(GAS_WAR_PRIORS.war.successProbability).toBeLessThan(GAS_WAR_PRIORS.normal.successProbability);
+  });
+
+  it('mesma oportunidade vale menos EV em gas war (chance de perder a corrida)', () => {
+    const base = { profitUsd: 40, gasUsd: 2, slippageBps: 20 };
+    const calmo = scoreBackrunOpportunity({ ...base, gasWarLevel: 'normal' });
+    const guerra = scoreBackrunOpportunity({ ...base, gasWarLevel: 'war' });
+    // net igual ($38), mas EV ajustado a risco cai com a probabilidade de sucesso
+    expect(calmo.netProfitUsd).toBe(38);
+    expect(guerra.netProfitUsd).toBe(38);
+    expect(guerra.evUsd).toBeLessThan(calmo.evUsd);
+    expect(calmo.score).toBeGreaterThan(guerra.score);
+  });
+
+  it('default gasWarLevel = normal', () => {
+    const semNivel = scoreBackrunOpportunity({ profitUsd: 30, gasUsd: 1 });
+    const normal = scoreBackrunOpportunity({ profitUsd: 30, gasUsd: 1, gasWarLevel: 'normal' });
+    expect(semNivel.evUsd).toBe(normal.evUsd);
+  });
+
+  it('desconta o bribe no EV', () => {
+    const semBribe = scoreBackrunOpportunity({ profitUsd: 50, gasUsd: 2, gasWarLevel: 'normal' });
+    const comBribe = scoreBackrunOpportunity({ profitUsd: 50, gasUsd: 2, bribeUsd: 20, gasWarLevel: 'normal' });
+    expect(comBribe.evUsd).toBeLessThan(semBribe.evUsd);
+    expect(comBribe.netProfitUsd).toBe(28); // 50 - 2 - 20
   });
 });

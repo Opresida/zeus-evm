@@ -116,6 +116,57 @@ export function scoreOpportunity(input: OpportunityScoreInput): OpportunityScore
   };
 }
 
+/**
+ * Nível de gas war (competição no mempool). Espelha o tipo do backrun-engine sem
+ * acoplar o pacote ao app (string union estável).
+ */
+export type GasWarLevel = 'normal' | 'elevated' | 'war';
+
+/**
+ * Priors competitor-aware por nível de gas war. Mapeiam a competição observada
+ * em (intensidade [0,1], probabilidade de ganhar a corrida).
+ *
+ * Racional: numa "war", mesmo um backrun lucrativo tem baixa chance de ser
+ * incluído (vários bots disputam) — o EV ajustado a risco captura isso e evita
+ * gastar gas em corrida perdida. Calibrar com win-rate real pós-DRY_RUN.
+ */
+export const GAS_WAR_PRIORS: Record<GasWarLevel, { competition: number; successProbability: number }> = {
+  normal: { competition: 0.20, successProbability: 0.85 },
+  elevated: { competition: 0.50, successProbability: 0.60 },
+  war: { competition: 0.85, successProbability: 0.35 },
+} as const;
+
+export interface BackrunOpportunityScoreInput {
+  /** Lucro bruto esperado, USD. */
+  profitUsd: number;
+  /** Custo de gas estimado, USD. */
+  gasUsd: number;
+  /** Bribe/coinbase esperado, USD. Default 0. */
+  bribeUsd?: number;
+  /** Slippage esperado em bps. Default 0. */
+  slippageBps?: number;
+  /** Nível de gas war (competição). Default 'normal'. */
+  gasWarLevel?: GasWarLevel;
+  opportunityId?: string;
+}
+
+/**
+ * Pontua uma oportunidade de backrun usando os priors competitor-aware do gas war.
+ * Atalho sobre `scoreOpportunity` que deriva successProbability/competition do nível.
+ */
+export function scoreBackrunOpportunity(input: BackrunOpportunityScoreInput): OpportunityScore {
+  const prior = GAS_WAR_PRIORS[input.gasWarLevel ?? 'normal'];
+  return scoreOpportunity({
+    expectedProfitUsd: input.profitUsd,
+    gasCostUsd: input.gasUsd,
+    bribeUsd: input.bribeUsd ?? 0,
+    successProbability: prior.successProbability,
+    slippageBps: input.slippageBps ?? 0,
+    competitionIntensity: prior.competition,
+    opportunityId: input.opportunityId,
+  });
+}
+
 export interface RankedOpportunity<T> {
   item: T;
   opportunity: OpportunityScore;

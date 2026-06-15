@@ -177,6 +177,10 @@ export interface BackrunOpportunityFoundEvent extends BaseEvent {
   sellVenue: string;
   expectedProfitUsd: number;
   estimatedSlippageBps: number;
+  /** OIE — score composto [0,1] da oportunidade (opcional). */
+  opportunityScore?: number;
+  /** OIE — valor esperado ajustado a risco (EV), USD (opcional). */
+  riskAdjustedEvUsd?: number;
 }
 
 export interface BackrunDispatchedEvent extends BaseEvent {

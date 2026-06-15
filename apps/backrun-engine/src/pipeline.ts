@@ -31,10 +31,12 @@ import {
 } from '@zeus-evm/strategy';
 import {
   computeBribeSlippageFloor,
+  scoreBackrunOpportunity,
   type EventBus,
   type PnlTracker,
   type FailureTracker,
   type GasOracle,
+  type GasWarLevel,
   type BackrunOpportunityFoundEvent,
   type BackrunRejectedEvent,
 } from '@zeus-evm/execution-utils';
@@ -188,7 +190,24 @@ export async function processWhaleSwap(
     );
   }
 
-  // Emit "opportunity found" pro bus
+  // Classifica gas war UMA vez (reusado no OIE score e na decisão de bribe).
+  const gasWar = gasWarDetector?.classify({
+    pendingTxToKnownRouters: competitionTracker?.stats().pendingTxToKnownRouters ?? 0,
+    recentFailures: failureTracker.stats().consecutiveFailures,
+  }) ?? { level: 'normal' as const, signals: undefined };
+  const gasWarLevel: GasWarLevel = gasWar.level;
+
+  // OIE Fase 4 — score competitor-aware (EV ajustado a risco pelo nível de gas war).
+  // Bruto aqui (sem bribe); o gate por EV líquido roda após decidir o bribe.
+  const oppScore = scoreBackrunOpportunity({
+    profitUsd: opp.profitUsd,
+    gasUsd: env.GAS_COST_USD_ESTIMATE,
+    slippageBps: env.MAX_SLIPPAGE_BPS,
+    gasWarLevel,
+    opportunityId: whale.pendingTxHash,
+  });
+
+  // Emit "opportunity found" pro bus (carrega o score pro ledger DuckDB)
   const oppEvent: BackrunOpportunityFoundEvent = {
     type: 'backrun.opportunity_found',
     timestamp: nowIso(),
@@ -201,6 +220,8 @@ export async function processWhaleSwap(
     sellVenue: opp.sellQuote.source,
     expectedProfitUsd: opp.profitUsd,
     estimatedSlippageBps: 0, // refinar quando integrar slippage cache
+    opportunityScore: oppScore.score,
+    riskAdjustedEvUsd: oppScore.evUsd,
   };
   eventBus.emit(oppEvent);
 
@@ -208,12 +229,8 @@ export async function processWhaleSwap(
   // Computa slippage floor off-chain via Quoter pra proteger contra sandwich
   // do swap inline UniV3 da BribeManager (Audit Pass 4 H-01).
   let bribe: import('@zeus-evm/strategy').BribeConfig | undefined;
+  let bribeUsd = 0;
   if (bribeCalculator) {
-    const gasWar = gasWarDetector?.classify({
-      pendingTxToKnownRouters: competitionTracker?.stats().pendingTxToKnownRouters ?? 0,
-      recentFailures: failureTracker.stats().consecutiveFailures,
-    }) ?? { level: 'normal' as const, signals: undefined };
-
     // Calcula slippage floor antes do decide() (precisa do bribeBps pra estimar target).
     // profitToken == pair.tokenA (mesma moeda do flashloan, onde profit aparece).
     let swapSlippageFloorWei: bigint | undefined;
@@ -256,6 +273,30 @@ export async function processWhaleSwap(
       );
     }
     bribe = decision.bribe;
+    bribeUsd = decision.bribeUsd;
+  }
+
+  // OIE Fase 4 — gate opt-in por EV ajustado a risco (líquido de bribe + gas).
+  // Default desligado (env ausente). Corta corridas que historicamente não pagam
+  // o risco de competição ANTES de gastar gas, mesmo que o profit bruto passe.
+  if (env.MIN_OPPORTUNITY_EV_USD != null) {
+    const netEvUsd = scoreBackrunOpportunity({
+      profitUsd: opp.profitUsd,
+      gasUsd: env.GAS_COST_USD_ESTIMATE,
+      bribeUsd,
+      slippageBps: env.MAX_SLIPPAGE_BPS,
+      gasWarLevel,
+    }).evUsd;
+    if (netEvUsd < env.MIN_OPPORTUNITY_EV_USD) {
+      return reject(
+        eventBus,
+        chainCtx.chainName,
+        mode,
+        whale,
+        `EV ajustado a risco $${netEvUsd.toFixed(2)} < mínimo $${env.MIN_OPPORTUNITY_EV_USD.toFixed(2)} (gasWar=${gasWarLevel})`,
+        'profit_below_threshold',
+      );
+    }
   }
 
   // Validate + simulate (com bribe quando configurado)

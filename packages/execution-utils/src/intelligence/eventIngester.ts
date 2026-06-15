@@ -292,6 +292,8 @@ export class EventIngester {
           payload: {
             buyVenue: event.buyVenue,
             sellVenue: event.sellVenue,
+            opportunityScore: event.opportunityScore,
+            riskAdjustedEvUsd: event.riskAdjustedEvUsd,
           },
         };
 

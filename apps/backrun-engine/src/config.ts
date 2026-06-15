@@ -79,6 +79,15 @@ const envSchema = z.object({
   ETH_USD_PRICE_ESTIMATE: z.coerce.number().positive().default(3000),
   /** Sample size do planner (nº de amountIn candidatos). */
   BACKRUN_SAMPLE_SIZE: z.coerce.number().int().positive().default(8),
+  /**
+   * OIE — gate opt-in por EV ajustado a risco (competitor-aware via gas war).
+   * Vazio/ausente = desligado (comportamento inalterado). Quando setado, descarta
+   * oportunidades cujo EV ajustado a risco < este valor (USD) ANTES de gastar gas.
+   */
+  MIN_OPPORTUNITY_EV_USD: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().optional(),
+  ),
 
   // ─── Daily loss limit (reusa do liquidator) ───
   DAILY_LOSS_LIMIT_USD: z.coerce.number().positive().default(100),

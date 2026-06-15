@@ -353,12 +353,16 @@ export {
   // Opportunity Score (Fase 4 — ranking universal por EV)
   scoreOpportunity,
   rankOpportunities,
+  scoreBackrunOpportunity,
   OPPORTUNITY_WEIGHTS,
   OPPORTUNITY_NORMALIZE,
+  GAS_WAR_PRIORS,
   type OpportunityScoreInput,
   type OpportunityScore,
   type OpportunityScoreComponents,
   type RankedOpportunity,
+  type GasWarLevel,
+  type BackrunOpportunityScoreInput,
   // Protocol / Pool / Token Score (Fases 2-3)
   scoreDimension,
   rankDimension,

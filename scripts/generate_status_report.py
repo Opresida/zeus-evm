@@ -254,10 +254,10 @@ def build_story(styles):
     S.append(Spacer(1, 1.5 * cm))
     summary_rows = [
         ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após setup + 2 semanas DRY_RUN"],
-        ["Testes automatizados", "114 contratos verde (unit + fork Base mainnet) · 7 vitest seletor de flashloan · 0 falhas"],
+        ["Testes automatizados", "114 contratos (unit + fork Base mainnet) · execution-utils 295/295 · 0 falhas (Windows e Linux)"],
         ["Workspaces validados", "13/13 typecheck verde"],
-        ["Última atualização", "09/06: flashloan multi-fonte 0% (Morpho + Balancer → Aave) validado on-chain · 29/05: Avalanche code-ready"],
-        ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN (edge JÁ decidido — Fase 4c)"],
+        ["Última atualização", "15/06: OIE (scoring + EV gate ciente de OEV → foca Morpho) + ledger DRY_RUN (detector/MIS gravam) + deploy Fly.io · 09/06: flashloan 0%"],
+        ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN observando o ledger (edge JÁ decidido: Morpho)"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
 
@@ -888,6 +888,92 @@ def build_story(styles):
         "mainnet sem auditoria interna nova + 2 semanas de DRY_RUN, igual à regra de todo o resto. E o "
         "motor de arbitragem (ArbExecutor) ganhou a CAPACIDADE on-chain, mas o seletor 0% ainda não foi "
         "ligado a ele (segue em fase radar — usa Aave por padrão lá). O ganho garantido hoje é no Motor 1.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.8 OIE — OPPORTUNITY INTELLIGENCE ENGINE ─────
+    S.append(Paragraph("5.8 OIE — motor de inteligência de oportunidade (2026-06-15)", styles["h2"]))
+    S.append(Paragraph(
+        "O OIE dá ao ZEUS um 'senso de prioridade': em vez de só passar/não-passar um gate binário, "
+        "ele PONTUA cada oportunidade por valor esperado (EV = probabilidade de ganhar × lucro líquido) "
+        "e escolhe a melhor quando várias disputam o mesmo bloco. Foi a resposta ao bloqueador #1 "
+        "(estratégia com edge) — e veio com um achado de pesquisa que mudou o foco do motor de liquidação.",
+        styles["body"]
+    ))
+    S.append(Paragraph("O achado decisivo: OEV está fechando a liquidação na Base", styles["h3"]))
+    S.append(Paragraph(
+        "A pesquisa de mercado (docs/refs/competitive-landscape.md) mostrou que os protocolos grandes "
+        "passaram a CAPTURAR pra si o lucro da própria liquidação (OEV — Oracle Extractable Value), via "
+        "Chainlink SVR e 'MEV tax'. Sobra quase nada pro liquidador externo — EXCETO no Morpho Blue, que "
+        "segue aberto e entrega o bônus inteiro (~4,9%) a quem liquida.",
+        styles["body"]
+    ))
+    oev_rows = [
+        ["Protocolo (Base)", "OEV capturado pelo protocolo", "Edge pro ZEUS"],
+        ["Morpho Blue", "0% (aberto)", "✅ EDGE REAL — foco do bot"],
+        ["Aave V3 (ativos principais)", "~85% (Chainlink SVR)", "⚠️ quase nulo"],
+        ["Compound III", "~85% (SVR/Atlas)", "⚠️ quase nulo"],
+        ["Moonwell", "~99% (MEV tax on-chain)", "❌ praticamente nulo"],
+    ]
+    S.append(table_grid(oev_rows, [4.5 * cm, 6 * cm, 6 * cm]))
+    S.append(simple_box(
+        "Pensa numa casa de penhor que paga uma gorjeta pra quem traz cliente. Antes, o ZEUS era esse "
+        "trazedor e embolsava a gorjeta. Agora a maioria das casas (Aave/Compound/Moonwell) mudou a regra: "
+        "a PRÓPRIA casa fica com a gorjeta (isso é o OEV). Só uma casa ainda paga a gorjeta cheia pra quem "
+        "traz: o Morpho. Então o ZEUS foca onde ainda sobra dinheiro pra ele.",
+        styles
+    ))
+    S.append(Paragraph("Como o OIE aplica isso (com segurança)", styles["h3"]))
+    S.append(Paragraph(
+        "O liquidator agora calcula o lucro REALISTA pós-OEV (nominal × (1 − recapture)) e pontua cada "
+        "oportunidade. Há um 'gate' opcional (MIN_OPPORTUNITY_EV_USD) que, quando ligado, descarta as "
+        "liquidações antieconômicas ANTES de gastar gas — fazendo o bot focar em Morpho naturalmente. "
+        "O backrun ganhou um gate parecido, ciente de 'guerra de gas' (corta corridas que perderia). "
+        "Tudo descorrelaciona com o flashloan 0% da 5.7: Morpho é o melhor protocolo PRA liquidar E a "
+        "fonte de empréstimo mais barata.",
+        styles["body"]
+    ))
+    S.append(simple_box(
+        "IMPORTANTE — o gate vem DESLIGADO por padrão. Hoje ele só LOGA o score de cada oportunidade "
+        "(observabilidade); o comportamento do bot não muda até você ligar com uma variável de ambiente. "
+        "Os números de OEV (85%/99%) são defaults de pesquisa — a ideia é observar os logs no DRY_RUN e "
+        "calibrar com dado real antes de ligar o corte. Validação: scoring 33/33 testes verdes.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.9 DRY_RUN LEDGER + VARREDURA DINÂMICA + DEPLOY ─────
+    S.append(Paragraph("5.9 Ledger de observação DRY_RUN + varredura dinâmica + deploy Fly.io (2026-06-15)", styles["h2"]))
+    S.append(Paragraph(
+        "Pra provar (e não só assumir) onde está o edge, o detector de arbitragem e o MIS scanner agora "
+        "GRAVAM tudo o que observam num banco local (DuckDB) — antes só logavam e esqueciam. Cada "
+        "oportunidade vista vira uma linha no 'diário' do bot, ranqueada por PERSISTÊNCIA (quantas horas "
+        "distintas aquele par apareceu — o sinal-chave de edge real, não sorte de um bloco).",
+        styles["body"]
+    ))
+    ledger_rows = [
+        ["Peça", "O que faz"],
+        ["Ledger de observação (DuckDB)", "Detector grava 'arb_observed', MIS grava 'mis_observed'. Cada motor tem seu arquivo (DuckDB é single-writer); a unificação cross-motor é na consulta (ATTACH)."],
+        ["Ranking por persistência", "Responde empiricamente 'quais pares pagam de verdade' = frequência + lucro médio + horas ativas distintas."],
+        ["Varredura dinâmica (detector)", "Detector passou a consumir getTargetPairsForChain: pares curados + auto-targets do scraper. Rodar o scraper amplia a cobertura SEM mexer em código."],
+        ["Deploy Fly.io persistente", "Dockerfile + 3 configs (detector/MIS/liquidator) com VOLUME persistente — sem ele o diário zera a cada restart. Detector com KILL_SWITCH=true (observação pura, nunca submete)."],
+    ]
+    S.append(table_2col(ledger_rows, col1_w=5 * cm, col2_w=11.5 * cm))
+    S.append(simple_box(
+        "É o bot virando um pesquisador disciplinado: ele anota TODA oportunidade que vê — inclusive as "
+        "que não executa — num caderninho que sobrevive a desligamentos. Em semanas, o caderninho "
+        "responde com número, não achismo: 'esses pares aqui têm edge de verdade; esses só pareciam'. "
+        "É exatamente o que falta pra decidir, com dado, o que vai pra mainnet.",
+        styles
+    ))
+    S.append(simple_box(
+        "Por que isso importa AGORA: o caminho pro primeiro lucro real sempre teve '2 semanas de DRY_RUN' "
+        "como porteira. Esta entrega é a INFRA que faz esse DRY_RUN medir de verdade (rodando 24/7 na "
+        "Fly.io, gravando no volume) — em vez de observar e esquecer. Validação: ledger 6/6 testes verdes "
+        "(Windows e Linux), suíte execution-utils 295/295, typecheck 13/13.",
         styles
     ))
 

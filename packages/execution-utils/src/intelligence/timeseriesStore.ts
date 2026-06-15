@@ -172,7 +172,7 @@ export class TimeseriesStore {
   }
 
   /**
-   * Drena buffer + fecha connection. Chamar antes de exit do processo.
+   * Drena buffer + fecha connection + fecha a instância. Chamar antes de exit do processo.
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
@@ -185,7 +185,13 @@ export class TimeseriesStore {
       this.connection.disconnectSync();
       this.connection = null;
     }
-    this.instance = null;
+    // Fecha a instância explicitamente — sem isso o handle do arquivo DuckDB fica preso
+    // até o GC. No Windows o OS mantém lock exclusivo nesse meio-tempo, quebrando reopen/ATTACH
+    // do mesmo arquivo (ex.: attachAndRankPairs). Linux é mais tolerante, mas fechar é o correto.
+    if (this.instance) {
+      this.instance.closeSync();
+      this.instance = null;
+    }
     this.logger?.info({ totalEvents: this.totalEvents }, '🗄️  TimeseriesStore shutdown');
   }
 

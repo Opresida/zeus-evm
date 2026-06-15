@@ -1,0 +1,25 @@
+# ZEUS Liquidator — DRY_RUN observação 24/7 (foco Morpho na Base).
+# Deploy:  fly deploy -c deploy/fly/liquidator.toml
+# Volume:  fly volumes create zeus_liquidator_data --size 1 -c deploy/fly/liquidator.toml
+# Secrets: fly secrets set BASE_RPC_HTTP=... -c deploy/fly/liquidator.toml
+#   (demais vars do liquidator: ver apps/liquidator/.env.example — em dryrun a maioria é opcional)
+
+app = "zeus-liquidator"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP = "liquidator"
+  LIQUIDATOR_MODE = "dryrun"                          # nunca submete; só calcula/loga
+  INTELLIGENCE_DB_PATH = "/data/intelligence.duckdb"   # ledger no volume persistente
+  HEALTH_SERVER_ENABLED = "false"                      # worker puro (sem porta exposta no DRY_RUN)
+
+[mounts]
+  source = "zeus_liquidator_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

@@ -22,7 +22,13 @@ import { base, avalanche } from 'viem/chains';
 import pino from 'pino';
 
 import { BASE_MAINNET, AVALANCHE_MAINNET, type ChainConfig } from '@zeus-evm/chain-config';
-import { MarketInefficiencyScanner, type InefficiencyObservation } from '@zeus-evm/execution-utils';
+import {
+  MarketInefficiencyScanner,
+  TimeseriesStore,
+  buildObservationEvent,
+  resolveIntelligenceDbPath,
+  type InefficiencyObservation,
+} from '@zeus-evm/execution-utils';
 import {
   BASE_CURATED_PAIRS,
   AVALANCHE_CURATED_PAIRS,
@@ -41,7 +47,8 @@ dotenv.config({ path: resolve(process.cwd(), '..', '..', '.env') });
 const logger = pino({ transport: { target: 'pino-pretty' } });
 
 const SCAN_INTERVAL_MS = Number(process.env.MIS_SCAN_INTERVAL_MS ?? 12_000); // ~1 bloco
-const SNAPSHOT_DIR = resolve(process.cwd(), 'logs', 'mis');
+// Dir do snapshot — honra MIS_SNAPSHOT_DIR (volume persistente na Fly.io) ou logs/mis local.
+const SNAPSHOT_DIR = process.env.MIS_SNAPSHOT_DIR ?? resolve(process.cwd(), 'logs', 'mis');
 const RANKING_EVERY = Number(process.env.MIS_RANKING_EVERY ?? 25); // loga ranking a cada N scans
 
 /** Chains suportadas pelo scanner. Seleção via env MIS_CHAIN (default base). */
@@ -92,6 +99,14 @@ async function main(): Promise<void> {
     minDivergenceBps,
     windowMs: 7 * 24 * 60 * 60 * 1000,
   });
+
+  // ─── Ledger OIE (DuckDB) — grava ineficiências viáveis pro ranking empírico de pares ───
+  // Arquivo próprio (DuckDB é single-writer); unificação cross-motor é na consulta (ATTACH).
+  const store = new TimeseriesStore({
+    dbPath: resolveIntelligenceDbPath('intelligence-mis.duckdb'),
+    logger,
+  });
+  await store.init();
 
   // Recarrega histórico acumulado (padrão liga/desliga)
   const prev = loadSnapshot(SNAPSHOT_PATH);
@@ -144,17 +159,18 @@ async function main(): Promise<void> {
   // Budget de slippage do gate de profundidade: round-trip < (1−budget) = pool raso
   const maxSlippageBps = Number(process.env.MIS_MAX_SLIPPAGE_BPS ?? 500);
 
-  // Graceful shutdown: salva snapshot ao sair (Ctrl+C)
+  // Graceful shutdown: salva snapshot + drena o ledger DuckDB ao sair (Ctrl+C)
   let stopping = false;
-  const shutdown = () => {
+  const shutdown = async () => {
     if (stopping) return;
     stopping = true;
     saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
-    logger.info({ samples: mis.stats().totalSamples }, '💾 snapshot salvo — até a próxima varredura');
+    await store.shutdown();
+    logger.info({ samples: mis.stats().totalSamples }, '💾 snapshot + ledger salvos — até a próxima varredura');
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 
   let scanCount = 0;
   const tick = async () => {
@@ -194,6 +210,29 @@ async function main(): Promise<void> {
             }
 
             const b = opt.best!;
+
+            // OIE — grava a ineficiência viável no ledger (DuckDB) pro ranking de pares.
+            store.ingest(
+              buildObservationEvent({
+                chain: chainConfig.name,
+                category: 'mis_observed',
+                protocol: 'mis',
+                pair: b.pair,
+                amount_usd: b.loanUsd,
+                profit_usd: b.netProfitUsd,
+                gas_usd: b.gasCostUsd,
+                slippage_bps: Math.round((1 - b.roundTripRatio) * 10_000),
+                payload: {
+                  divergenceBps: b.divergenceBps,
+                  roundTripRatio: b.roundTripRatio,
+                  maxViableLoanUsd: opt.maxViableLoanUsd,
+                  cheapPool: b.cheapPool,
+                  expensivePool: b.expensivePool,
+                  profitPct: b.profitPct,
+                },
+              }),
+            );
+
             logger.info(
               {
                 par: b.pair,

@@ -1,0 +1,25 @@
+# ZEUS Detector (arb cross-DEX) — DRY_RUN observação 24/7.
+# Deploy:  fly deploy -c deploy/fly/detector.toml
+# Volume:  fly volumes create zeus_detector_data --size 1 -c deploy/fly/detector.toml
+# Secrets: fly secrets set BASE_RPC_HTTP=... [BASE_RPC_WS=...] -c deploy/fly/detector.toml
+
+app = "zeus-detector"
+primary_region = "iad"   # escolher região com baixa latência ao sequencer da Base
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP = "detector"
+  KILL_SWITCH = "true"                              # observação pura — nunca submete
+  INTELLIGENCE_DB_PATH = "/data/intelligence.duckdb" # ledger no volume persistente
+
+# Volume persistente — SEM ISSO o ledger é zerado a cada restart/redeploy.
+[mounts]
+  source = "zeus_detector_data"
+  destination = "/data"
+
+# Worker de longa duração, sem serviço HTTP. Não auto-stoppar.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

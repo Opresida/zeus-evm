@@ -83,6 +83,7 @@ import {
   formatScoreRankingMarkdown,
   createDiscordSink,
   createGenericWebhookSink,
+  resolveIntelligenceDbPath,
   type Severity,
   type ReadinessReport,
 } from '@zeus-evm/execution-utils';
@@ -531,7 +532,7 @@ export async function boot(): Promise<LiquidatorState> {
   // Historical Intelligence — Item 15 I1+I2 (DuckDB + EventIngester)
   // Coleta de TODOS eventos pra dataset histórico (alimenta IA futura).
   const intelligenceStore = new TimeseriesStore({
-    dbPath: resolvePath('logs', 'intelligence.duckdb'),
+    dbPath: resolveIntelligenceDbPath('intelligence.duckdb'),
     logger,
   });
   await intelligenceStore.init();

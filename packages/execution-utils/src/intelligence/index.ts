@@ -39,3 +39,13 @@ export {
   computeTimeDimensions,
   generateEventId,
 } from './intelligenceSchema';
+
+export {
+  resolveIntelligenceDbPath,
+  buildObservationEvent,
+  queryTopOpportunityPairs,
+  attachAndRankPairs,
+  type ObservationInput,
+  type TopPairRow,
+  type TopPairsOpts,
+} from './observation';

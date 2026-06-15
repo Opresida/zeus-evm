@@ -127,6 +127,9 @@ importers:
       '@zeus-evm/dex-adapters':
         specifier: workspace:*
         version: link:../../packages/dex-adapters
+      '@zeus-evm/execution-utils':
+        specifier: workspace:*
+        version: link:../../packages/execution-utils
       '@zeus-evm/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types

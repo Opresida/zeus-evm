@@ -13,6 +13,7 @@
   "dependencies": {
     "@zeus-evm/chain-config": "workspace:*",
     "@zeus-evm/dex-adapters": "workspace:*",
+    "@zeus-evm/execution-utils": "workspace:*",
     "@zeus-evm/shared-types": "workspace:*",
     "@zeus-evm/strategy": "workspace:*",
     "dotenv": "catalog:",

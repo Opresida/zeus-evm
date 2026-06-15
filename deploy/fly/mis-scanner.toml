@@ -1,0 +1,27 @@
+# ZEUS MIS Scanner (Motor 2 — ineficiências persistentes) — DRY_RUN observação 24/7.
+# Deploy:  fly deploy -c deploy/fly/mis-scanner.toml
+# Volume:  fly volumes create zeus_mis_data --size 1 -c deploy/fly/mis-scanner.toml
+# Secrets: fly secrets set BASE_RPC_HTTP=... -c deploy/fly/mis-scanner.toml
+
+app = "zeus-mis-scanner"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP = "mis-scanner"
+  MIS_CHAIN = "base"
+  MIS_DERIVE_TOKENS = "true"                          # varredura de colaterais (Aave/Moonwell/Morpho)
+  INTELLIGENCE_DB_PATH = "/data/intelligence.duckdb"   # ledger no volume persistente
+  MIS_SNAPSHOT_DIR = "/data/mis"                       # snapshot de persistência no volume
+
+# Volume persistente — guarda o snapshot MIS (persistência) + o ledger DuckDB.
+# CRÍTICO: a persistência cresce dia após dia; sem volume, zera a cada deploy.
+[mounts]
+  source = "zeus_mis_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

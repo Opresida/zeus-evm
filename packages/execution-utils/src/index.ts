@@ -118,6 +118,13 @@ export {
   EVENTS_TABLE_DDL,
   computeTimeDimensions,
   generateEventId,
+  resolveIntelligenceDbPath,
+  buildObservationEvent,
+  queryTopOpportunityPairs,
+  attachAndRankPairs,
+  type ObservationInput,
+  type TopPairRow,
+  type TopPairsOpts,
 } from './intelligence';
 
 // ─── Health (Item 12 H3+H7+H8+H10+H11) ───

@@ -33,7 +33,9 @@ export type EventCategory =
   | 'boot'                  // bot bootou
   | 'shutdown'              // bot shutdown
   | 'opportunity_found'     // backrun opportunity identificada
-  | 'opportunity_rejected'; // backrun rejected
+  | 'opportunity_rejected'  // backrun rejected
+  | 'arb_observed'          // DRY_RUN: spread cross-DEX observado pelo detector (não executado)
+  | 'mis_observed';         // DRY_RUN: ineficiência viável observada pelo MIS scanner
 
 export type EventMode = 'dryrun' | 'testnet' | 'mainnet';
 export type EventSeverity = 'info' | 'warn' | 'critical';

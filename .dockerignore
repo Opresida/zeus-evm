@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+logs
+**/logs
+.git
+.github
+contracts/lib
+contracts/out
+contracts/cache
+*.duckdb
+*.duckdb.wal
+.env
+**/.env

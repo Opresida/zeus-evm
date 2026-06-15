@@ -15,8 +15,21 @@
 | └ Backrun | EV gate competitor-aware (via gas war) | ✅ Feito |
 | └ Liquidator | EV gate **ciente de OEV** (prioriza Morpho) | ✅ Feito |
 | └ Detector | ranking na descoberta (radar passivo) | 🔲 Falta (baixa prioridade) |
+| **DRY_RUN** | Detector + MIS gravam no ledger DuckDB; infra Fly.io persistente | ✅ Feito |
 | **C** | Auto-prioritization + thresholds adaptativos (loop de feedback) | 🔲 Falta |
 | **D** | 8 dashboards Grafana | 🔲 Falta |
+
+### DRY_RUN intelligence (2026-06-15)
+- **Detector** (`apps/detector`) e **MIS scanner** (`apps/mis-scanner`) agora gravam oportunidades
+  observadas no ledger DuckDB (categorias `arb_observed` / `mis_observed`) — antes só logavam.
+- `execution-utils`: `buildObservationEvent`, `resolveIntelligenceDbPath` (honra
+  `INTELLIGENCE_DB_PATH`), `queryTopOpportunityPairs` + `attachAndRankPairs` (ranking de pares,
+  unificação cross-motor via ATTACH — DuckDB é single-writer).
+- Liquidator/backrun passam a honrar `INTELLIGENCE_DB_PATH` (volume persistente).
+- Deploy Fly.io: `Dockerfile` + `deploy/fly/*.toml` (volume persistente obrigatório).
+  Guia: [`refs/fly-deploy.md`](./refs/fly-deploy.md).
+- ⏳ **Pendente:** ligar o detector na varredura (`getTargetPairsForChain`) — aguarda push da
+  config de varredura do Humberto pra não conflitar.
 
 ---
 

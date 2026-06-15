@@ -23,6 +23,11 @@ import {
   type CrossDexOpportunity,
   type FilterCriteria,
 } from '@zeus-evm/strategy';
+import {
+  TimeseriesStore,
+  buildObservationEvent,
+  resolveIntelligenceDbPath,
+} from '@zeus-evm/execution-utils';
 import { subscribeToBlocks } from './mempool/blockSubscription';
 import { loadConfig } from './config';
 import { logger } from './logger';
@@ -123,6 +128,7 @@ async function scanPairs(
   blockNumber: bigint,
   filterCriteria: Omit<FilterCriteria, 'maxTradeWei'>,
   simContext: SimulationContext | undefined,
+  store: TimeseriesStore | undefined,
 ): Promise<{ scanned: number; detected: number; filtered: number; simulated: number }> {
   let detected = 0;
   let filtered = 0;
@@ -162,6 +168,28 @@ async function scanPairs(
           },
           `💰 OPORTUNIDADE: ${pair.id} buy@${opp.buyQuote.source} sell@${opp.sellQuote.source} +$${result.netProfitUsd?.toFixed(2)}`,
         );
+
+        // OIE — grava a oportunidade observada no ledger (DuckDB) pra ranking empírico de pares.
+        if (store) {
+          store.ingest(
+            buildObservationEvent({
+              chain: BASE_MAINNET.name,
+              category: 'arb_observed',
+              protocol: 'arb',
+              pair: pair.id,
+              amount_usd: TEST_AMOUNT_USD,
+              profit_usd: opp.profitUsd,
+              gas_usd: filterCriteria.estimatedGasUsd,
+              payload: {
+                buyVenue: opp.buyQuote.source,
+                sellVenue: opp.sellQuote.source,
+                profitBps: opp.profitBps,
+                netProfitUsd: result.netProfitUsd,
+                blockNumber: blockNumber.toString(),
+              },
+            }),
+          );
+        }
 
         if (simContext) {
           simulated++;
@@ -213,6 +241,26 @@ async function main() {
   const blockNumber = await publicClient.getBlockNumber();
   logger.info({ blockNumber: blockNumber.toString() }, '✅ Conectado em Base mainnet');
 
+  // ─── Ledger OIE (DuckDB) — grava oportunidades observadas pro ranking empírico de pares ───
+  // Path via INTELLIGENCE_DB_PATH (volume persistente na Fly.io) ou logs/ local.
+  const store = new TimeseriesStore({
+    dbPath: resolveIntelligenceDbPath('intelligence-detector.duckdb'),
+    logger,
+  });
+  await store.init();
+
+  // Graceful shutdown: drena o buffer do DuckDB antes de sair.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    await store.shutdown();
+    logger.info('💾 ledger drenado — detector encerrado');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
+
   const filterCriteria = buildFilterCriteria(env.MIN_PROFIT_USD, env.MAX_SLIPPAGE_BPS);
 
   // ─── Simulação on-chain (opcional) ───
@@ -246,7 +294,7 @@ async function main() {
 
   // ─── Scan inicial ───
   logger.info('Executando scan inicial nos 5 pares alvo...');
-  const initial = await scanPairs(publicClient, blockNumber, filterCriteria, simContext);
+  const initial = await scanPairs(publicClient, blockNumber, filterCriteria, simContext, store);
   logger.info(
     { ...initial, blockNumber: blockNumber.toString() },
     `✅ Scan inicial: ${initial.scanned} pares, ${initial.detected} brutas, ${initial.filtered} filtradas, ${initial.simulated} simuladas`,
@@ -258,7 +306,7 @@ async function main() {
     setInterval(async () => {
       try {
         const block = await publicClient.getBlockNumber();
-        const stats = await scanPairs(publicClient, block, filterCriteria, simContext);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store);
         if (stats.detected > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[poll] scan`);
         }
@@ -270,7 +318,7 @@ async function main() {
     subscribeToBlocks({
       wsUrl: env.BASE_RPC_WS,
       onBlock: async (block) => {
-        const stats = await scanPairs(publicClient, block, filterCriteria, simContext);
+        const stats = await scanPairs(publicClient, block, filterCriteria, simContext, store);
         if (stats.detected > 0 || stats.filtered > 0) {
           logger.info({ ...stats, blockNumber: block.toString() }, `[block ${block}] scan`);
         }

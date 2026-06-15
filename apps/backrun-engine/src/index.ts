@@ -32,6 +32,7 @@ import {
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
+  resolveIntelligenceDbPath,
   type WhaleSwapDetectedEvent,
   type ReadinessReport,
   type ComponentCheck,
@@ -69,7 +70,7 @@ async function main() {
   // Coleta automática de eventos pra dataset histórico do ZEUS.
   // Mesmo .duckdb file que liquidator pra dataset unificado cross-engine.
   const intelligenceStore = new TimeseriesStore({
-    dbPath: resolvePath('logs', 'intelligence.duckdb'),
+    dbPath: resolveIntelligenceDbPath('intelligence.duckdb'),
     logger,
   });
   await intelligenceStore.init();

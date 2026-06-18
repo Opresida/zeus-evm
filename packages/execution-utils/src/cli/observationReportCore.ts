@@ -12,7 +12,7 @@ import {
   queryTopOpportunityPairs,
   type TopPairRow,
 } from '../intelligence/observation';
-import { queryDimensionStats } from '../scoring/dimensionStatsQuery';
+import { queryDimensionStats, OBSERVATION_VALUE_CATEGORIES } from '../scoring/dimensionStatsQuery';
 import {
   rankDimension,
   formatDimensionRankingMarkdown,
@@ -54,7 +54,8 @@ export async function collectReport(sources: ReportSource[], opts: ReportOpts): 
     try {
       const perDim = {} as Record<Dimension, DimensionScore[]>;
       for (const dim of REPORT_DIMENSIONS) {
-        const stats = await queryDimensionStats(store, dim, opts);
+        // valueCategories de observação → profit/score refletem o que foi observado (DRY_RUN).
+        const stats = await queryDimensionStats(store, dim, { ...opts, valueCategories: OBSERVATION_VALUE_CATEGORIES });
         perDim[dim] = rankDimension(dim, stats, { windowMs: opts.windowMs });
       }
       dimensions[label] = perDim;

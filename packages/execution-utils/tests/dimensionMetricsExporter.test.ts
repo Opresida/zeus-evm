@@ -61,4 +61,20 @@ describe('DimensionMetricsExporter', () => {
     const matches = out.match(/zeus_pair_observations\{[^}]*pair="X\/Y"[^}]*\}/g) ?? [];
     expect(matches.length).toBe(1); // não duplicou
   });
+
+  it('respeita o top-N (não explode cardinalidade)', async () => {
+    for (let i = 0; i < 6; i++) {
+      store.ingest(buildObservationEvent({
+        chain: 'Base', category: 'arb_observed', protocol: 'arb', pair: `T${i}/USDC`, profit_usd: i + 1,
+      }));
+    }
+    await store.flush();
+
+    const exporter = new DimensionMetricsExporter({ registry, store, chain: 'Base', windowMs: 24 * 3600_000, topN: 2 });
+    await exporter.updateOnce();
+
+    const out = registry.render();
+    const pairSeries = out.match(/^zeus_pair_observations\{/gm) ?? [];
+    expect(pairSeries.length).toBeLessThanOrEqual(2);
+  });
 });

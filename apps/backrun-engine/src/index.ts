@@ -71,7 +71,7 @@ async function main() {
   // Coleta automática de eventos pra dataset histórico do ZEUS.
   // Mesmo .duckdb file que liquidator pra dataset unificado cross-engine.
   const intelligenceStore = new TimeseriesStore({
-    dbPath: resolveIntelligenceDbPath('intelligence.duckdb'),
+    dbPath: resolveIntelligenceDbPath('intelligence-backrun.duckdb'),
     logger,
   });
   await intelligenceStore.init();

@@ -190,11 +190,13 @@ export const OEV_RECAPTURE_PRIORS: Record<string, number> = {
  */
 export function oevRecaptureFor(protocol: string): number {
   const p = protocol.toLowerCase();
-  if (p.includes('morpho')) return OEV_RECAPTURE_PRIORS.morpho!;
-  if (p.includes('moonwell')) return OEV_RECAPTURE_PRIORS.moonwell!;
-  if (p.includes('compound')) return OEV_RECAPTURE_PRIORS.compound!;
-  // Só o core Aave V3 tem SVR; forks (labels sem "aave") ficam abertos (0).
+  // Match EXATO-primeiro pros labels reais — evita um label híbrido/futuro (ex.:
+  // 'aave-v3-compound-fork') cair no bucket errado via includes() e inflar o haircut.
   if (p === 'aave-v3' || p === 'aave' || p.startsWith('aave-v3')) return OEV_RECAPTURE_PRIORS.aave!;
+  if (p === 'compound-v3' || p === 'compound') return OEV_RECAPTURE_PRIORS.compound!;
+  if (p === 'moonwell') return OEV_RECAPTURE_PRIORS.moonwell!;
+  if (p === 'morpho-blue' || p === 'morpho' || p.startsWith('morpho')) return OEV_RECAPTURE_PRIORS.morpho!;
+  // Forks/desconhecidos (ex.: Seamless) → abertos (sem SVR/OEV) = recapture 0.
   return 0;
 }
 

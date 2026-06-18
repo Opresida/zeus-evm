@@ -11,7 +11,7 @@
 
 import type { TimeseriesStore } from '../intelligence/timeseriesStore';
 import { queryTopOpportunityPairs } from '../intelligence/observation';
-import { queryDimensionStats } from './dimensionStatsQuery';
+import { queryDimensionStats, OBSERVATION_VALUE_CATEGORIES } from './dimensionStatsQuery';
 import { rankDimension } from './dimensionScorer';
 
 export interface AdaptiveThresholdsDeps {
@@ -67,7 +67,11 @@ export async function computeAdaptiveThresholds(deps: AdaptiveThresholdsDeps): P
     : 0;
 
   // ── Prioridade de protocolo (top do dimensionScorer) ──
-  const protocolStats = await queryDimensionStats(deps.store, 'protocol', opts);
+  // valueCategories de observação → o score reflete o lucro OBSERVADO (DRY_RUN), não 0.
+  const protocolStats = await queryDimensionStats(deps.store, 'protocol', {
+    ...opts,
+    valueCategories: OBSERVATION_VALUE_CATEGORIES,
+  });
   const protocolRanked = rankDimension('protocol', protocolStats, { windowMs });
 
   return {

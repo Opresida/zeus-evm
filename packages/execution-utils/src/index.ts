@@ -396,6 +396,7 @@ export {
   buildDimensionStatsSql,
   SUCCESS_CATEGORIES,
   FAILED_CATEGORIES,
+  OBSERVATION_VALUE_CATEGORIES,
   type DimensionStatsQueryOpts,
   // Etapa C — thresholds adaptativos
   computeAdaptiveThresholds,

@@ -1,7 +1,7 @@
 # ZEUS EVM — Grafana Dashboards
 
 Consome métricas Prometheus expostas pelo `MetricRegistry` em `/metrics`. Portas:
-**7880** liquidator · **7881** backrun · **7882** detector · **7883** mis-scanner.
+**7880** liquidator · **7879** backrun · **7882** detector · **7883** mis-scanner.
 
 ## Dashboards
 
@@ -43,7 +43,7 @@ scrape_configs:
   - job_name: 'zeus-backrun'
     scrape_interval: 15s
     static_configs:
-      - targets: ['127.0.0.1:7881']
+      - targets: ['127.0.0.1:7879']
         labels: { service: 'backrun' }
 ```
 

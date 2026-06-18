@@ -240,7 +240,7 @@ export class TimeseriesStore {
           ev.borrower ?? null,
           ev.sender ?? null,
           ev.tx_hash ?? null,
-          ev.block_number !== undefined ? ev.block_number.toString() : null,
+          ev.block_number ?? null, // bigint → bindBigInt (coluna é BIGINT); não stringificar
           ev.amount_usd ?? null,
           ev.profit_usd ?? null,
           ev.gas_usd ?? null,

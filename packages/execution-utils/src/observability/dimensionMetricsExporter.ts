@@ -11,7 +11,7 @@ import type { LoggerLike } from '@zeus-evm/aave-discovery';
 
 import type { TimeseriesStore } from '../intelligence/timeseriesStore';
 import { queryTopOpportunityPairs } from '../intelligence/observation';
-import { queryDimensionStats } from '../scoring/dimensionStatsQuery';
+import { queryDimensionStats, OBSERVATION_VALUE_CATEGORIES } from '../scoring/dimensionStatsQuery';
 import { rankDimension, type Dimension } from '../scoring/dimensionScorer';
 import { MetricRegistry, type MetricDefinition } from './prometheusExporter';
 
@@ -39,11 +39,14 @@ export interface DimensionMetricsExporterOpts {
   windowMs?: number;
   /** Intervalo de refresh. Default 5 min. */
   intervalMs?: number;
+  /** Máximo de séries por dimensão/par (evita cardinality explosion no Prometheus). Default 50. */
+  topN?: number;
   logger?: LoggerLike;
 }
 
 const DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_TOP_N = 50;
 
 export class DimensionMetricsExporter {
   private readonly registry: MetricRegistry;
@@ -51,6 +54,7 @@ export class DimensionMetricsExporter {
   private readonly chain: string;
   private readonly windowMs: number;
   private readonly intervalMs: number;
+  private readonly topN: number;
   private readonly logger: LoggerLike | undefined;
   private timer: NodeJS.Timeout | null = null;
 
@@ -60,29 +64,38 @@ export class DimensionMetricsExporter {
     this.chain = opts.chain;
     this.windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
     this.intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
+    this.topN = opts.topN ?? DEFAULT_TOP_N;
     this.logger = opts.logger;
     defineDimensionMetrics(this.registry);
   }
 
+  /** Seta a métrica só se o valor for finito (evita 'NaN'/'Inf' que quebram o Prometheus). */
+  private setSafe(name: string, value: number, labels: Record<string, string>): void {
+    if (Number.isFinite(value)) this.registry.set(name, value, labels);
+  }
+
   /** Roda uma atualização das métricas a partir do ledger. */
   async updateOnce(): Promise<void> {
-    const opts = { windowMs: this.windowMs, chain: this.chain };
+    const pairOpts = { windowMs: this.windowMs, chain: this.chain };
+    // Conta o lucro OBSERVADO (DRY_RUN), não só execução — senão net_profit/score ficam 0.
+    const dimOpts = { ...pairOpts, valueCategories: OBSERVATION_VALUE_CATEGORIES };
 
     for (const dim of DIMENSIONS) {
-      const stats = await queryDimensionStats(this.store, dim, opts);
-      for (const s of rankDimension(dim, stats, { windowMs: this.windowMs })) {
+      const stats = await queryDimensionStats(this.store, dim, dimOpts);
+      for (const s of rankDimension(dim, stats, { windowMs: this.windowMs }).slice(0, this.topN)) {
         const labels = { dimension: dim, key: s.key, chain: this.chain };
-        this.registry.set('zeus_dim_score', s.score, labels);
-        this.registry.set('zeus_dim_observations', s.raw.total_ops, labels);
-        this.registry.set('zeus_dim_net_profit_usd', s.raw.avg_net_usd, labels);
+        this.setSafe('zeus_dim_score', s.score, labels);
+        this.setSafe('zeus_dim_observations', s.raw.total_ops, labels);
+        this.setSafe('zeus_dim_net_profit_usd', s.raw.avg_net_usd, labels);
       }
     }
 
-    for (const p of await queryTopOpportunityPairs(this.store, opts)) {
+    const pairs = (await queryTopOpportunityPairs(this.store, pairOpts)).slice(0, this.topN);
+    for (const p of pairs) {
       const labels = { pair: p.pair, protocol: p.protocol ?? 'unknown', chain: this.chain };
-      this.registry.set('zeus_pair_observations', p.observations, labels);
-      this.registry.set('zeus_pair_avg_profit_usd', p.avg_profit_usd, labels);
-      this.registry.set('zeus_pair_persistence_hours', p.active_hours, labels);
+      this.setSafe('zeus_pair_observations', p.observations, labels);
+      this.setSafe('zeus_pair_avg_profit_usd', p.avg_profit_usd, labels);
+      this.setSafe('zeus_pair_persistence_hours', p.active_hours, labels);
     }
   }
 

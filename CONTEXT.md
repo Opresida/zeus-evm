@@ -46,7 +46,7 @@ Mesmo princípio do Chronos: **toda estratégia precisa de baseline mensurada**.
 Se qualquer resposta for NÃO → **rejeitar ou adiar pra Fase pós-lucro**.
 
 **Aprovadas** (atendem o filtro):
-- Liquidations Aave / Compound III / Morpho Blue / Seamless / Moonwell
+- Liquidations Aave / Compound III / Morpho Blue / Seamless / Moonwell — **núcleo = Morpho Blue** (único protocolo ainda aberto na Base; Aave ~85% e Moonwell ~99% fechados por OEV capture — ver `docs/refs/competitive-landscape.md`)
 - JIT Liquidity em UniV3
 - LRT depeg arb (cbETH, wstETH, weETH, rsETH, ezETH)
 - Vault liquidations (Yearn V3, MetaMorpho, Beefy)
@@ -81,19 +81,20 @@ Se qualquer resposta for NÃO → **rejeitar ou adiar pra Fase pós-lucro**.
 ```
 
 ### Modalidade 2 — Flashloan arb (capital ilimitado)
+
+**3 fontes de flashloan** no `ZeusArbExecutor` (escolhidas pela melhor fee): **Aave V3** (0.05%), **Morpho Blue** (0%) e **Balancer V2** (0%). Multi-fonte permite emprestar a 0% quando há liquidez em Morpho/Balancer. Swaps em **multi-hop N steps**.
 ```
 1. Detector identifica oportunidade que precisa size grande
-2. Detector chama executor.executeFlashloanArbitrage(asset, amount, params)
-3. Contrato chama Aave V3 Pool.flashLoanSimple(receiver=this, asset, amount, params)
-4. Aave V3 transfere amount → executor + chama executor.executeOperation()
-5. executor.executeOperation():
-   a) Executa cada SwapStep com tokens emprestados
-   b) Garante saldo final >= amount + premium (fee Aave 0.05%)
-   c) Approve Aave pra puxar repay
-   d) Valida lucro residual >= minProfitWei (ELSE revert)
-   e) Transfere lucro pra profitReceiver
-6. Aave V3 puxa repay automaticamente
-7. Se qualquer revert: TUDO desfaz, bot só perde gas
+2. Detector chama executor.executeFlashloanArbitrage(asset, amount, params) escolhendo a fonte
+3. Contrato chama o pool da fonte selecionada (Aave/Morpho/Balancer) → transfere amount + callback
+4. callback (executeOperation / onMorphoFlashLoan / receiveFlashLoan):
+   a) Valida a flag transiente "eu iniciei este flashloan" (anti-hijack)
+   b) Executa cada SwapStep (multi-hop) com tokens emprestados
+   c) Garante saldo final >= amount + premium (0% em Morpho/Balancer)
+   d) Approve/repaga a fonte
+   e) Valida lucro residual >= minProfitWei (ELSE revert)
+   f) Transfere lucro pra profitReceiver
+5. Fonte puxa/recebe repay; se qualquer revert: TUDO desfaz, bot só perde gas
 ```
 
 ### Estratégia 3 — Liquidations

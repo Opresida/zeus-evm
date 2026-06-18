@@ -27,6 +27,10 @@ import {
   TimeseriesStore,
   buildObservationEvent,
   resolveIntelligenceDbPath,
+  MetricRegistry,
+  registerStandardMetrics,
+  DimensionMetricsExporter,
+  startHealthServer,
   type InefficiencyObservation,
 } from '@zeus-evm/execution-utils';
 import {
@@ -108,6 +112,29 @@ async function main(): Promise<void> {
   });
   await store.init();
 
+  // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
+  const metricRegistry = new MetricRegistry({ logger });
+  registerStandardMetrics(metricRegistry);
+  const metricsExporter = new DimensionMetricsExporter({
+    registry: metricRegistry,
+    store,
+    chain: chainConfig.name,
+    windowMs: Number(process.env.METRICS_WINDOW_DAYS ?? 7) * 24 * 60 * 60 * 1000,
+    logger,
+  });
+  metricsExporter.start();
+  const healthServer = (process.env.HEALTH_SERVER_ENABLED ?? 'true') !== 'false'
+    ? startHealthServer({
+        serviceName: 'mis-scanner',
+        port: Number(process.env.HEALTH_SERVER_PORT ?? 7883),
+        host: process.env.HEALTH_SERVER_HOST ?? '127.0.0.1',
+        version: 'dryrun',
+        readinessProvider: () => ({ status: 'ok', checks: {}, dispatchesPaused: false, pausedReasons: [] }),
+        metricsProvider: () => metricRegistry.render(),
+        logger,
+      })
+    : undefined;
+
   // Recarrega histórico acumulado (padrão liga/desliga)
   const prev = loadSnapshot(SNAPSHOT_PATH);
   if (prev) {
@@ -164,6 +191,8 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
+    metricsExporter.stop();
+    healthServer?.close();
     saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
     await store.shutdown();
     logger.info({ samples: mis.stats().totalSamples }, '💾 snapshot + ledger salvos — até a próxima varredura');

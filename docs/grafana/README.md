@@ -1,13 +1,31 @@
 # ZEUS EVM — Grafana Dashboards
 
-Item 16B OB3+OB4 do checklist 16-items. Consome métricas Prometheus expostas pelo `MetricRegistry` em `/metrics` (porta 7880 liquidator, 7881 backrun).
+Consome métricas Prometheus expostas pelo `MetricRegistry` em `/metrics`. Portas:
+**7880** liquidator · **7881** backrun · **7882** detector · **7883** mis-scanner.
 
 ## Dashboards
 
-| Arquivo | Item | Foco |
+| Arquivo | Foco |
+|---|---|
+| `zeus-operations.json` | Ops rate, win rate, PnL, gas reserve, auto-pause, dedup, reorgs |
+| `zeus-performance.json` | Latency p50/p95/p99, calculator, scanner throughput, memória, event loop lag |
+| `zeus-rankings.json` | **OIE Etapa D** — ranking empírico de pares/protocol/pool/token do DRY_RUN |
+
+### Métricas OIE (DRY_RUN) — `zeus-rankings.json`
+
+Vêm do **`DimensionMetricsExporter`** (bridge ledger DuckDB → Prometheus, refresh 5min),
+exposto pelo detector (`:7882`) e mis-scanner (`:7883`):
+
+| Métrica | Labels | Significado |
 |---|---|---|
-| `zeus-operations.json` | OB3 | Ops rate, win rate, PnL, gas reserve, auto-pause, dedup, reorgs |
-| `zeus-performance.json` | OB4 | Latency p50/p95/p99, calculator, scanner throughput, memória, event loop lag |
+| `zeus_pair_observations` | pair, protocol, chain | frequência (quantas vezes o par foi observado) |
+| `zeus_pair_avg_profit_usd` | pair, protocol, chain | lucro médio observado por par |
+| `zeus_pair_persistence_hours` | pair, protocol, chain | persistência (horas distintas com observação = edge real) |
+| `zeus_dim_score` | dimension, key, chain | OIE score [0,1] por protocol/pool/token |
+| `zeus_dim_observations` | dimension, key, chain | total de ops observadas por dimensão |
+| `zeus_dim_net_profit_usd` | dimension, key, chain | lucro líquido médio por dimensão |
+
+> Pra ler sem Grafana: `pnpm --filter @zeus-evm/execution-utils report:observation --db-paths logs/intelligence-detector.duckdb,logs/intelligence-mis.duckdb`
 
 ## Setup rápido
 

@@ -27,6 +27,10 @@ import {
   TimeseriesStore,
   buildObservationEvent,
   resolveIntelligenceDbPath,
+  MetricRegistry,
+  registerStandardMetrics,
+  DimensionMetricsExporter,
+  startHealthServer,
 } from '@zeus-evm/execution-utils';
 import { subscribeToBlocks } from './mempool/blockSubscription';
 import { loadConfig } from './config';
@@ -255,11 +259,37 @@ async function main() {
   });
   await store.init();
 
-  // Graceful shutdown: drena o buffer do DuckDB antes de sair.
+  // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
+  const metricRegistry = new MetricRegistry({ logger });
+  registerStandardMetrics(metricRegistry);
+  const metricsExporter = new DimensionMetricsExporter({
+    registry: metricRegistry,
+    store,
+    chain: BASE_MAINNET.name,
+    windowMs: env.METRICS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    logger,
+  });
+  metricsExporter.start();
+
+  const healthServer = env.HEALTH_SERVER_ENABLED
+    ? startHealthServer({
+        serviceName: 'detector',
+        port: env.HEALTH_SERVER_PORT,
+        host: env.HEALTH_SERVER_HOST,
+        version: 'dryrun',
+        readinessProvider: () => ({ status: 'ok', checks: {}, dispatchesPaused: false, pausedReasons: [] }),
+        metricsProvider: () => metricRegistry.render(),
+        logger,
+      })
+    : undefined;
+
+  // Graceful shutdown: para o exporter/health server e drena o buffer do DuckDB.
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
+    metricsExporter.stop();
+    healthServer?.close();
     await store.shutdown();
     logger.info('💾 ledger drenado — detector encerrado');
     process.exit(0);

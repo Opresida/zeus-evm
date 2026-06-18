@@ -208,12 +208,16 @@ export {
   MetricRegistry,
   STANDARD_METRICS,
   registerStandardMetrics,
+  DimensionMetricsExporter,
+  defineDimensionMetrics,
+  DIMENSION_METRICS,
   type TracerOpts,
   type SpanData,
   type SpanStatus,
   type StructuredLoggerOpts,
   type MetricDefinition,
   type MetricType,
+  type DimensionMetricsExporterOpts,
 } from './observability';
 
 // ─── PnL Reconciliation (Item 10 P1+P2+P3+P4+P5+P6+P7+P8) ───

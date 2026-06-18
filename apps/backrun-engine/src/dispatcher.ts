@@ -59,6 +59,8 @@ export interface DispatchBackrunInput {
   pnlReconciler?: PnlReconciler;
   /** Failure Collector (Item 4) — schema rico pra failures persistidos JSONL. */
   failureCollector?: FailureCollector;
+  /** MetricRegistry (Fase 7b) — cronometra dispatch (histograma zeus_dispatch_duration_seconds). */
+  metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
 }
 
 export interface DispatchBackrunResult {
@@ -160,6 +162,7 @@ export async function dispatchBackrun(
     //    deve monitorar inclusion off-chain (próxima iteração).
     let txHash: `0x${string}`;
     let viaBundle = false;
+    const dispatchStart = Date.now(); // Fase 7b — cronômetro do dispatch (submit→confirm)
 
     if (relayRouter) {
       const targetBlock = (await chainCtx.client.getBlockNumber()) + 1n;
@@ -209,6 +212,10 @@ export async function dispatchBackrun(
     const receipt = await chainCtx.client.waitForTransactionReceipt({
       hash: txHash,
       confirmations: 1,
+    });
+    input.metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+      chain: chainCtx.chainName,
+      protocol: 'backrun',
     });
 
     const gasUsdSpent = gasCostUsd(

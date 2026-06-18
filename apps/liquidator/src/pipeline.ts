@@ -98,6 +98,19 @@ export interface PipelineDeps {
   aaveMarket?: { label: string; pool: Address; oracleAddress: Address };
   /** Endereço do ZeusMoonwellLiquidator (contrato SEPARADO). Necessário pro pipeline Moonwell. */
   moonwellLiquidatorAddress?: Address;
+  /** MetricRegistry (Fase 7b) — cronometra calculator + dispatch (histogramas Prometheus). */
+  metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+}
+
+/**
+ * Fase 7b — cronometra o calculator e alimenta o histograma zeus_calculator_duration_seconds
+ * (antes morto). No-op quando metricRegistry ausente. `startMs` = Date.now() antes do calculator.
+ */
+function observeCalc(deps: PipelineDeps, protocol: string, startMs: number): void {
+  deps.metricRegistry?.observe('zeus_calculator_duration_seconds', (Date.now() - startMs) / 1000, {
+    chain: deps.ctx.chainConfig.name,
+    protocol,
+  });
 }
 
 /**
@@ -380,6 +393,7 @@ async function _runAavePipelineInner(
     // como APROXIMAÇÃO — só pra logar decisão teórica).
     cap = 1_000_000n * 10n ** BigInt(position.debtAssetDecimals);
   }
+  const calcStart = Date.now();
   const outcome = await calculateOptimalLiquidation(position, {
     env,
     client: ctx.client,
@@ -390,6 +404,7 @@ async function _runAavePipelineInner(
       ? buildMultiHopIntermediates(ctx.chainConfig)
       : undefined,
   });
+  observeCalc(deps, 'aave-v3', calcStart);
 
   if (!outcome.ok) {
     logger.debug(
@@ -532,6 +547,7 @@ async function _runAavePipelineInner(
     gasOracle: deps.gasOracle,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -665,6 +681,7 @@ async function _runCompoundPipelineInner(
     }
     cap = 1_000_000n * 10n ** BigInt(position.baseTokenDecimals);
   }
+  const calcStart = Date.now();
   const outcome = await calculateOptimalCompoundLiquidation(position, {
     env,
     client: ctx.client,
@@ -672,6 +689,7 @@ async function _runCompoundPipelineInner(
     contractCapWei: cap,
     oracle: deps.aaveOracle,
   });
+  observeCalc(deps, 'compound-v3', calcStart);
 
   if (!outcome.ok) {
     logger.debug(
@@ -818,6 +836,7 @@ async function _runCompoundPipelineInner(
     gasOracle: deps.gasOracle,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -895,12 +914,14 @@ async function _runMorphoPipelineInner(
   }
 
   // 1. Calculator
+  const calcStart = Date.now();
   const outcome = await calculateOptimalMorphoLiquidation(position, {
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
   });
+  observeCalc(deps, 'morpho-blue', calcStart);
 
   if (!outcome.ok || !outcome.decision || !outcome.plan) {
     logger.debug(
@@ -1029,6 +1050,7 @@ async function _runMorphoPipelineInner(
     gasOracle: deps.gasOracle,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1104,7 +1126,9 @@ async function _runMoonwellPipelineInner(
 
   // 1. Calculator
   const cap = contractCapByDebtAsset.get(position.borrowedUnderlying.toLowerCase());
+  const calcStart = Date.now();
   const outcome = calculateOptimalMoonwellLiquidation(position, { env, capWei: cap });
+  observeCalc(deps, 'moonwell', calcStart);
   if (!outcome.ok || !outcome.decision) {
     logger.debug(
       { borrower: position.borrower, reason: outcome.reason },
@@ -1183,6 +1207,7 @@ async function _runMoonwellPipelineInner(
     gasOracle: deps.gasOracle,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

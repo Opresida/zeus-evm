@@ -315,6 +315,7 @@ async function main() {
     relayRouter,
     pnlReconciler,
     failureCollector,
+    metricRegistry,
   };
 
   // Poll baseFee a cada 5s pra alimentar gasWarDetector

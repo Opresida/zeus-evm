@@ -70,6 +70,8 @@ export interface BackrunPipelineDeps {
   pnlReconciler?: import('@zeus-evm/execution-utils').PnlReconciler;
   /** Failure Collector (Item 4) — schema rico em JSONL. */
   failureCollector?: import('@zeus-evm/execution-utils').FailureCollector;
+  /** MetricRegistry (Fase 7b) — cronometra planBackrun + dispatch (histogramas Prometheus). */
+  metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
 }
 
 export interface BackrunPipelineResult {
@@ -164,8 +166,9 @@ export async function processWhaleSwap(
     );
   }
 
-  // Plan
+  // Plan (= "calculator" do motor 3) — cronometrado pro histograma (Fase 7b).
   const blockNumber = await chainCtx.client.getBlockNumber();
+  const calcStart = Date.now();
   const opp = await planBackrun({
     client: chainCtx.client,
     whale,
@@ -177,6 +180,10 @@ export async function processWhaleSwap(
     maxTradeWei,
     blockNumber,
     sampleSize: env.BACKRUN_SAMPLE_SIZE,
+  });
+  deps.metricRegistry?.observe('zeus_calculator_duration_seconds', (Date.now() - calcStart) / 1000, {
+    chain: chainCtx.chainName,
+    protocol: 'backrun',
   });
 
   if (!opp) {
@@ -341,6 +348,7 @@ export async function processWhaleSwap(
     relayRouter,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
   });
 
   logger.info(

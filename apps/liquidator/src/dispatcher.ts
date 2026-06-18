@@ -31,6 +31,7 @@ import {
   type GasOracle,
   type PnlReconciler,
   type FailureCollector,
+  type MetricRegistry,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -94,6 +95,8 @@ export interface DispatchInput {
   opportunityId?: string;
   /** Venue/market label (ex: 'seamless') pra distinguir forks Aave no reconciler. */
   venue?: string;
+  /** MetricRegistry opcional — pra cronometrar dispatch (histograma zeus_dispatch_duration_seconds). */
+  metricRegistry?: MetricRegistry;
 }
 
 /**
@@ -127,6 +130,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     borrower,
     chain,
     gasOracle,
+    metricRegistry,
   } = input;
 
   const chainName = chain ?? (typeof summary.chain === 'string' ? summary.chain : 'unknown');
@@ -193,6 +197,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     }
 
     logger.info({ ...summary, mode }, `🚀 SUBMETENDO tx (${mode})...`);
+    const dispatchStart = Date.now(); // Fase 7b — cronômetro do dispatch (submit→confirm)
     const txHash = await wallet.sendTransaction(txParams as any);
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
@@ -204,6 +209,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    // Histograma de latência dispatch (antes morto) — segundos do submit até 1 conf.
+    metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+      chain: chainName,
+      protocol: protocol ?? 'unknown',
+    });
 
     if (receipt.status === 'reverted') {
       // Gas perdido em tx revertida = LOSS pra PnL tracker (em USD)

@@ -36,6 +36,7 @@ export type EventCategory =
   | 'opportunity_rejected'  // backrun rejected
   | 'arb_observed'          // DRY_RUN: spread cross-DEX observado pelo detector (não executado)
   | 'mis_observed'          // DRY_RUN: ineficiência viável observada pelo MIS scanner
+  | 'arb_triangular_observed' // DRY_RUN: ciclo triangular (A→B→C→A) lucrativo observado
   // ─── Inteligência "órfã" trazida pro ledger central (snapshot via buildObservationEvent) ───
   | 'competitor'            // snapshot de perfil/agregado de competidores (senderRegistry)
   | 'market_bribe'          // quanto o mercado paga de bribe/priority fee (agregado de competidores)

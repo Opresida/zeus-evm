@@ -48,6 +48,7 @@ import {
   CompetitorResolver,
   BlockPositionTracker,
   computeAdaptiveThresholds,
+  findTriangularCycles,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -462,6 +463,25 @@ async function main(): Promise<void> {
             }
           }
         }
+      }
+
+      // ─── Visão TRIANGULAR (Parte C) — ciclos A→B→C→A na profundidade (read-only) ───
+      // Reusa os spots do scan (sem RPC extra): monta o grafo e acha ciclos lucrativos.
+      const triEdges = mis.collectArbEdges(30);
+      const cycles = findTriangularCycles(triEdges, { minProfitBps: minDivergenceBps, maxCycles: 10 });
+      for (const cyc of cycles) {
+        const route = cyc.tokens.map((t) => t.slice(0, 6)).join('→') + '→' + cyc.tokens[0]!.slice(0, 6);
+        store.ingest(buildObservationEvent({
+          chain: chainConfig.name, category: 'arb_triangular_observed', protocol: 'arb-tri',
+          pair: route, profit_delta_bps: cyc.profitBps,
+          payload: { profitBps: cyc.profitBps, product: cyc.product, legs: cyc.legs.map((l) => l.poolLabel), tokens: cyc.tokens },
+        }));
+      }
+      if (cycles.length > 0) {
+        logger.info(
+          { top: cycles.slice(0, 5).map((c) => ({ rota: c.tokens.map((t) => t.slice(0, 6)).join('→'), lucroBps: c.profitBps, pools: c.legs.map((l) => l.poolLabel) })) },
+          `🔺 ${cycles.length} ciclo(s) triangular(es) lucrativo(s) na profundidade`,
+        );
       }
       saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
 

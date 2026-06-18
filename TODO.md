@@ -1,5 +1,30 @@
 # TODO — ZEUS EVM
 
+> ## 🔧 REMEDIAÇÃO DE FIOS SOLTOS (auditoria 2026-06-18) — ver [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)
+>
+> **Realidade honesta:** dos 3 motores, só o **Motor 1 (liquidator)** fatura hoje — e estrangulado.
+> Motor 2 = observação (não dispara). Motor 3 = **morto em prod** (feed de mempool é placeholder).
+>
+> **A corrigir (faseado, com testes):**
+> - [ ] **H2 — fallback de RPC no liquidator.** Vamos usar **Alchemy como fallback do dRPC**. Hoje o
+>   liquidator usa `http(rpc)` puro (sem `fallback([...])`); o `.env.example` anuncia `BASE_RPC_FALLBACK`
+>   mas nenhum código lê. Espelhar o backrun (`chainContext.ts` com `fallback()`).
+> - [ ] **H3 — discovery Aave/Seamless resiliente.** Rodar on-chain SEMPRE; TheGraph só como acelerador
+>   (hoje todo o loop é pulado se `THEGRAPH_API_KEY` ausente, mesmo o Seamless que é on-chain).
+> - [ ] **Seletor flashloan 0% no arb/backrun** (`txBuilder.ts` força Aave 0,05%; liquidator já está ok).
+> - [ ] **Qualidade de dado/config:** guard `fetchEthUsd<=0` (MIS), schema zod no mis-scanner,
+>   priority fee real na reconciliação, `MOONWELL_LIQUIDATOR_ADDRESS` → `optionalAddress`, `Math.round` bps.
+> - [ ] **(opcional) ligar classes órfãs de ALTA:** `PnlAggregator`, `CalibrationDriftTracker`,
+>   `CompetitorResolver`/`BlockPositionTracker` (leverage de calibração; não bloqueia trade).
+>
+> **Deferido (decisão/recurso):**
+> - [ ] **Motor 3 mempool** — Alchemy Growth+ / Flashblocks WS (aguardando infra). Sem isso, Motor 3 não dispara.
+> - [ ] **Fly.io `deploy/fly/backrun-engine.toml` + volume persistente** — aguardando recurso (Humberto avisa ao subir).
+> - [ ] **Motor 2 execução** — virar de observação→motor que fatura: contrato executor MIS + builder +
+>   dispatcher + decoder (~8-11 dias).
+> - [ ] **`approvedDexAdapters`** — regra do CLAUDE.md sem enforcement on-chain: decidir whitelist vs ajustar doc.
+> - [ ] **`OrphanRecoveryManager`** — re-submissão de tx órfã pós-reorg; só faz sentido no modo LIVE.
+
 > ## 📍 ESTADO ATUAL (2026-06-15)
 >
 > **Pronto (código):** 4 contratos v8 SPLIT — EIP-170 (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator;

@@ -198,6 +198,10 @@ flash sizing + Trader Joe LB), ranqueia por persistência, snapshot; grava obser
 
 *Backrun engine (Motor 3):* backrun pós-whale; EV gate competitor-aware (via nível de gas war) + bribe +
 relays; grava no ledger.
+> ⚠️ **BLOQUEADO EM PROD:** a tubulação está pronta, mas o feed de mempool (`subscribeWhaleSwaps`) é
+> **placeholder** — não assina `alchemy_pendingTransactions`, então nunca emite `whale.swap_detected`
+> em produção (só via smoke test). Base não tem mempool público; precisa Flashblocks WS / Alchemy
+> Growth+. **Motor 3 não dispara até resolver isso.** Detalhes em [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md).
 
 *Discovery scraper:* varredura dinâmica GeckoTerminal → `auto-targets.json` + token safety GoPlus.
 O detector consome via `getTargetPairsForChain`.
@@ -228,7 +232,12 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 
 ### ✅ Concluído recente (era "em andamento")
 - **Sprint 3 Morpho pipeline TS** — FEITO (discovery + calculator + builder + simulator)
-- **Motor 2 (MIS) e Motor 3 (Backrun)** — FEITOS (substituem o plano antigo JIT/backrun dislocation)
+- **Motor 2 (MIS)** — FEITO como **radar de observação** (grava `mis_observed`); **NÃO tem caminho de
+  execução** (sem contrato/builder/dispatcher) → não fatura hoje (~8-11d pra virar motor de execução)
+- **Motor 3 (Backrun)** — tubulação FEITA, mas **BLOQUEADO em prod** (feed de mempool é placeholder; ver acima)
+- _Seletor de flashloan 0% (Morpho/Balancer) ligado só no liquidator; arb/backrun ainda forçam Aave
+  0,05% (a corrigir). Regra `approvedDexAdapters` documentada não tem enforcement on-chain. Ver_
+  [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)._
 - **Health endpoint HTTP** — FEITO (`execution-utils/health`) + Prometheus exporter
 
 ### 📅 Roadmap

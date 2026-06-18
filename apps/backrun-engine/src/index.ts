@@ -29,6 +29,13 @@ import {
   Tracer,
   PnlReconciler,
   FailureCollector,
+  MetricRegistry,
+  registerStandardMetrics,
+  SenderRegistry,
+  BlockHistoryScanner,
+  CooccurrenceAnalyzer,
+  BuilderAttributionTracker,
+  ingestSnapshot,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
@@ -41,6 +48,7 @@ import {
 import type { Severity } from '@zeus-evm/execution-utils';
 import type { Address, Hex } from 'viem';
 import { resolve as resolvePath } from 'node:path';
+import { writeFileSync } from 'node:fs';
 
 import { loadConfig } from './config';
 import { buildChainContext } from './chainContext';
@@ -82,6 +90,22 @@ async function main() {
     defaultChain: chainCtx.chainName,
   });
   eventIngester.start();
+
+  // ── Prometheus MetricRegistry (Fase 7) — antes o motor 3 NÃO expunha /metrics ──
+  const metricRegistry = new MetricRegistry({ logger });
+  registerStandardMetrics(metricRegistry);
+  // Counter de falhas por categoria — incrementa por evento (igual ao liquidator).
+  eventBus.subscribe((event) => {
+    if (event.type === 'failure.recorded') {
+      metricRegistry.inc('zeus_failures_total', {
+        chain: event.chain,
+        category: event.failureCategory,
+        protocol: event.protocol,
+      });
+    }
+  });
+  logger.info({ definitions: metricRegistry.stats().definitions }, '📊 Prometheus registry pronto (backrun)');
+
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: env.PNL_LOG_FILE,
@@ -110,6 +134,38 @@ async function main() {
     baseDir: resolvePath('logs', 'failures'),
     logger,
   });
+
+  // ── SenderRegistry + scanner + analisadores (Fase 7) ──
+  // Antes só o liquidator tinha dados de competidor. Agora o motor 3 também coleta — isso faz
+  // o market-bribe (Fase 1) valer aqui, onde o bribe REALMENTE importa (corrida de inclusão).
+  const senderRegistry = new SenderRegistry({ baseDir: resolvePath('logs', 'competitors'), logger });
+  const cooccurrence = new CooccurrenceAnalyzer();
+  const builderAttribution = new BuilderAttributionTracker({
+    ourAccount: chainCtx.account ?? '0x0000000000000000000000000000000000000000',
+    logger,
+  });
+  const scannerTargets = {
+    aave_v3_pool: chainCtx.chainConfig.aave?.pool,
+    compound_comets: [
+      chainCtx.chainConfig.compoundV3?.cUSDCv3,
+      chainCtx.chainConfig.compoundV3?.cWETHv3,
+    ].filter((a): a is Address => !!a && a !== '0x0000000000000000000000000000000000000000'),
+    morpho_blue: chainCtx.chainConfig.morpho?.morphoBlue,
+    uniswap_v3_routers: [
+      chainCtx.chainConfig.uniswapV3?.swapRouter02,
+      chainCtx.chainConfig.uniswapV3?.universalRouter,
+    ].filter((a): a is Address => !!a),
+    aerodrome_router: chainCtx.chainConfig.aerodrome?.router,
+  };
+  const blockHistoryScanner = new BlockHistoryScanner({
+    client: chainCtx.client,
+    registry: senderRegistry,
+    targets: scannerTargets,
+    cooccurrence,
+    builderAttribution,
+    logger,
+  });
+  blockHistoryScanner.start();
 
   // ── Tracer (Item 16B OB1) ──
   const tracer = new Tracer({ serviceName: 'backrun-engine', logger });
@@ -176,6 +232,8 @@ async function main() {
         processCheck,
         mode: env.BACKRUN_MODE,
       }),
+      // Fase 7 — expõe /metrics (antes o motor 3 era invisível no Prometheus).
+      metricsProvider: () => metricRegistry.render(),
     });
   }
 
@@ -264,6 +322,70 @@ async function main() {
     void gasWarDetector.pollBaseFee(chainCtx.client);
   }, 5_000);
 
+  // ── Sync de métricas Prometheus (Fase 7) — a cada 5s ──
+  let lastBlocksProcessed = 0;
+  const chainName = chainCtx.chainName;
+  const metricsSyncInterval = setInterval(() => {
+    try {
+      const proc = processCheck.getStatus();
+      metricRegistry.set('zeus_uptime_seconds', proc.uptime_sec, { service: 'backrun-engine' });
+      metricRegistry.set('zeus_process_memory_rss_mb', proc.memory_mb.rss, { service: 'backrun-engine' });
+      metricRegistry.set('zeus_event_loop_lag_ms', proc.event_loop_lag_ms, { service: 'backrun-engine' });
+      const stale = blockStalenessCheck.getStatus();
+      metricRegistry.set('zeus_block_staleness_seconds', stale.age_seconds, { chain: chainName });
+      // PnL (realizado + esperado + drift + gás) a partir da reconciliação.
+      metricRegistry.set('zeus_pnl_realized_usd_total', pnlTracker.stats().netPnlUsd, { chain: chainName, protocol: 'backrun' });
+      const reconStats = pnlReconciler.stats();
+      metricRegistry.set('zeus_pnl_expected_usd_total', reconStats.expectedTotalUsd, { chain: chainName, protocol: 'backrun' });
+      metricRegistry.set('zeus_pnl_drift_bps', reconStats.avgDriftBps, { chain: chainName, protocol: 'backrun' });
+      metricRegistry.set('zeus_gas_usd_paid_total', pnlReconciler.cumulativeGasUsdPaid(), { chain: chainName });
+      // Competidores + scanner (delta no counter de blocos).
+      const scannerStats = blockHistoryScanner.getStats();
+      metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain: chainName });
+      const blocksDelta = scannerStats.blocks_processed - lastBlocksProcessed;
+      if (blocksDelta > 0) metricRegistry.inc('zeus_scanner_blocks_processed_total', { chain: chainName }, blocksDelta);
+      lastBlocksProcessed = scannerStats.blocks_processed;
+      // Market-bribe (lance de mercado) — agora também no motor 3.
+      const mkt = senderRegistry.marketBribeStats();
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain: chainName, percentile: 'p50' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain: chainName, percentile: 'p75' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain: chainName, percentile: 'p95' });
+      metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain: chainName });
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'metrics sync backrun: erro (drop)');
+    }
+  }, 5_000);
+  metricsSyncInterval.unref();
+
+  // ── Snapshot da inteligência órfã → ledger (Fase 7, espelha o liquidator) ──
+  const intelSnapshotInterval = setInterval(() => {
+    const mkt = senderRegistry.marketBribeStats();
+    if (mkt.competitorsActive > 0) {
+      ingestSnapshot(intelligenceStore, {
+        chain: chainName, category: 'market_bribe', protocol: 'bribe', pair: 'MARKET',
+        amount_usd: mkt.p75Gwei, payload: { ...mkt },
+      }, logger);
+    }
+    const compStats = senderRegistry.stats();
+    if (compStats.total_profiles > 0) {
+      ingestSnapshot(intelligenceStore, {
+        chain: chainName, category: 'competitor', protocol: 'aggregate',
+        amount_usd: compStats.total_profiles, payload: { total: compStats.total_profiles, byCategory: compStats.by_category },
+      }, logger);
+    }
+    const coSnap = cooccurrence.snapshot();
+    metricRegistry.set('zeus_sybil_clusters_total', coSnap.clusters.length, { chain: chainName });
+    metricRegistry.set('zeus_sybil_strong_links', coSnap.stats.strong_links, { chain: chainName });
+    metricRegistry.set('zeus_builders_tracked', builderAttribution.size(), { chain: chainName });
+    try {
+      writeFileSync(resolvePath('logs', 'competitors', 'cooccurrence-backrun.json'), JSON.stringify(coSnap, null, 2));
+      writeFileSync(resolvePath('logs', 'competitors', 'builders-backrun.json'), JSON.stringify(builderAttribution.snapshot(), null, 2));
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'snapshot sybil/builder backrun: erro (segue)');
+    }
+  }, 5 * 60 * 1000);
+  intelSnapshotInterval.unref();
+
   // Subscribe ao bus pra processar WhaleSwapDetectedEvent
   eventBus.subscribe(async (event) => {
     if (event.type !== 'whale.swap_detected') return;
@@ -330,6 +452,7 @@ async function main() {
       finalityTracker.stop();
       blockStalenessCheck.stop();
       processCheck.stop();
+      blockHistoryScanner.stop();       // salva snapshot do registry
       await eventIngester.stop();       // flush do store
       await intelligenceStore.shutdown();
     } catch (err) {

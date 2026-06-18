@@ -32,6 +32,9 @@ import {
   type GasOracle,
   type PnlReconciler,
   type FailureCollector,
+  type FailureEvent,
+  type CompetitorResolver,
+  type BlockPositionTracker,
   type MetricRegistry,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
@@ -98,6 +101,12 @@ export interface DispatchInput {
   venue?: string;
   /** MetricRegistry opcional — pra cronometrar dispatch (histograma zeus_dispatch_duration_seconds). */
   metricRegistry?: MetricRegistry;
+  /** Fase 5b — post-mortem: descobre QUEM nos ganhou numa falha (só com tx real). */
+  competitorResolver?: CompetitorResolver;
+  /** Fase 5b — post-mortem: posição da nossa tx no bloco (perdemos corrida/sandwich?). */
+  blockPositionTracker?: BlockPositionTracker;
+  /** Endereço do nosso bot (pra o resolver ignorar nossas próprias txs). */
+  botSender?: Address;
 }
 
 /**
@@ -228,7 +237,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
       // FailureCollector: schema rico pra análise post-mortem
       if (input.failureCollector && protocol) {
-        input.failureCollector.record({
+        const failureEvent: FailureEvent = {
           id: generateFailureId(Date.now()),
           timestamp: Date.now(),
           chain: chainName ?? 'Base',
@@ -246,7 +255,33 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
             ? estimateUsd(profitAssetSymbol, input.expectedProfitWei, profitAssetDecimals, ethUsdPrice)
             : undefined,
           payload: { revert_reason: 'on-chain revert', block_hash: receipt.blockHash },
-        });
+        };
+
+        // Fase 5b — enriquecimento post-mortem (só roda com tx real, dormente em DRY_RUN):
+        //  - posição no bloco (perdemos corrida? sandwich?) + total de txs
+        //  - QUEM nos ganhou (sender + gás), pro digest de falhas + calibração de bribe
+        try {
+          if (input.blockPositionTracker) {
+            const pos = await input.blockPositionTracker.resolve(txHash, receipt.blockNumber);
+            if (pos) {
+              failureEvent.block_total_txs = pos.block_total_txs;
+              (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
+              (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+            }
+          }
+          if (input.competitorResolver && input.botSender) {
+            const winner = await input.competitorResolver.resolve(failureEvent, input.botSender);
+            if (winner) {
+              failureEvent.competitor_winner_sender = winner.winner_sender;
+              failureEvent.competitor_winner_alias = winner.winner_alias;
+              failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+            }
+          }
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : err, txHash }, 'enriquecimento post-mortem falhou (segue)');
+        }
+
+        input.failureCollector.record(failureEvent);
         // Fase 4 — leva a falha pro ledger central + counter (via EventBus).
         eventBus?.emit({
           type: 'failure.recorded',

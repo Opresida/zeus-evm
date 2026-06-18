@@ -70,6 +70,8 @@ import {
   BlockHistoryScanner,
   CooccurrenceAnalyzer,
   BuilderAttributionTracker,
+  CompetitorResolver,
+  BlockPositionTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -185,6 +187,9 @@ interface LiquidatorState {
   tracer: Tracer;
   /** Prometheus MetricRegistry (Item 16B OB2). */
   metricRegistry: MetricRegistry;
+  /** Post-mortem de falhas (Fase 5b). */
+  competitorResolver: CompetitorResolver;
+  blockPositionTracker: BlockPositionTracker;
 }
 
 /**
@@ -710,6 +715,22 @@ export async function boot(): Promise<LiquidatorState> {
   blockHistoryScanner.start();
   logger.info({ targets: Object.keys(scannerTargets).length }, '🔭 BlockHistoryScanner iniciado em background');
 
+  // ── Post-mortem de falhas (Fase 5b) — só roda com tx real (dormente em DRY_RUN) ──
+  // CompetitorResolver: descobre QUEM nos ganhou (sender + gás) varrendo blocos vizinhos.
+  // BlockPositionTracker: onde nossa tx caiu no bloco (top/bottom 10% = corrida/sandwich).
+  const liquidationTargets = [
+    scannerTargets.aave_v3_pool,
+    scannerTargets.morpho_blue,
+    ...(scannerTargets.compound_comets ?? []),
+  ].filter((a): a is Address => !!a);
+  const competitorResolver = new CompetitorResolver({
+    client: ctx.client,
+    senderRegistry,
+    targets: liquidationTargets,
+    logger,
+  });
+  const blockPositionTracker = new BlockPositionTracker({ client: ctx.client, logger });
+
   // ChainProfitabilityScorer (Doutrina) — score por (chain, protocol) pra decisão de capital
   const scorer = new ChainProfitabilityScorer({
     pnlReconciler,
@@ -1065,6 +1086,8 @@ export async function boot(): Promise<LiquidatorState> {
     scorer,
     tracer,
     metricRegistry,
+    competitorResolver,
+    blockPositionTracker,
   };
 }
 
@@ -1393,6 +1416,9 @@ export async function processOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1425,6 +1451,9 @@ export async function processCompoundOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1454,6 +1483,9 @@ export async function processMorphoOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1483,6 +1515,9 @@ export async function processMoonwellOpportunity(
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
     metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,

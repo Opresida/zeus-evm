@@ -100,6 +100,11 @@ export interface PipelineDeps {
   moonwellLiquidatorAddress?: Address;
   /** MetricRegistry (Fase 7b) — cronometra calculator + dispatch (histogramas Prometheus). */
   metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+  /** Post-mortem de falhas (Fase 5b) — descobre quem nos ganhou + posição no bloco. */
+  competitorResolver?: import('@zeus-evm/execution-utils').CompetitorResolver;
+  blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
+  /** Endereço do bot (pra o resolver ignorar nossas txs). */
+  botSender?: Address;
 }
 
 /**
@@ -548,6 +553,9 @@ async function _runAavePipelineInner(
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
     metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -837,6 +845,9 @@ async function _runCompoundPipelineInner(
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
     metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -1051,6 +1062,9 @@ async function _runMorphoPipelineInner(
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
     metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1208,6 +1222,9 @@ async function _runMoonwellPipelineInner(
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
     metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

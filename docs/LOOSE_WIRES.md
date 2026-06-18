@@ -136,7 +136,12 @@ Morpho 0% > Balancer 0% > Aave 0,05%) é chamado nos 4 protocolos. ❌ **Não li
 | M1 priority fee real | MED | Corrigir | 4 |
 | Moonwell optionalAddress | MED | Corrigir | 4 |
 | INT32 round bps | LOW | Corrigir | 4 |
-| Ligar classes órfãs ALTA | MED | Opcional | 5 |
+| Ligar classes órfãs ALTA | MED | ✅ FEITO | 5 |
+
+**Fase 5 (FEITO):** `PnlAggregator` + `CalibrationDriftTracker` (5a) e `CompetitorResolver` +
+`BlockPositionTracker` (5b) ligados no liquidator. As 4 ficam **dormentes em DRY_RUN** (sem tx real /
+sem reconciliação) e **prontas pra quando a TX ligar na MAIN**. `GasFingerprintTracker` /
+`ActivityPatternTracker` (menor prioridade) e `OrphanRecoveryManager` (só live) seguem documentados.
 | H1 Motor 3 mempool | HIGH | **Deferido** (infra) | — |
 | H6 Fly backrun.toml | HIGH | **Deferido** (recurso) | — |
 | Motor 2 execução (8-11d) | — | **Roadmap** | — |

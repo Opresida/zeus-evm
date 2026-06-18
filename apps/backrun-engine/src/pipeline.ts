@@ -309,6 +309,7 @@ export async function processWhaleSwap(
   // Validate + simulate (com bribe quando configurado)
   const validation = await validateBackrunProfit({
     client: chainCtx.client,
+    chainConfig: chainCtx.chainConfig,
     opp,
     executorAddress: chainCtx.executorAddress,
     callerAddress,

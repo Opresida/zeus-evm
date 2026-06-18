@@ -110,13 +110,15 @@ export interface BuildFlashloanCalldataParams extends BuildArbCalldataParams {
   flashloanAsset: Address;
   /** Quantia emprestada */
   flashloanAmount: bigint;
+  /** Fonte do flashloan (0=Aave, 1=Morpho, 2=Balancer). Default 0. Use `selectFlashSource` pra 0%. */
+  flashSource?: number;
 }
 
 /**
  * Encoda calldata pra executeFlashloanArbitrage (modalidade flashloan).
  */
 export function buildFlashloanCalldata(params: BuildFlashloanCalldataParams): Hex {
-  const { opp, profitReceiver, slippageBps = 50, minProfitMarginBps = 7_500, flashloanAsset, flashloanAmount } = params;
+  const { opp, profitReceiver, slippageBps = 50, minProfitMarginBps = 7_500, flashloanAsset, flashloanAmount, flashSource = 0 } = params;
 
   const steps = buildSwapSteps(opp, slippageBps);
   const minProfit = (opp.profitWei * BigInt(minProfitMarginBps)) / 10_000n;
@@ -132,7 +134,7 @@ export function buildFlashloanCalldata(params: BuildFlashloanCalldataParams): He
         minProfitWei: minProfit,
         profitToken: opp.pair.tokenA,
         profitReceiver,
-        flashSource: 0, // FlashSource.Aave (default; seletor 0% será wired ao motor arb depois)
+        flashSource, // selecionado off-chain (Morpho/Balancer 0% > Aave 0,05%)
       },
     ],
   });
@@ -212,6 +214,8 @@ export interface BuildBackrunCalldataParams {
   bribe: BribeConfig;
   /** Profit token alvo. Default = opp.pair.tokenA (tipicamente == flashloanAsset). */
   profitToken?: Address;
+  /** Fonte do flashloan (0=Aave, 1=Morpho, 2=Balancer). Default 0. Use `selectFlashSource` pra 0%. */
+  flashSource?: number;
 }
 
 /**
@@ -232,6 +236,7 @@ export function buildBackrunCalldata(params: BuildBackrunCalldataParams): Hex {
     flashloanAmount,
     bribe,
     profitToken,
+    flashSource = 0,
   } = params;
 
   validateBribeConfig(bribe);
@@ -251,7 +256,7 @@ export function buildBackrunCalldata(params: BuildBackrunCalldataParams): Hex {
         profitToken: profitToken ?? opp.pair.tokenA,
         profitReceiver,
         bribe,
-        flashSource: 0, // FlashSource.Aave (default; seletor 0% será wired ao motor backrun depois)
+        flashSource, // selecionado off-chain (Morpho/Balancer 0% > Aave 0,05%)
       },
     ],
   });

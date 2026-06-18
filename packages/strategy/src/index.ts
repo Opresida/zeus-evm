@@ -57,3 +57,12 @@ export {
   type SimulationResult,
   type SimulateParams,
 } from './executor/simulator';
+export {
+  selectFlashSource,
+  probeFlashLiquidity,
+  pickFlashSourceByLiquidity,
+  FLASH_SOURCE,
+  FLASH_PREMIUM_BPS,
+  type FlashSourceSelection,
+  type FlashLiquidity,
+} from './executor/flashSourceSelector';

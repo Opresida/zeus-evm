@@ -293,6 +293,11 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   // Market-bribe (Fase 1) — quanto o mercado paga de priority fee pra ganhar inclusão
   { name: 'zeus_market_bribe_priority_fee_gwei', help: 'Market priority fee (gwei) pago por competidores, por percentil', type: 'gauge', labels: ['chain', 'percentile'] },
   { name: 'zeus_market_bribe_competitors_active', help: 'Competidores ativos no agregado de market-bribe', type: 'gauge', labels: ['chain'] },
+
+  // Sybil + builder attribution (Fase 5)
+  { name: 'zeus_sybil_clusters_total', help: 'Clusters sybil detectados (co-ocorrência)', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_sybil_strong_links', help: 'Links fortes (jaccard alto) entre senders', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_builders_tracked', help: 'Builders/miners distintos observados', type: 'gauge', labels: ['chain'] },
 ];
 
 /**

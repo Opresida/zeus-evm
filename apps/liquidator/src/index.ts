@@ -65,6 +65,8 @@ import {
   AutoPauseManager,
   SenderRegistry,
   BlockHistoryScanner,
+  CooccurrenceAnalyzer,
+  BuilderAttributionTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -91,6 +93,7 @@ import {
 } from '@zeus-evm/execution-utils';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { parseEther } from 'viem';
 
 // ABI fragment do executor pra cache de getMaxTradeFor
@@ -672,10 +675,15 @@ export async function boot(): Promise<LiquidatorState> {
     ].filter((a): a is Address => !!a),
     aerodrome_router: ctx.chainConfig.aerodrome?.router,
   };
+  // Fase 5 — analisadores de sybil (co-ocorrência) + builder attribution, alimentados pelo scanner.
+  const cooccurrence = new CooccurrenceAnalyzer();
+  const builderAttribution = new BuilderAttributionTracker({ ourAccount: callerAddress, logger });
   const blockHistoryScanner = new BlockHistoryScanner({
     client: ctx.client,
     registry: senderRegistry,
     targets: scannerTargets,
+    cooccurrence,
+    builderAttribution,
     logger,
   });
   blockHistoryScanner.start();
@@ -869,6 +877,49 @@ export async function boot(): Promise<LiquidatorState> {
           logger,
         );
       }
+    }
+
+    // Fase 5 — clusters sybil (co-ocorrência) + builder attribution.
+    const coSnap = cooccurrence.snapshot();
+    // Gauges (no timer de 5min — detectClusters é mais pesado que o loop de 5s).
+    metricRegistry.set('zeus_sybil_clusters_total', coSnap.clusters.length, { chain });
+    metricRegistry.set('zeus_sybil_strong_links', coSnap.stats.strong_links, { chain });
+    metricRegistry.set('zeus_builders_tracked', builderAttribution.size(), { chain });
+    if (coSnap.clusters.length > 0) {
+      for (const cl of coSnap.clusters) {
+        ingestSnapshot(
+          intelligenceStore,
+          {
+            chain,
+            category: 'cluster',
+            protocol: 'sybil',
+            amount_usd: cl.members.length, // tamanho do cluster no campo numérico
+            payload: { members: cl.members, avgJaccard: cl.avg_jaccard, totalBlocksSeen: cl.total_blocks_seen },
+          },
+          logger,
+        );
+      }
+    }
+    for (const b of builderAttribution.topByCompetitorVolume(10)) {
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'cluster',
+          protocol: 'builder',
+          sender: b.builder_address,
+          amount_usd: b.our_inclusion_rate,
+          payload: { alias: b.builder_alias ?? null, blocks: b.total_blocks_seen, ourTxs: b.our_txs_included, competitorTxs: b.competitor_txs_seen },
+        },
+        logger,
+      );
+    }
+    // Persiste JSON local pra reconstruir após restart (mesma pasta dos competidores).
+    try {
+      writeFileSync(resolvePath('logs', 'competitors', 'cooccurrence.json'), JSON.stringify(coSnap, null, 2));
+      writeFileSync(resolvePath('logs', 'competitors', 'builders.json'), JSON.stringify(builderAttribution.snapshot(), null, 2));
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'snapshot sybil/builder: erro ao gravar JSON (segue)');
     }
   }, 5 * 60 * 1000);
   intelSnapshotInterval.unref();

@@ -219,6 +219,22 @@ export class CooccurrenceAnalyzer {
   }
 
   /**
+   * Snapshot serializável (Fase 5) — stats + clusters detectados.
+   * Puro (sem fs): o caller persiste no ledger/JSON. Fácil de testar.
+   */
+  snapshot(maxClusters = 20): {
+    stats: ReturnType<CooccurrenceAnalyzer['stats']>;
+    clusters: CooccurrenceCluster[];
+    updatedAt: number;
+  } {
+    return {
+      stats: this.stats(),
+      clusters: this.detectClusters().slice(0, maxClusters),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
    * Stats agregados.
    */
   stats(): {

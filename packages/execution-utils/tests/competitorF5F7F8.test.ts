@@ -248,4 +248,16 @@ describe('Item 5 F8 — cooccurrenceAnalyzer', () => {
     expect(s.unique_senders).toBe(3);
     expect(s.total_pairs_tracked).toBe(2);
   });
+
+  it('snapshot devolve stats + clusters serializáveis (Fase 5)', () => {
+    const an = new CooccurrenceAnalyzer({ minCooccurrences: 2, minJaccard: 0.3 });
+    for (let i = 0; i < 10; i++) an.observeBlock(BigInt(i + 1), Date.now(), [A, B, C]);
+    const snap = an.snapshot();
+    expect(snap.clusters.length).toBe(1);
+    expect(snap.clusters[0]!.members.length).toBe(3);
+    expect(snap.stats.unique_senders).toBe(3);
+    expect(typeof snap.updatedAt).toBe('number');
+    // serializável (sem BigInt solto que quebraria JSON.stringify)
+    expect(() => JSON.stringify(snap)).not.toThrow();
+  });
 });

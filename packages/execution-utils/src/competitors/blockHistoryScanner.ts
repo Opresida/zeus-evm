@@ -19,6 +19,8 @@ import type { LoggerLike } from '@zeus-evm/aave-discovery';
 
 import { SenderRegistry } from './senderRegistry';
 import type { CompetitorProfile } from './senderSchema';
+import type { CooccurrenceAnalyzer } from './cooccurrenceAnalyzer';
+import type { BuilderAttributionTracker } from './builderAttributionTracker';
 
 type AnyPublicClient = PublicClient<any, any>;
 
@@ -42,6 +44,16 @@ export interface BlockHistoryScannerOpts {
   pollIntervalMs?: number;
   /** Salva snapshot a cada N blocos processados. Default 100. */
   snapshotEveryNBlocks?: number;
+  /**
+   * Opcional (Fase 5): analisador de co-ocorrência (detecção de sybil). Recebe os senders
+   * RELEVANTES (que tocaram alvos) por bloco — quem aparece junto repetidamente = mesma entidade.
+   */
+  cooccurrence?: CooccurrenceAnalyzer;
+  /**
+   * Opcional (Fase 5): atribuição por builder/miner. Recebe o `block.miner` + os `from` das txs.
+   * Na Base (sequencer único) é menos rico, mas mantém o sinal pra multi-chain futuro.
+   */
+  builderAttribution?: BuilderAttributionTracker;
   logger?: LoggerLike;
 }
 
@@ -63,6 +75,8 @@ export class BlockHistoryScanner {
   private readonly targets: Set<string>;
   private readonly pollIntervalMs: number;
   private readonly snapshotEvery: number;
+  private readonly cooccurrence: CooccurrenceAnalyzer | undefined;
+  private readonly builderAttribution: BuilderAttributionTracker | undefined;
   private readonly logger: LoggerLike | undefined;
 
   /** Reverse mapping endereço → protocolo (pra atribuir corretamente). */
@@ -78,6 +92,8 @@ export class BlockHistoryScanner {
     this.registry = opts.registry;
     this.pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.snapshotEvery = opts.snapshotEveryNBlocks ?? DEFAULT_SNAPSHOT_EVERY;
+    this.cooccurrence = opts.cooccurrence;
+    this.builderAttribution = opts.builderAttribution;
     this.logger = opts.logger;
 
     // Build target set + reverse map
@@ -198,10 +214,15 @@ export class BlockHistoryScanner {
     const hour_utc = d.getUTCHours();
     const weekday = d.getUTCDay();
 
+    // Senders RELEVANTES (tocaram alvos) + TODOS os from — pros analisadores da Fase 5.
+    const matchedSenders: Address[] = [];
+    const allFroms: Address[] = [];
+
     for (const tx of block.transactions) {
       // tx pode ser hash string ou objeto completo (depende do RPC)
       if (typeof tx === 'string') continue;
       this.stats.txs_observed++;
+      if (tx.from) allFroms.push(tx.from as Address);
 
       const to = tx.to?.toLowerCase();
       if (!to || !this.targets.has(to)) continue;
@@ -225,6 +246,15 @@ export class BlockHistoryScanner {
         weekday,
         timestamp,
       });
+      if (tx.from) matchedSenders.push(tx.from as Address);
+    }
+
+    // Fase 5 — alimenta os analisadores (opcionais). Co-ocorrência só faz sentido com 2+ senders.
+    if (this.cooccurrence && matchedSenders.length >= 2) {
+      this.cooccurrence.observeBlock(blockNumber, timestamp, matchedSenders);
+    }
+    if (this.builderAttribution && block.miner) {
+      this.builderAttribution.observeBlock(block.miner as Address, allFroms);
     }
   }
 }

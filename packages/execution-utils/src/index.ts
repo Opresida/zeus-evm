@@ -312,6 +312,7 @@ export {
   checkArbPair,
   checkArbRoute,
   MarketInefficiencyScanner,
+  findTriangularCycles,
   type ArbAllowlist,
   type PoolDex,
   type PoolRef,
@@ -319,6 +320,9 @@ export {
   type InefficiencyObservation,
   type InefficiencyRanking,
   type MISOpts,
+  type ArbEdge,
+  type TriangularCycle,
+  type FindTriangularOpts,
 } from './arb';
 
 // ─── Alerting Sinks ───

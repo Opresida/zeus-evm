@@ -1729,6 +1729,31 @@ async function main() {
     );
   }, state.env.LIQUIDATOR_POLL_INTERVAL_SEC * 1000);
 
+  // ─── Graceful shutdown (Item 7) ───
+  // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
+  // No DRY_RUN o crítico é não perder o buffer do DuckDB ao reiniciar.
+  // TODO(live): quando submeter TX de verdade, aguardar tx in-flight (txStateMachine)
+  // confirmar antes do exit pra evitar corrupção de nonce.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      state.finalityTracker.stop();
+      state.blockStalenessCheck.stop();
+      state.processCheck.stop();
+      state.blockHistoryScanner.stop();
+      await state.eventIngester.stop();       // flush do store
+      await state.intelligenceStore.shutdown();
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'erro no shutdown (segue)');
+    }
+    logger.info('💾 ledger drenado — liquidator encerrado');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
+
   // Mantém processo vivo
   await new Promise(() => {});
 }

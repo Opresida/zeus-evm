@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancela runs antigos do mesmo ref quando chega push novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ts:
+    name: TypeScript (typecheck + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lê a versão do pnpm de "packageManager" no package.json (pnpm@10.33.0).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (todos os workspaces)
+        run: pnpm typecheck
+
+      - name: Tests (vitest)
+        run: pnpm test
+
+  contracts:
+    name: Contracts (forge build + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      # libs ficam fora do git (.gitignore) — instala as deps usadas pelos remappings.
+      - name: Install forge libs
+        working-directory: contracts
+        run: |
+          forge install foundry-rs/forge-std \
+                        OpenZeppelin/openzeppelin-contracts \
+                        Uniswap/v3-core \
+                        Uniswap/v3-periphery \
+                        aave/aave-v3-core \
+                        --no-commit
+
+      - name: Forge build
+        working-directory: contracts
+        run: forge build
+
+      # Fork tests precisam de RPC (secrets) → fora do CI. Roda só os unit.
+      - name: Forge test (unit, sem fork)
+        working-directory: contracts
+        run: forge test --no-match-path 'test/fork/**' -vvv

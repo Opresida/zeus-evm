@@ -290,6 +290,28 @@ async function main() {
     '⚡ Backrun engine ONLINE — aguardando whale swaps',
   );
 
+  // ─── Graceful shutdown (Item 7) ───
+  // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
+  // TODO(live): aguardar tx in-flight confirmar antes do exit quando submeter de verdade.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      finalityTracker.stop();
+      blockStalenessCheck.stop();
+      processCheck.stop();
+      await eventIngester.stop();       // flush do store
+      await intelligenceStore.shutdown();
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'erro no shutdown (segue)');
+    }
+    logger.info('💾 ledger drenado — backrun encerrado');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
+
   // Mantém processo vivo
   await new Promise(() => {});
 }

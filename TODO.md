@@ -25,6 +25,19 @@
 > Detalhes em [`docs/refs/competitive-landscape.md`](./docs/refs/competitive-landscape.md) e [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
 >
 > O histórico abaixo (fases/sprints) é mantido como registro; o checklist pré-mainnet a seguir continua válido.
+>
+> ### ✅ Reconciliação 2026-06-18 — checkboxes `[ ]` que JÁ FORAM CONCLUÍDOS (mantidos como registro)
+> Cruzamento tarefa × código: várias seções de implementação abaixo ainda mostram `[ ]` mas **estão FEITAS** no repo
+> (confira no histórico do final + no código). Os checkboxes foram preservados como registro histórico — o que REALMENTE
+> falta está no **checklist pré-mainnet**, nas **decisões abertas** e nas **Etapas C/D do OIE** + **mempool (Sprint 4/5)**.
+> - **Fase 4c · Trilha 1** (workspace `monitor`, `executeLiquidation`, `IPool.liquidationCall`, fork tests) → ✅ `apps/monitor/*` + `ZeusLiquidator.sol` (executeLiquidation/Compound/Morpho + WithBribe) + `interfaces/aave/IPool.sol` + `ZeusLiquidator.fork.t.sol`.
+> - **Fase 6.5 · Sprint 1** (Seamless + MIN_DEBT) → ✅ Seamless via multi-market do liquidator (`case 'seamless'`); `MIN_DEBT_USD` default já = 100.
+> - **Fase 6.5 · Sprint 2** (Arbitrum + Optimism) → ✅ `chain-config/{arbitrum,optimism}.ts` + deploys Sepolia (ver `CLAUDE.md`).
+> - **Sprint 3** (Compound III + Morpho + Moonwell) → ✅ (já marcado).
+> - **Avalanche/Polygon chain-config** → ✅ `chain-config/{avalanche,polygon}.ts` existem (code-ready; deploy mainnet pendente).
+> - **Subgraph Aave discovery** → ✅ no liquidator + `aave-discovery`.
+>
+> **Genuinamente pendente:** deploy mainnet dos contratos · capital/multisig/audit (decisões) · DRY_RUN 2 semanas · Etapas C/D OIE · mempool premium (Motor 3/JIT ao vivo) · itens do checklist pré-mainnet.
 
 ---
 
@@ -144,10 +157,10 @@ Lógicas/otimizações faltantes identificadas em scan proativo de produção. S
 - [ ] **Gas bumping dinâmico** (anotação Humberto) — mempool ve outro bot tentando mesma liquidation → subir `maxPriorityFee` em real-time. Requer mempool (Caminho B). ~3-5h
 - [x] **Multi-collateral positions evaluation** ✅ — discovery/calculator agora avaliam os pares (collateral_i, debt_j) e escolhem max profit em vez de só "top-1 por wei" (M-01 do audit).
 - [ ] **Partial liquidation amount otimization (Aave)** — não sempre 50% close factor. Às vezes 25% gera mais profit (pool raso). Calculator deveria sample isso também. ~3h
-- [ ] **Multi-path swaps** — hoje só single-swap collateral→debt. Em prod, 2-3 hops (UniV3 → Aerodrome → UniV3) pra positions com pool direto raso. ~5-8h
+- [x] **Multi-path swaps** ✅ — `multiHopQuoter` (dex-adapters) + `buildMultiHopIntermediates` no liquidator pipeline (flag `MULTI_HOP_SWAPS_ENABLED`); contrato suporta N steps. (Detector fanout ainda single-hop — esse continua pendente.)
 - [ ] **Auto-claim COMP rewards** — `Comet.absorb()` acumula COMP no contrato. Sweep periódico via `rescueToken` OR adicionar função dedicada. ~2h
 - [ ] **Graceful shutdown** — SIGTERM aguarda tx pendentes confirmarem antes de matar processo. Evita nonce corruption. ~2h
-- [ ] **Tx replay log persistente** — guardar todas decisões em arquivo (JSONL) pra debug post-mortem de incidentes. ~2-3h
+- [x] **Tx replay log persistente** ✅ (coberto) — ledger DuckDB (`intelligence`) + `pnlReconciler` (JSONL de reconciliações) + `failureCollector` (JSONL de failures) persistem decisões/resultados pra post-mortem.
 
 ### 🟢 RECOMENDÁVEL — Produção robusta de longo prazo
 
@@ -161,11 +174,11 @@ Lógicas/otimizações faltantes identificadas em scan proativo de produção. S
 
 ### 🧠 STRATEGY GAPS — descobertos no scan proativo
 
-- [ ] **Race condition cross-protocol** — borrower liquidable em Aave E Morpho. Se outro bot liquida em Morpho primeiro, nosso Aave reverte. Mitigação: simulate just-before-submit + abortar se debt mudou. ~3h
+- [x] **Race condition cross-protocol** ✅ (mitigado) — `apps/liquidator/src/staleCheck.ts` re-checa HF on-chain ANTES do submit (`isAaveStillLiquidatable`/`isCompoundStillLiquidatable`), aborta se não é mais liquidável. Execução atômica via flashloan + `minProfitWei` no contrato cobre o resto.
 - [x] **Oracle staleness sanity check** ✅ — `packages/execution-utils/src/oracle/chainlinkStaleness.ts` (lê `updatedAt` do Chainlink e hesita se oracle freezado/stale), ligado no pipeline do liquidator.
 - [x] **Block timestamp drift detection** ✅ — `packages/execution-utils/src/health/blockStalenessCheck.ts` (sanity check de block staleness / timestamps fora de ordem).
 - [x] **Pause detection upstream** ✅ — `packages/execution-utils/src/protocols/pauseDetector.ts` + `autoPauseManager.ts`: antes de submeter, lê estado de pausa do protocolo (Aave/Compound) e aborta se pausado. Ligado no pipeline.
-- [ ] **Fee-on-transfer tokens blacklist** — alguns tokens deduzem 1-2% na transferência (USDT antigo, novos memecoins). Validar contra `tokenIn.balanceOf` antes vs depois. Lista de tokens proibidos no config. ~3h
+- [x] **Fee-on-transfer / token safety** ✅ — sistema de token safety no `discovery-scraper` (GoPlus: honeypot/tax/mintable em `sources/tokenSafety.ts` + `filters/tokenSafetyFilters.ts`) + `packages/execution-utils/src/arb` (arbTokenSafety, com testes). Filtra tokens tóxicos antes de entrarem no universo de pares.
 
 ### 📝 Ordem sugerida de implementação (próximas 4-6 sessões)
 
@@ -350,7 +363,7 @@ Chains alvo pra expansão pós-validação 2 semanas DRY_RUN. Ordem de implement
 **Custo de implementação:** ~45min código + 1h teste
 
 **Tarefas técnicas (quando ativar):**
-- [ ] Adicionar `packages/chain-config/src/avalanche.ts` com endereços canônicos:
+- [x] Adicionar `packages/chain-config/src/avalanche.ts` com endereços canônicos: ✅ (arquivo existe + `polygon.ts`; code-ready — deploy mainnet ainda pendente)
   - Aave V3 Pool: `0x794a61358D6845594F94dc1DB02A252b5b4814aD` (mesmo de Arb/OP)
   - PoolAddressesProvider: `0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb`
   - Aave Data Provider: `0x50ddd0Cd4266299527d25De9CBb55fE0EB8dAc30`
@@ -504,7 +517,7 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 **Princípio de blindagem:** construir e validar cada trilha **isoladamente em fork mainnet** antes de rodarem juntas em produção. Sem cross-contamination de risco.
 
-#### Trilha 1 — Motor de Liquidações Aave V3 (FOCO ATUAL — decisões confirmadas 2026-05-23)
+#### Trilha 1 — Motor de Liquidações Aave V3 ✅ CONCLUÍDO (entregue 2026-05-23 — checkboxes abaixo = registro; ver ZeusLiquidator.sol + apps/monitor + apps/liquidator)
 
 **Decisões consolidadas:**
 1. **Protocolo:** Aave V3 only (Compound III + Morpho ficam pra fase de expansão — ver abaixo)
@@ -545,7 +558,7 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
 
 ---
 
-#### Sprint 1 (~1 semana) — Maior alavanca rápida na Base ⭐ COMEÇAR AQUI
+#### Sprint 1 (~1 semana) — Maior alavanca rápida na Base ✅ SUPERADO (Seamless via multi-market do liquidator; MIN_DEBT_USD default já = 100)
 
 - [ ] **Seamless Protocol** (fork Aave V3, reusa 95% do código!)
   - [ ] Pesquisar endereços Seamless Pool em Base + Sepolia
@@ -559,7 +572,7 @@ Lista detalhada do que está pronto e do que falta para **pleno funcionamento** 
   - Estimativa: 5 min
 - [ ] Resultado esperado: 250-350 borrowers cobertos em Base (3x mais que hoje)
 
-#### Sprint 2 (~1 semana) — Multi-chain primário
+#### Sprint 2 (~1 semana) — Multi-chain primário ✅ CONCLUÍDO (Arbitrum + Optimism: chain-config/{arbitrum,optimism}.ts + deploys Sepolia)
 
 - [ ] **Arbitrum One** (Aave V3, ~3-5k borrowers estimados)
   - [ ] `packages/chain-config/src/arbitrum.ts` (endereços Aave + UniV3)
@@ -709,7 +722,7 @@ Detalhado em Fase 4c opção A acima.
 
 ---
 
-### 🔴 Fase 6 — Liquidations (1 semana)
+### 🔴 Fase 6 — Liquidations (1 semana) ✅ CONCLUÍDO (checkboxes = registro; feito em `apps/monitor` + `apps/liquidator` + `ZeusLiquidator.sol`, nomes diferentes do planejado)
 
 - [ ] `monitor/protocols/aaveV3.ts` — leitura de positions, cálculo HF
 - [ ] `monitor/protocols/compoundV3.ts`

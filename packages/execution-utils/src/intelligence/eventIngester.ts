@@ -314,6 +314,24 @@ export class EventIngester {
           payload: { ...event } as Record<string, unknown>,
         };
 
+      case 'pnl.reconciled':
+        return {
+          ...base,
+          category: 'pnl_reconciled',
+          protocol: event.protocol,
+          tx_hash: event.txHash,
+          block_number: BigInt(event.blockNumber),
+          // profit_usd = net realizado; gas_usd = gás pago; profit_delta_bps = drift.
+          profit_usd: event.realizedNetUsd,
+          gas_usd: event.gasUsd,
+          profit_delta_bps: Math.round(event.profitDeltaBps),
+          payload: {
+            expectedNetUsd: event.expectedNetUsd,
+            realizedNetUsd: event.realizedNetUsd,
+            attributionCause: event.attributionCause,
+          },
+        };
+
       default: {
         // Catch-all pra eventos desconhecidos — não bloqueia, só log debug
         this.logger?.debug({ eventType: (event as { type: string }).type }, 'EventIngester: tipo desconhecido — drop');

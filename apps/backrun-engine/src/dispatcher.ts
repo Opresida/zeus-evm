@@ -292,7 +292,7 @@ export async function dispatchBackrun(
     // PnL Reconciliation — Item 10 P1 (schema rico expected vs realized + attribution)
     if (input.pnlReconciler) {
       try {
-        input.pnlReconciler.reconcile({
+        const recon = input.pnlReconciler.reconcile({
           chain: chainCtx.chainName,
           protocol: 'backrun',
           tx_hash: txHash,
@@ -309,6 +309,23 @@ export async function dispatchBackrun(
           opportunity_id: opp.pair.id,
           venue: opp.buyQuote.source,
           finality_status: 'soft',
+        });
+
+        // Fase 3 — reconciliação no ledger central (EventIngester mapeia 'pnl_reconciled').
+        eventBus.emit({
+          type: 'pnl.reconciled',
+          timestamp: nowIso(),
+          chain: chainCtx.chainName,
+          mode,
+          severity: 'info',
+          protocol: 'backrun',
+          txHash,
+          blockNumber: receipt.blockNumber.toString(),
+          expectedNetUsd: recon.expected.net_profit_usd_estimated,
+          realizedNetUsd: recon.realized.net_profit_usd,
+          profitDeltaBps: recon.deltas.profit_delta_bps,
+          gasUsd: recon.realized.gas_usd_actual,
+          attributionCause: recon.attribution.primary_cause,
         });
       } catch (err) {
         logger.warn(

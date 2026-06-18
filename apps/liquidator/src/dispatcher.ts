@@ -357,7 +357,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           ? (Number(decodedBribe.bribe_native_wei) / 1e18) * ethUsdPrice
           : undefined;
 
-        input.pnlReconciler.reconcile({
+        const recon = input.pnlReconciler.reconcile({
           chain: chainName ?? 'Base',
           protocol,
           tx_hash: txHash,
@@ -381,6 +381,25 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           venue: input.venue,
           finality_status: 'soft', // 1 conf — pode promover pra 'finalized' depois via FinalityTracker
         });
+
+        // Fase 3 — joga a reconciliação no ledger central via EventBus (EventIngester mapeia).
+        if (eventBus) {
+          eventBus.emit({
+            type: 'pnl.reconciled',
+            timestamp: nowIso(),
+            chain: chainName ?? 'Base',
+            mode,
+            severity: 'info',
+            protocol,
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            expectedNetUsd: recon.expected.net_profit_usd_estimated,
+            realizedNetUsd: recon.realized.net_profit_usd,
+            profitDeltaBps: recon.deltas.profit_delta_bps,
+            gasUsd: recon.realized.gas_usd_actual,
+            attributionCause: recon.attribution.primary_cause,
+          });
+        }
       } catch (err) {
         // Reconciliation não pode derrubar o bot
         logger.warn(

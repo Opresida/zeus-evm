@@ -758,6 +758,11 @@ export async function boot(): Promise<LiquidatorState> {
       // PnL
       const pnlStats = pnlTracker.stats();
       metricRegistry.set('zeus_pnl_realized_usd_total', pnlStats.netPnlUsd, { chain, protocol: 'all' });
+      // Fase 3 — revive métricas mortas a partir da reconciliação (esperado/drift/gas).
+      const reconStats = pnlReconciler.stats();
+      metricRegistry.set('zeus_pnl_expected_usd_total', reconStats.expectedTotalUsd, { chain, protocol: 'all' });
+      metricRegistry.set('zeus_pnl_drift_bps', reconStats.avgDriftBps, { chain, protocol: 'all' });
+      metricRegistry.set('zeus_gas_usd_paid_total', pnlReconciler.cumulativeGasUsdPaid(), { chain });
       // Gas reserve
       const gasStats = gasReserveTracker.stats();
       metricRegistry.set('zeus_gas_reserve_eth', Number(gasStats.balanceEth ?? 0), { chain, account: callerAddress });

@@ -249,6 +249,18 @@
         { "expr": "zeus_reorgs_in_window", "legendFormat": "{{chain}}" },
         { "expr": "increase(zeus_reorgs_total[1h])", "legendFormat": "{{chain}} (last 1h)" }
       ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Gás USD total pago (cumulativo desde o boot) — alimentado pela reconciliação de PnL (Fase 3).",
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "id": 13,
+      "title": "Gas USD Pago (cumulativo)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "zeus_gas_usd_paid_total", "legendFormat": "{{chain}}" }
+      ]
     }
   ],
   "refresh": "30s",

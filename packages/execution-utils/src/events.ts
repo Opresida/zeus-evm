@@ -32,7 +32,8 @@ export type ZeusEvent =
   | WhaleSwapDetectedEvent
   | BackrunOpportunityFoundEvent
   | BackrunDispatchedEvent
-  | BackrunRejectedEvent;
+  | BackrunRejectedEvent
+  | PnlReconciledEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -200,4 +201,26 @@ export interface BackrunRejectedEvent extends BaseEvent {
   pendingTxHash: `0x${string}`;
   reason: string;
   stage: 'decode' | 'plan' | 'simulate' | 'profit_below_threshold' | 'gas_too_high' | 'other';
+}
+
+// ─── Reconciliação de PnL (Fase 3) ──────────────────────────────────────
+// Emitido após cada tx confirmada com reconciliação (esperado vs realizado).
+// O EventIngester mapeia pra categoria 'pnl_reconciled' no ledger central.
+
+export interface PnlReconciledEvent extends BaseEvent {
+  type: 'pnl.reconciled';
+  severity: 'info';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'backrun' | 'arb';
+  txHash: `0x${string}`;
+  blockNumber: string;
+  /** Net USD esperado pelo calculator (profit - gas). */
+  expectedNetUsd: number;
+  /** Net USD realizado (profit - gas - bribe). */
+  realizedNetUsd: number;
+  /** Drift do profit em bps (realizado vs esperado). */
+  profitDeltaBps: number;
+  /** Gás USD efetivamente pago. */
+  gasUsd: number;
+  /** Causa primária da diferença (do attributionAnalyzer). */
+  attributionCause: string;
 }

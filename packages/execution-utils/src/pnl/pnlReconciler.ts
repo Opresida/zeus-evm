@@ -81,6 +81,8 @@ export class PnlReconciler {
   private readonly windowMs: number;
   private readonly logger: LoggerLike | undefined;
   private rolling: PnlReconciliation[] = [];
+  /** Gás USD acumulado em TODA a vida do processo (pra gauge zeus_gas_usd_paid_total). */
+  private cumulativeGasUsd = 0;
 
   constructor(opts: PnlReconcilerOpts = {}) {
     this.baseDir = opts.baseDir ?? DEFAULT_BASE_DIR;
@@ -227,6 +229,7 @@ export class PnlReconciler {
     // ─── Persiste JSONL + rolling window ───
     this._persist(recon);
     this.rolling.push(recon);
+    this.cumulativeGasUsd += input.realized_gas_usd;
     this._pruneOldEntries();
 
     // ─── Log informativo + sugestão ───
@@ -246,6 +249,11 @@ export class PnlReconciler {
     );
 
     return recon;
+  }
+
+  /** Gás USD total pago desde o boot (cumulativo, pra gauge Prometheus). */
+  cumulativeGasUsdPaid(): number {
+    return this.cumulativeGasUsd;
   }
 
   /**

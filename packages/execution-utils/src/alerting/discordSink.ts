@@ -41,6 +41,7 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.opportunity_found': '🎯',
   'backrun.dispatched': '⚡',
   'backrun.rejected': '🟡',
+  'pnl.reconciled': '📊',
 };
 
 interface DiscordEmbed {
@@ -248,6 +249,20 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
         timestamp: event.timestamp,
         fields: [
           { name: 'Whale tx', value: `\`${event.pendingTxHash}\``, inline: false },
+        ],
+        footer,
+      };
+
+    case 'pnl.reconciled':
+      return {
+        title: `${emoji} PnL Reconciliado (${event.protocol})`,
+        description: `drift ${event.profitDeltaBps}bps · causa=${event.attributionCause}`,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'Net esperado', value: `$${event.expectedNetUsd.toFixed(2)}`, inline: true },
+          { name: 'Net realizado', value: `$${event.realizedNetUsd.toFixed(2)}`, inline: true },
+          { name: 'Gás', value: `$${event.gasUsd.toFixed(2)}`, inline: true },
         ],
         footer,
       };

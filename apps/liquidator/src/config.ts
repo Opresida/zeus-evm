@@ -102,7 +102,7 @@ const envSchema = z.object({
   /** Habilita discovery + liquidation Moonwell. Requer MOONWELL_LIQUIDATOR_ADDRESS pra dispatch real. */
   MOONWELL_ENABLED: z.coerce.boolean().default(true),
   /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
-  MOONWELL_LIQUIDATOR_ADDRESS: optionalString(),
+  MOONWELL_LIQUIDATOR_ADDRESS: optionalAddress(),
 
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:

@@ -87,7 +87,7 @@ export {
 } from './eventDecoder';
 
 // ─── Price Utils ───
-export { formatWei, estimateUsd, gasCostUsd } from './priceUtils';
+export { formatWei, estimateUsd, gasCostUsd, realizedPriorityFeeWei } from './priceUtils';
 
 // ─── Slippage Cache ───
 export {

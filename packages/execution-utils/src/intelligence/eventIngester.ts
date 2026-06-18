@@ -165,7 +165,7 @@ export class EventIngester {
           block_number: BigInt(event.blockNumber),
           profit_usd: event.profitUsd ?? undefined,
           gas_usd: event.gasCostUsd,
-          profit_delta_bps: event.profitDeltaBps,
+          profit_delta_bps: Math.round(event.profitDeltaBps), // coluna INTEGER (INT32) — blinda fracionário
           payload: {
             netProfitUsd: event.netProfitUsd,
           },
@@ -288,7 +288,7 @@ export class EventIngester {
           tx_hash: event.pendingTxHash,
           pair: event.pairId,
           profit_usd: event.expectedProfitUsd,
-          slippage_bps: event.estimatedSlippageBps,
+          slippage_bps: Math.round(event.estimatedSlippageBps), // coluna INTEGER (INT32) — blinda fracionário
           payload: {
             buyVenue: event.buyVenue,
             sellVenue: event.sellVenue,

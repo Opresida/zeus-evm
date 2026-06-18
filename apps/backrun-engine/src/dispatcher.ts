@@ -29,6 +29,7 @@ import {
   decodeLiquidationEvent,
   estimateUsd,
   gasCostUsd,
+  realizedPriorityFeeWei,
   generateFailureId,
 } from '@zeus-evm/execution-utils';
 import type { BackrunOpportunity } from '@zeus-evm/strategy';
@@ -312,6 +313,8 @@ export async function dispatchBackrun(
     // PnL Reconciliation — Item 10 P1 (schema rico expected vs realized + attribution)
     if (input.pnlReconciler) {
       try {
+        // Priority fee REAL = effectiveGasPrice − baseFee do bloco (não o gas price cheio).
+        const block = await chainCtx.client.getBlock({ blockNumber: receipt.blockNumber }).catch(() => null);
         const recon = input.pnlReconciler.reconcile({
           chain: chainCtx.chainName,
           protocol: 'backrun',
@@ -324,7 +327,7 @@ export async function dispatchBackrun(
           realized_profit_usd: profitUsd ?? 0,
           realized_gas_units_used: receipt.gasUsed,
           realized_gas_usd: gasUsdSpent,
-          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          realized_priority_fee_wei: realizedPriorityFeeWei(receipt.effectiveGasPrice, block?.baseFeePerGas),
           eth_usd_price: env.ETH_USD_PRICE_ESTIMATE,
           opportunity_id: opp.pair.id,
           venue: opp.buyQuote.source,

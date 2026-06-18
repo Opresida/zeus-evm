@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { useSubgraphDiscovery } from '../src/index';
+import { useSubgraphDiscovery } from '../src/discoveryGating';
 
 describe('useSubgraphDiscovery (H3)', () => {
   it('subgraph quando tem subgraphId E key', () => {

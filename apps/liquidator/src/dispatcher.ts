@@ -23,6 +23,7 @@ import {
   gasCostUsd,
   decodeLastSwap,
   decodeBribeEvent,
+  realizedPriorityFeeWei,
   type PnlTracker,
   type PnlEvent,
   type FailureTracker,
@@ -379,6 +380,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         const realBribeUsd = decodedBribe
           ? (Number(decodedBribe.bribe_native_wei) / 1e18) * ethUsdPrice
           : undefined;
+        // Priority fee REAL = effectiveGasPrice − baseFee do bloco (não o gas price cheio).
+        const reconBlock = await client.getBlock({ blockNumber: receipt.blockNumber }).catch(() => null);
 
         const recon = input.pnlReconciler.reconcile({
           chain: chainName ?? 'Base',
@@ -395,7 +398,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           realized_profit_usd: profitUsd ?? 0,
           realized_gas_units_used: receipt.gasUsed,
           realized_gas_usd: gasUsdCost,
-          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          realized_priority_fee_wei: realizedPriorityFeeWei(receipt.effectiveGasPrice, reconBlock?.baseFeePerGas),
           realized_swap_output_wei: decodedSwap?.amount_out,
           realized_bribe_wei_paid: decodedBribe?.bribe_native_wei,
           realized_bribe_usd_paid: realBribeUsd,

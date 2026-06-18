@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
 import { runAavePipeline, runCompoundPipeline, runMorphoPipeline, runMoonwellPipeline } from './pipeline';
@@ -1571,16 +1572,6 @@ function getCommonDebtAssetsForChain(chainId: number): Address[] {
  * Em DRY_RUN: tudo loga sem submeter tx.
  * Em testnet/mainnet: positions com simulação OK viram tx submetidas.
  */
-
-/**
- * H3 — decide o caminho de discovery Aave por market. Subgraph só quando o market tem subgraphId
- * E há TheGraph key; senão usa o on-chain (event scan + BorrowerCache), que roda SEMPRE. Assim a
- * descoberta nunca depende exclusivamente da key (Seamless e Aave-sem-key continuam funcionando).
- */
-export function useSubgraphDiscovery(hasSubgraphId: boolean, hasApiKey: boolean): boolean {
-  return hasSubgraphId && hasApiKey;
-}
-
 export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const { env, ctx, compoundCometCache } = state;
 

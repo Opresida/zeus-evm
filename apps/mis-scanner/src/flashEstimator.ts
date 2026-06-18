@@ -162,9 +162,15 @@ export async function estimateFlashArb(args: {
   const ethUsd = opts.ethUsd ?? (await fetchEthUsd(client, chainConfig));
   const gasUnits = opts.gasUnits ?? DEFAULT_FLASH_GAS_UNITS;
 
+  // H4: sem preço de ETH confiável (quote falhou → 0/NaN) NÃO dá pra precificar gás. Emitir um
+  // "lucro" com gás $0 contaminaria o ledger do DRY_RUN. Melhor pular esta observação.
+  if (!Number.isFinite(ethUsd) || ethUsd <= 0) return null;
+
   const { bSym } = splitPair(group.label);
-  // Preço de tokenB (quote) em USD: stable→1, WETH→ethUsd, senão best-effort via spot ratio
-  const bUsd = STABLE_SYMBOLS.has(bSym.toUpperCase()) ? 1 : bSym.toUpperCase() === 'WETH' ? ethUsd : ethUsd;
+  // Preço de tokenB (quote) em USD: stable→1, WETH→ethUsd. Token que não é stable nem WETH NÃO tem
+  // preço confiável aqui (antes caía pra ethUsd, mispricing) → pula (mantém o ledger honesto).
+  const bUpper = bSym.toUpperCase();
+  const bUsd = STABLE_SYMBOLS.has(bUpper) ? 1 : bUpper === 'WETH' ? ethUsd : 0;
   if (bUsd <= 0) return null;
 
   // Notional em tokenB (wei)

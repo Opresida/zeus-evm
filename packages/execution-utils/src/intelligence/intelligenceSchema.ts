@@ -35,7 +35,14 @@ export type EventCategory =
   | 'opportunity_found'     // backrun opportunity identificada
   | 'opportunity_rejected'  // backrun rejected
   | 'arb_observed'          // DRY_RUN: spread cross-DEX observado pelo detector (não executado)
-  | 'mis_observed';         // DRY_RUN: ineficiência viável observada pelo MIS scanner
+  | 'mis_observed'          // DRY_RUN: ineficiência viável observada pelo MIS scanner
+  // ─── Inteligência "órfã" trazida pro ledger central (snapshot via buildObservationEvent) ───
+  | 'competitor'            // snapshot de perfil/agregado de competidores (senderRegistry)
+  | 'market_bribe'          // quanto o mercado paga de bribe/priority fee (agregado de competidores)
+  | 'pnl_reconciled'        // reconciliação PnL: esperado vs realizado + drift + atribuição
+  | 'failure_recorded'      // falha categorizada (failureCollector) — pra análise post-mortem
+  | 'cluster'               // cluster sybil/co-ocorrência + builder attribution
+  | 'dedup';                // decisão de dedup (posição quase-duplicada suprimida)
 
 export type EventMode = 'dryrun' | 'testnet' | 'mainnet';
 export type EventSeverity = 'info' | 'warn' | 'critical';

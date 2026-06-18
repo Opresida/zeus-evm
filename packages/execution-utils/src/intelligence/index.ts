@@ -43,6 +43,7 @@ export {
 export {
   resolveIntelligenceDbPath,
   buildObservationEvent,
+  ingestSnapshot,
   queryTopOpportunityPairs,
   attachAndRankPairs,
   type ObservationInput,

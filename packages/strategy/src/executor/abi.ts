@@ -444,10 +444,112 @@ export const ZEUS_EXECUTOR_ABI = [
     outputs: [],
   },
 
-  // executeCompoundLiquidationWithBribe REMOVIDO em v7.1 (EIP-170 size limit).
+  // ─── executeCompoundLiquidationWithBribe (Compound + flashloan + BRIBE) ───
+  // Foi removida na v7.1 (o contrato monolítico estourava o limite de bytecode EIP-170),
+  // mas VOLTOU no split v8 — agora o ZeusLiquidator é contrato separado e tem espaço.
+  // Mesmos campos do executeCompoundLiquidation + a config de bribe no final.
+  {
+    type: 'function',
+    name: 'executeCompoundLiquidationWithBribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'comet' },
+          { type: 'address', name: 'borrower' },
+          { type: 'address', name: 'collateralAsset' },
+          { type: 'uint256', name: 'baseAmount' },
+          { type: 'uint256', name: 'minCollateralReceived' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+          { type: 'uint8', name: 'flashSource' },
+        ],
+      },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
 
-  // executeMorphoLiquidationWithBribe REMOVIDO em v7.1 (EIP-170 size limit).
-  // Morpho continua disponível via executeMorphoLiquidation (v6, sem bribe).
+  // ─── executeMorphoLiquidationWithBribe (Morpho Blue + flashloan + BRIBE) ───
+  // Idem: removida na v7.1 por EIP-170, VOLTOU no split v8. É a variante mais relevante
+  // pro nosso foco — Morpho é o edge aberto, e poder dar bribe ajuda a ganhar a corrida
+  // contra outros bots. Mesmos campos do executeMorphoLiquidation + a config de bribe.
+  {
+    type: 'function',
+    name: 'executeMorphoLiquidationWithBribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      {
+        type: 'tuple',
+        name: 'params',
+        components: [
+          { type: 'address', name: 'morpho' },
+          { type: 'address', name: 'loanToken' },
+          { type: 'address', name: 'collateralToken' },
+          { type: 'address', name: 'oracle' },
+          { type: 'address', name: 'irm' },
+          { type: 'uint256', name: 'lltv' },
+          { type: 'address', name: 'borrower' },
+          { type: 'uint256', name: 'seizedAssets' },
+          { type: 'uint256', name: 'repaidShares' },
+          { type: 'uint256', name: 'flashloanAmount' },
+          {
+            type: 'tuple[]',
+            name: 'swapSteps',
+            components: [
+              { type: 'address', name: 'router' },
+              { type: 'address', name: 'tokenIn' },
+              { type: 'address', name: 'tokenOut' },
+              { type: 'uint256', name: 'amountIn' },
+              { type: 'uint256', name: 'minAmountOut' },
+              { type: 'uint8', name: 'dexType' },
+              { type: 'bytes', name: 'extraData' },
+            ],
+          },
+          { type: 'uint256', name: 'minProfitWei' },
+          { type: 'address', name: 'profitReceiver' },
+          { type: 'uint8', name: 'flashSource' },
+        ],
+      },
+      {
+        type: 'tuple',
+        name: 'bribe',
+        components: [
+          { type: 'uint256', name: 'bribeBps' },
+          { type: 'uint256', name: 'minBribeWei' },
+          { type: 'uint256', name: 'bribeMaxBps' },
+          { type: 'uint24', name: 'swapFeeTier' },
+          { type: 'uint256', name: 'swapSlippageBps' },
+        ],
+      },
+    ],
+    outputs: [],
+  },
 
   // ─── V7 admin setters ───
   {

@@ -7,7 +7,7 @@
  */
 
 import { encodeFunctionData, type Address, type Hex, encodeAbiParameters } from 'viem';
-import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
+import { ZEUS_EXECUTOR_ABI, type BribeConfig } from '@zeus-evm/strategy';
 import { DexType } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -37,8 +37,13 @@ export interface BuildCompoundOpts {
   expectedSwapOutput: bigint;
   /** minCollateralReceived: proteção on-chain durante buyCollateral (~95% do esperado). */
   minCollateralReceivedWei: bigint;
-  // bribe REMOVIDO em v7.1 (executeCompoundLiquidationWithBribe não existe no contrato).
-  // Compound continua sem bribe — usar v6 path puro.
+  /**
+   * Bribe opcional. Quando presente, a tx vai pela função `executeCompoundLiquidationWithBribe`
+   * (paga um "gorjeta" pro validador pra ganhar a corrida de inclusão). Quando ausente, usa o
+   * caminho puro `executeCompoundLiquidation`. A função WithBribe voltou no split v8 do contrato
+   * (tinha sido cortada na v7.1 por limite de bytecode).
+   */
+  bribe?: BribeConfig;
 }
 
 export function buildCompoundLiquidationTx(
@@ -54,6 +59,7 @@ export function buildCompoundLiquidationTx(
     preferredFeeTier,
     expectedSwapOutput,
     minCollateralReceivedWei,
+    bribe,
   } = opts;
 
   const swapRouter = chainConfig.uniswapV3.swapRouter02;
@@ -89,11 +95,18 @@ export function buildCompoundLiquidationTx(
     flashSource: decision.flashSource as number,
   };
 
-  const data = encodeFunctionData({
-    abi: ZEUS_EXECUTOR_ABI,
-    functionName: 'executeCompoundLiquidation',
-    args: [compoundParams],
-  });
+  // Com bribe → função WithBribe (args = [params, bribe]); sem bribe → função pura (args = [params]).
+  const data = bribe
+    ? encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeCompoundLiquidationWithBribe',
+        args: [compoundParams, bribe],
+      })
+    : encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeCompoundLiquidation',
+        args: [compoundParams],
+      });
 
   return {
     to: executorAddress,
@@ -105,7 +118,7 @@ export function buildCompoundLiquidationTx(
       baseToken: position.baseToken,
       collateralAsset: position.collateralAsset,
       swapSteps: swapSteps.length,
-      withBribe: false, // Compound não tem bribe em v7.1
+      withBribe: Boolean(bribe),
     },
   };
 }

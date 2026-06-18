@@ -727,7 +727,15 @@ async function _runCompoundPipelineInner(
   decision.flashSource = compoundFlashSel.flashSource;
   decision.flashPremiumBps = compoundFlashSel.flashPremiumBps;
 
-  // Compound não suporta bribe em v7.1 (removido por EIP-170 size limit).
+  // Bribe opt-in (volta no split v8). Token de lucro do Compound = baseToken (onde o profit aparece).
+  const compoundBribe = await buildBribeWithSlippageFloor(
+    env,
+    ctx,
+    position.baseToken as Address,
+    position.baseTokenDecimals,
+    decision.expectedProfitWei,
+    decision.expectedProfitUsd,
+  );
   const built = buildCompoundLiquidationTx(position, decision, {
     executorAddress: ctx.executorContractAddress,
     chainConfig: ctx.chainConfig,
@@ -736,6 +744,7 @@ async function _runCompoundPipelineInner(
     preferredFeeTier: 500,
     expectedSwapOutput,
     minCollateralReceivedWei,
+    bribe: compoundBribe,
   });
 
   // 3. Simulator
@@ -937,6 +946,17 @@ async function _runMorphoPipelineInner(
   decision.flashSource = morphoFlashSel.flashSource;
   decision.flashPremiumBps = morphoFlashSel.flashPremiumBps;
 
+  // Bribe opt-in (volta no split v8) — mais relevante aqui, pois Morpho é o edge aberto
+  // (a briga é latência/bots, não captura do protocolo). Token de lucro = loanToken.
+  const morphoBribe = await buildBribeWithSlippageFloor(
+    env,
+    ctx,
+    position.loanToken as Address,
+    position.loanTokenDecimals,
+    decision.expectedProfitWei,
+    decision.expectedProfitUsd,
+  );
+
   // 2. Builder
   const built = buildMorphoLiquidationTx(position, decision, plan, {
     executorAddress: ctx.executorContractAddress,
@@ -946,6 +966,7 @@ async function _runMorphoPipelineInner(
     slippageBps: env.MAX_SLIPPAGE_BPS,
     preferredFeeTier: 500,
     expectedSwapOutput: outcome.expectedSwapOutputWei ?? 0n,
+    bribe: morphoBribe,
   });
 
   // 3. Simulator

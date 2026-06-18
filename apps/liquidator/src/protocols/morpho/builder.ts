@@ -6,7 +6,7 @@
  */
 
 import { encodeFunctionData, encodeAbiParameters, type Address, type Hex } from 'viem';
-import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
+import { ZEUS_EXECUTOR_ABI, type BribeConfig } from '@zeus-evm/strategy';
 import { DexType } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -37,6 +37,13 @@ export interface BuildMorphoOpts {
   preferredFeeTier: number;
   /** Expected swap output em wei do loanToken (pra slippage no swapStep). */
   expectedSwapOutput: bigint;
+  /**
+   * Bribe opcional. Quando presente, a tx vai pela função `executeMorphoLiquidationWithBribe`
+   * (paga "gorjeta" pro validador pra ganhar a corrida de inclusão). Quando ausente, usa o
+   * caminho puro `executeMorphoLiquidation`. Essa variante voltou no split v8 do contrato —
+   * é a mais importante pra nós, já que Morpho é o edge aberto onde a briga é latência/bots.
+   */
+  bribe?: BribeConfig;
 }
 
 export function buildMorphoLiquidationTx(
@@ -45,7 +52,7 @@ export function buildMorphoLiquidationTx(
   plan: LiquidationPlan,
   opts: BuildMorphoOpts,
 ): BuiltMorphoLiquidationTx {
-  const { executorAddress, morpho, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput } = opts;
+  const { executorAddress, morpho, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput, bribe } = opts;
 
   const swapRouter = chainConfig.uniswapV3.swapRouter02;
   const minAmountOut = (expectedSwapOutput * (10_000n - BigInt(slippageBps))) / 10_000n;
@@ -80,11 +87,18 @@ export function buildMorphoLiquidationTx(
     flashSource: decision.flashSource as number,
   };
 
-  const data = encodeFunctionData({
-    abi: ZEUS_EXECUTOR_ABI,
-    functionName: 'executeMorphoLiquidation',
-    args: [morphoParams],
-  });
+  // Com bribe → função WithBribe (args = [params, bribe]); sem bribe → função pura (args = [params]).
+  const data = bribe
+    ? encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeMorphoLiquidationWithBribe',
+        args: [morphoParams, bribe],
+      })
+    : encodeFunctionData({
+        abi: ZEUS_EXECUTOR_ABI,
+        functionName: 'executeMorphoLiquidation',
+        args: [morphoParams],
+      });
 
   return {
     to: executorAddress,
@@ -97,7 +111,7 @@ export function buildMorphoLiquidationTx(
       collateralToken: position.collateralToken,
       flashloanWei: decision.flashloanAmount,
       swapSteps: swapSteps.length,
-      withBribe: false, // v7.1: Morpho sem bribe (executeMorphoLiquidationWithBribe removido por EIP-170)
+      withBribe: Boolean(bribe),
     },
   };
 }

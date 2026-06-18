@@ -1571,6 +1571,16 @@ function getCommonDebtAssetsForChain(chainId: number): Address[] {
  * Em DRY_RUN: tudo loga sem submeter tx.
  * Em testnet/mainnet: positions com simulação OK viram tx submetidas.
  */
+
+/**
+ * H3 — decide o caminho de discovery Aave por market. Subgraph só quando o market tem subgraphId
+ * E há TheGraph key; senão usa o on-chain (event scan + BorrowerCache), que roda SEMPRE. Assim a
+ * descoberta nunca depende exclusivamente da key (Seamless e Aave-sem-key continuam funcionando).
+ */
+export function useSubgraphDiscovery(hasSubgraphId: boolean, hasApiKey: boolean): boolean {
+  return hasSubgraphId && hasApiKey;
+}
+
 export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const { env, ctx, compoundCometCache } = state;
 
@@ -1581,17 +1591,19 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   await state.gasReserveTracker.check(ctx.client, ctx.account);
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
-  if (env.THEGRAPH_API_KEY && state.aaveMarkets.length > 0) {
+  // H3 (resiliência): NÃO gateamos o loop inteiro em THEGRAPH_API_KEY. O discovery on-chain
+  // (event scan + BorrowerCache) roda SEMPRE; o subgraph é só um acelerador quando há key.
+  // Assim, sem a key, Aave core E Seamless continuam descobrindo posições (auto-feed do mercado).
+  if (state.aaveMarkets.length > 0) {
     for (const market of state.aaveMarkets) {
       try {
-        // Markets com subgraph usam subgraph (mais eficiente); forks sem subgraph
-        // (Seamless) caem pro discovery on-chain via event scan (Opção 3 da Doutrina).
-        const positions = market.subgraphId
+        // Subgraph só quando o market tem subgraphId E a key existe; senão → on-chain.
+        const positions = useSubgraphDiscovery(Boolean(market.subgraphId), Boolean(env.THEGRAPH_API_KEY))
           ? await discoverAaveLiquidatablePositions({
               client: ctx.client,
               poolAddress: market.pool,
-              apiKey: env.THEGRAPH_API_KEY,
-              subgraphId: market.subgraphId,
+              apiKey: env.THEGRAPH_API_KEY as string,
+              subgraphId: market.subgraphId as string,
               cache: market.reservesCache,
               hfThreshold: env.HF_AT_RISK_THRESHOLD,
               maxCandidates: 200,

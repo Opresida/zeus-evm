@@ -1,13 +1,16 @@
 /**
  * observationReport — CLI do relatório do DRY_RUN (OIE Etapa D, parte 1).
  *
- * Lê o(s) ledger(s) DuckDB (detector/MIS/liquidator) e imprime o ranking de pares +
- * protocol/pool/token. ZERO infra — responde "quais pares têm edge" no terminal.
+ * Lê o(s) ledger(s) DuckDB (detector/MIS/liquidator/backrun) e imprime: a inteligência
+ * capturada por categoria (market_bribe/competitor/pnl_reconciled/failure_recorded/cluster/
+ * dedup/arb_observed/mis_observed/...) + o ranking de pares + protocol/pool/token.
+ * ZERO infra — responde "está tudo sendo gravado?" e "quais pares têm edge" no terminal.
  *
  * Como os apps seguram o arquivo (DuckDB single-writer), COPIA cada `.duckdb` (+ `.wal`)
  * pra um temp e lê a cópia — funciona com o bot rodando.
  *
- *   tsx src/cli/observationReport.ts --db-paths logs/intelligence-detector.duckdb,logs/intelligence-mis.duckdb \
+ *   tsx src/cli/observationReport.ts \
+ *       --db-paths logs/intelligence-detector.duckdb,logs/intelligence-mis.duckdb,logs/intelligence.duckdb,logs/intelligence-backrun.duckdb \
  *       --window-days 7 --chain Base --output markdown
  */
 

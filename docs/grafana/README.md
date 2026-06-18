@@ -25,7 +25,27 @@ exposto pelo detector (`:7882`) e mis-scanner (`:7883`):
 | `zeus_dim_observations` | dimension, key, chain | total de ops observadas por dimensão |
 | `zeus_dim_net_profit_usd` | dimension, key, chain | lucro líquido médio por dimensão |
 
-> Pra ler sem Grafana: `pnpm --filter @zeus-evm/execution-utils report:observation --db-paths logs/intelligence-detector.duckdb,logs/intelligence-mis.duckdb`
+> Pra ler sem Grafana: `pnpm --filter @zeus-evm/execution-utils report:observation --db-paths logs/intelligence-detector.duckdb,logs/intelligence-mis.duckdb,logs/intelligence.duckdb,logs/intelligence-backrun.duckdb`
+> O relatório agora abre com **"Inteligência capturada (por categoria)"** — confirma que TODA a
+> inteligência (market_bribe/competitor/pnl_reconciled/failure_recorded/cluster/dedup/...) está no ledger.
+
+### Inteligência "órfã" trazida pro Prometheus (Fases 1-7)
+
+Sinais que antes só viviam em JSON/RAM agora têm métrica + painel:
+
+| Métrica | Labels | Significado |
+|---|---|---|
+| `zeus_market_bribe_priority_fee_gwei` | chain, percentile | lance de mercado (p50/p75/p95) dos competidores |
+| `zeus_market_bribe_competitors_active` | chain | competidores ativos no agregado |
+| `zeus_competitor_category_total` | chain, category | mix de competidores por categoria |
+| `zeus_failures_total` | chain, category, protocol | falhas por categoria (counter) |
+| `zeus_dedup_suppressed_total` | chain, status | quase-duplicados suprimidos (counter) |
+| `zeus_sybil_clusters_total` / `zeus_sybil_strong_links` | chain | detecção de sybil (co-ocorrência) |
+| `zeus_builders_tracked` | chain | builders/miners distintos observados |
+| `zeus_pnl_expected_usd_total` / `zeus_pnl_drift_bps` / `zeus_gas_usd_paid_total` | chain, protocol | reconciliação (antes mortas) |
+| `zeus_dispatch_duration_seconds` / `zeus_calculator_duration_seconds` | chain, protocol | latência (histogramas, antes mortos) |
+
+> **Backrun agora expõe `/metrics`** (`:7879`) com a mesma infra do liquidator — antes o motor 3 era invisível.
 
 ## Setup rápido
 
@@ -105,11 +125,16 @@ Ajustar conforme baseline real após 1 semana de produção.
 - Time range default: 6h (operations), 3h (performance)
 - Prometheus retention recomendada: 30d (queries de drift comparam offset 24h)
 
+## Já entregue (Fases 1-7)
+
+- ✅ **Market bribe** — `zeus-performance.json`: priority fee dos competidores (p50/p75/p95)
+- ✅ **Competitor classification** — `zeus-performance.json`: quebra por categoria (`zeus_competitor_category_total`)
+- ✅ **Cooccurrence cluster / builders** — `zeus-performance.json`: `Sybil Clusters + Builders`
+- ✅ **Failure attribution** — `zeus-operations.json`: `Falhas por Categoria (1h)`
+- ✅ **Gas pago + dedup suprimido** — `zeus-operations.json`
+
 ## Próximos painéis (futuro)
 
-- **Cost breakdown** (Item 10 P4): base/priority/L1/bribe stacked area
-- **Competitor classification distribution** (Item 5 F7): pie chart por categoria
-- **Cooccurrence cluster size** (Item 5 F8): top N clusters detectados
-- **Failure attribution** (Item 4 A8): donut por FailureCategory
+- **Cost breakdown** (Item 10 P4): base/priority/L1/bribe stacked area (parcial — gás já está)
 
-Quando exportar essas métricas adicionais no MetricRegistry, expandir os JSONs.
+Quando exportar novas métricas no MetricRegistry, expandir os JSONs.

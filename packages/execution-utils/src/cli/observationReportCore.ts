@@ -38,16 +38,35 @@ export interface ObservationReport {
   chain?: string;
   pairs: TopPairRow[];
   dimensions: Record<string, Record<Dimension, DimensionScore[]>>;
+  /** Contagem de eventos por categoria (toda a inteligência capturada na janela). */
+  categoryCounts: Record<string, number>;
+}
+
+/** Conta eventos por categoria num store (toda a inteligência: órfãos incluídos). */
+async function queryCategoryCounts(
+  store: TimeseriesStore,
+  windowMs: number,
+  chain?: string,
+): Promise<Record<string, number>> {
+  const since = Date.now() - windowMs;
+  const chainFilter = chain ? ` AND chain = '${chain.replace(/'/g, "''")}'` : '';
+  const rows = await store.query<{ category: string; n: number | bigint }>(
+    `SELECT category, COUNT(*) AS n FROM events WHERE timestamp >= ${since}${chainFilter} GROUP BY category`,
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r.category)] = typeof r.n === 'bigint' ? Number(r.n) : r.n;
+  return out;
 }
 
 /** Coleta o relatório a partir dos paths dos ledgers. Abre/fecha cada um internamente. */
 export async function collectReport(sources: ReportSource[], opts: ReportOpts): Promise<ObservationReport> {
   if (sources.length === 0) {
-    return { windowMs: opts.windowMs, chain: opts.chain, pairs: [], dimensions: {} };
+    return { windowMs: opts.windowMs, chain: opts.chain, pairs: [], dimensions: {}, categoryCounts: {} };
   }
 
-  // ── Dimensões: 1 store por vez (abre → consulta → fecha) ──
+  // ── Dimensões + contagem por categoria: 1 store por vez (abre → consulta → fecha) ──
   const dimensions: Record<string, Record<Dimension, DimensionScore[]>> = {};
+  const categoryCounts: Record<string, number> = {};
   for (const { label, dbPath } of sources) {
     const store = new TimeseriesStore({ dbPath });
     await store.init();
@@ -59,6 +78,9 @@ export async function collectReport(sources: ReportSource[], opts: ReportOpts): 
         perDim[dim] = rankDimension(dim, stats, { windowMs: opts.windowMs });
       }
       dimensions[label] = perDim;
+      // Soma as contagens por categoria de todos os ledgers (visão unificada do que foi capturado).
+      const counts = await queryCategoryCounts(store, opts.windowMs, opts.chain);
+      for (const [cat, n] of Object.entries(counts)) categoryCounts[cat] = (categoryCounts[cat] ?? 0) + n;
     } finally {
       await store.shutdown();
     }
@@ -77,7 +99,21 @@ export async function collectReport(sources: ReportSource[], opts: ReportOpts): 
     await primary.shutdown();
   }
 
-  return { windowMs: opts.windowMs, chain: opts.chain, pairs, dimensions };
+  return { windowMs: opts.windowMs, chain: opts.chain, pairs, dimensions, categoryCounts };
+}
+
+/** Tabela "inteligência capturada por categoria" — responde "está tudo sendo gravado?". */
+export function formatCategoryCountsMarkdown(counts: Record<string, number>): string {
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return '_Nenhum evento capturado na janela._';
+  const lines = [
+    '## 🧠 Inteligência capturada (por categoria)',
+    '',
+    '| Categoria | Eventos |',
+    '|-----------|---------|',
+  ];
+  for (const [cat, n] of entries) lines.push(`| ${cat} | ${n} |`);
+  return lines.join('\n');
 }
 
 export function formatPairsMarkdown(rows: TopPairRow[]): string {
@@ -102,6 +138,8 @@ export function renderMarkdown(report: ObservationReport, labels: string[]): str
   const out: string[] = [];
   out.push('# Relatório de observação — DRY_RUN');
   out.push(`> janela ${report.windowMs / (24 * 3600_000)}d${report.chain ? ` · chain ${report.chain}` : ''} · motores: ${labels.join(', ')}`);
+  out.push('');
+  out.push(formatCategoryCountsMarkdown(report.categoryCounts));
   out.push('');
   out.push(formatPairsMarkdown(report.pairs));
   for (const label of labels) {

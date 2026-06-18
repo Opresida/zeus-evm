@@ -89,6 +89,24 @@ describe('collectReport — relatório de observação', () => {
     expect(md).toContain('Motor: det');
   });
 
+  it('conta a inteligência por categoria (órfãos incluídos) + mostra no markdown', async () => {
+    await seedLedger(detPath, [
+      { category: 'arb_observed', protocol: 'arb', pair: 'A/B', profit: 1 },
+      { category: 'market_bribe', protocol: 'bribe', pair: 'MARKET', profit: 0 },
+      { category: 'competitor', protocol: 'aggregate', pair: 'X', profit: 0 },
+      { category: 'pnl_reconciled', protocol: 'morpho-blue', pair: 'Y', profit: 0 },
+      { category: 'failure_recorded', protocol: 'aave-v3', pair: 'Z', profit: 0 },
+    ]);
+    const report = await collectReport([{ label: 'det', dbPath: detPath }], { windowMs: 24 * 3600_000 });
+    expect(report.categoryCounts['market_bribe']).toBe(1);
+    expect(report.categoryCounts['competitor']).toBe(1);
+    expect(report.categoryCounts['pnl_reconciled']).toBe(1);
+    expect(report.categoryCounts['failure_recorded']).toBe(1);
+    const md = renderMarkdown(report, ['det']);
+    expect(md).toContain('Inteligência capturada (por categoria)');
+    expect(md).toContain('market_bribe');
+  });
+
   it('1 motor só usa queryTopOpportunityPairs (sem ATTACH)', async () => {
     await seedLedger(detPath, [
       { category: 'arb_observed', protocol: 'arb', pair: 'X/Y', profit: 2 },

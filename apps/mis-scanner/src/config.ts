@@ -66,6 +66,11 @@ const envSchema = z.object({
   ARB_NOTIONAL_USD: num(5000),
   /** Quantos pares top (por persistência/viabilidade) tentar por scan. */
   ARB_TOP_N: posInt(5),
+
+  // ─── Auto-calibração (Etapa C) — ajusta o gate de EV a partir do histórico ───
+  ADAPTIVE_THRESHOLDS_ENABLED: boolDefault(false),
+  ADAPTIVE_RECALC_INTERVAL_SEC: posInt(600),
+  ADAPTIVE_WINDOW_DAYS: posInt(7),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

@@ -33,6 +33,21 @@ import {
   DimensionMetricsExporter,
   startHealthServer,
   GasOracle,
+  EventBus,
+  EventIngester,
+  SenderRegistry,
+  BlockHistoryScanner,
+  CooccurrenceAnalyzer,
+  BuilderAttributionTracker,
+  PnlTracker,
+  FailureTracker,
+  PnlReconciler,
+  PnlAggregator,
+  CalibrationDriftTracker,
+  FailureCollector,
+  CompetitorResolver,
+  BlockPositionTracker,
+  computeAdaptiveThresholds,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -105,6 +120,12 @@ async function main(): Promise<void> {
 
   const client = createPublicClient({ chain: sel.viem, transport: http(sel.rpc) });
 
+  // Conta do bot (derivada da chave EXCLUSIVA, se houver) — reusada na inteligência + execução.
+  const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+  const botAccount: Address = env.EXECUTOR_PRIVATE_KEY
+    ? privateKeyToAccount(env.EXECUTOR_PRIVATE_KEY as `0x${string}`).address
+    : ZERO;
+
   // MIS com window de 7 dias (persistência precisa de tempo) + snapshot a cada sample
   const minDivergenceBps = env.MIS_MIN_DIVERGENCE_BPS;
   const mis = new MarketInefficiencyScanner({
@@ -119,6 +140,46 @@ async function main(): Promise<void> {
     logger,
   });
   await store.init();
+
+  // ─── Camada de inteligência (Parte B) — espelha o liquidator/backrun no Motor 2 ───
+  const eventBus = new EventBus(logger);
+  const eventIngester = new EventIngester({ store, eventBus, logger, defaultChain: chainConfig.name });
+  eventIngester.start();
+  // Competidores (arb é competitivo — o motor TEM que ver o adversário).
+  const senderRegistry = new SenderRegistry({ baseDir: resolve('logs', 'competitors'), logger });
+  const cooccurrence = new CooccurrenceAnalyzer();
+  const builderAttribution = new BuilderAttributionTracker({ ourAccount: botAccount, logger });
+  const intelTargets = {
+    aave_v3_pool: chainConfig.aave?.pool,
+    compound_comets: [chainConfig.compoundV3?.cUSDCv3, chainConfig.compoundV3?.cWETHv3].filter((a): a is Address => !!a && a !== ZERO),
+    morpho_blue: chainConfig.morpho?.morphoBlue,
+    uniswap_v3_routers: [chainConfig.uniswapV3?.swapRouter02, chainConfig.uniswapV3?.universalRouter].filter((a): a is Address => !!a),
+    aerodrome_router: chainConfig.aerodrome?.router,
+  };
+  const blockHistoryScanner = new BlockHistoryScanner({ client, registry: senderRegistry, targets: intelTargets, cooccurrence, builderAttribution, logger });
+  blockHistoryScanner.start();
+  // PnL/calibração/falhas.
+  const pnlTracker = new PnlTracker({ dailyLossLimitUsd: 1000, logFilePath: resolve('logs', 'mis-pnl.jsonl'), logger, autoKillEnabled: false });
+  const failureTracker = new FailureTracker({ maxConsecutiveFailures: 5, cooldownDurationMs: 60_000, logger });
+  const pnlAggregator = new PnlAggregator({ logger });
+  const driftTracker = new CalibrationDriftTracker({ logger });
+  const pnlReconciler = new PnlReconciler({
+    baseDir: resolve('logs', 'pnl-reconciliations'),
+    logger,
+    onReconcile: (recon) => {
+      pnlAggregator.observe(recon);
+      driftTracker.observe({
+        timestamp: recon.timestamp, protocol: recon.protocol, pair: recon.context.opportunity_id,
+        venue: recon.context.venue, hour_utc: new Date(recon.timestamp).getUTCHours(),
+        drift_bps: recon.deltas.profit_delta_bps, realized_profit_usd: recon.realized.profit_usd,
+      });
+    },
+  });
+  const failureCollector = new FailureCollector({ baseDir: resolve('logs', 'failures'), logger });
+  // Post-mortem: alvo = routers DEX (a corrida do arb é por quem inclui primeiro).
+  const competitorResolver = new CompetitorResolver({ client, senderRegistry, targets: intelTargets.uniswap_v3_routers.concat(intelTargets.aerodrome_router ? [intelTargets.aerodrome_router] : []), logger });
+  const blockPositionTracker = new BlockPositionTracker({ client, logger });
+  logger.info('🧠 Camada de inteligência do Motor 2 pronta (competidores + PnL + calibração + post-mortem)');
 
   // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
   const metricRegistry = new MetricRegistry({ logger });
@@ -224,12 +285,57 @@ async function main(): Promise<void> {
         ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE, logger,
         minProfitUsd: env.MIN_ARB_PROFIT_USD, maxSlippageBps, maxTradeWei,
         estimatedGasUsd: env.GAS_COST_USD_ESTIMATE,
+        // Inteligência (Parte B): reconciliação, falhas, post-mortem, eventos.
+        pnlTracker, failureTracker, pnlReconciler, failureCollector, eventBus,
+        competitorResolver, blockPositionTracker,
       },
     };
     logger.info({ mode, executor: env.ARB_EXECUTOR_ADDRESS ?? '(ausente)', topN: env.ARB_TOP_N }, `⚙️ Execução de ARB LIGADA (mode=${mode})`);
   } else {
     logger.info('⚙️ Execução de ARB desligada (ARB_EXECUTION_ENABLED=false) — só observação');
   }
+
+  // ─── Sync de métricas de inteligência (Parte B) — competidores + market-bribe + drift ───
+  let lastBlocks = 0;
+  const intelMetricsInterval = setInterval(() => {
+    try {
+      const ch = chainConfig.name;
+      const ss = blockHistoryScanner.getStats();
+      metricRegistry.set('zeus_competitor_profiles_total', ss.unique_senders, { chain: ch });
+      const bd = ss.blocks_processed - lastBlocks;
+      if (bd > 0) metricRegistry.inc('zeus_scanner_blocks_processed_total', { chain: ch }, bd);
+      lastBlocks = ss.blocks_processed;
+      const mkt = senderRegistry.marketBribeStats();
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain: ch, percentile: 'p50' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain: ch, percentile: 'p75' });
+      metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain: ch });
+      const dr = driftTracker.stats();
+      metricRegistry.set('zeus_drift_sustained_alerts', dr.sustained_alerts_count, { chain: ch });
+      metricRegistry.set('zeus_pnl_avg_drift_bps_all', dr.avg_drift_bps_all, { chain: ch });
+    } catch (err) {
+      logger.debug?.({ err: err instanceof Error ? err.message : err }, 'metrics sync MIS: erro (drop)');
+    }
+  }, 5_000);
+  intelMetricsInterval.unref();
+
+  // ─── Auto-calibração (Etapa C) — recalcula o gate de EV do arb a partir do ledger ───
+  const runAdaptive = async () => {
+    try {
+      const adaptive = await computeAdaptiveThresholds({
+        store, chain: chainConfig.name,
+        windowMs: env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      });
+      if (env.ADAPTIVE_THRESHOLDS_ENABLED && arbExec) {
+        arbExec.deps.minProfitUsd = adaptive.MIN_OPPORTUNITY_EV_USD; // mesma ref → afeta o gate
+      }
+      logger.info({ applied: env.ADAPTIVE_THRESHOLDS_ENABLED && !!arbExec, minEv: adaptive.MIN_OPPORTUNITY_EV_USD, top: adaptive.topProtocol }, `📈 adaptive (MIS): MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD}`);
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc MIS falhou (skip)');
+    }
+  };
+  void runAdaptive();
+  const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
+  adaptiveTimer.unref();
 
   // Graceful shutdown: salva snapshot + drena o ledger DuckDB ao sair (Ctrl+C)
   let stopping = false;
@@ -238,7 +344,9 @@ async function main(): Promise<void> {
     stopping = true;
     metricsExporter.stop();
     healthServer?.close();
+    blockHistoryScanner.stop();        // salva snapshot do registry de competidores
     saveSnapshot(SNAPSHOT_PATH, mis.snapshot());
+    await eventIngester.stop();        // flush do ledger
     await store.shutdown();
     logger.info({ samples: mis.stats().totalSamples }, '💾 snapshot + ledger salvos — até a próxima varredura');
     process.exit(0);

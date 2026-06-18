@@ -17,7 +17,21 @@ import {
   simulateArbitrage,
   type CrossDexOpportunity,
 } from '@zeus-evm/strategy';
-import { gasCostUsd, type GasOracle, type PnlTracker, type FailureTracker } from '@zeus-evm/execution-utils';
+import {
+  gasCostUsd,
+  realizedPriorityFeeWei,
+  decodeLiquidationEvent,
+  generateFailureId,
+  type GasOracle,
+  type PnlTracker,
+  type FailureTracker,
+  type PnlReconciler,
+  type FailureCollector,
+  type FailureEvent,
+  type EventBus,
+  type CompetitorResolver,
+  type BlockPositionTracker,
+} from '@zeus-evm/execution-utils';
 import { flashloanAssetOf } from './arbOpportunity';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -41,10 +55,15 @@ export interface ArbDispatchDeps {
   maxSlippageBps: number;
   maxTradeWei: bigint;
   estimatedGasUsd: number;
-  // Intelligence opcional (Parte B liga)
+  // Intelligence (Parte B)
   pnlTracker?: PnlTracker;
   failureTracker?: FailureTracker;
-  /** Hook pós-dispatch pra reconciliação/post-mortem (Parte B). */
+  pnlReconciler?: PnlReconciler;
+  failureCollector?: FailureCollector;
+  eventBus?: EventBus;
+  competitorResolver?: CompetitorResolver;
+  blockPositionTracker?: BlockPositionTracker;
+  /** Hook pós-dispatch (extensibilidade). */
   onResult?: (r: ArbDispatchResult, ctx: { opp: CrossDexOpportunity; calldata: Hex }) => void | Promise<void>;
 }
 
@@ -136,16 +155,62 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
     const txHash = await deps.wallet.sendTransaction(txParams as any);
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
 
+    const gasUsd = gasCostUsd(receipt.gasUsed, receipt.effectiveGasPrice ?? 0n, deps.ethUsdPrice);
+
     if (receipt.status === 'reverted') {
-      const gasUsd = gasCostUsd(receipt.gasUsed, receipt.effectiveGasPrice ?? 0n, deps.ethUsdPrice);
       deps.pnlTracker?.recordLoss(gasUsd, { txHash, chain: chainConfig.name, reason: 'arb reverted on-chain' });
       deps.failureTracker?.recordFailure(`arb revert ${txHash}`);
+      // Falha rica + post-mortem (quem nos ganhou + posição no bloco) — espelha liquidator/backrun.
+      if (deps.failureCollector) {
+        const fe: FailureEvent = {
+          id: generateFailureId(Date.now()), timestamp: Date.now(), chain: chainConfig.name, mode,
+          protocol: 'arb', category: 'reverted_on_chain', category_confidence: 0.95,
+          our_tx_hash: txHash, our_gas_used: receipt.gasUsed.toString(), our_gas_usd_lost: gasUsd,
+          our_tx_index: receipt.transactionIndex, block_number: receipt.blockNumber.toString(),
+          opportunity_id: opp.pair.id, expected_profit_usd: opp.profitUsd,
+          payload: { buyVenue: opp.buyQuote.source, sellVenue: opp.sellQuote.source },
+        };
+        try {
+          if (deps.blockPositionTracker) {
+            const pos = await deps.blockPositionTracker.resolve(txHash, receipt.blockNumber);
+            if (pos) { fe.block_total_txs = pos.block_total_txs; (fe.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct; }
+          }
+          if (deps.competitorResolver && deps.account) {
+            const w = await deps.competitorResolver.resolve(fe, deps.account);
+            if (w) { fe.competitor_winner_sender = w.winner_sender; fe.competitor_winner_alias = w.winner_alias; fe.competitor_winner_priority_fee_wei = w.winner_priority_fee_wei?.toString(); }
+          }
+        } catch { /* post-mortem nunca quebra o fluxo */ }
+        deps.failureCollector.record(fe);
+        deps.eventBus?.emit({ type: 'failure.recorded', timestamp: new Date().toISOString(), chain: chainConfig.name, mode, severity: 'warn', protocol: 'arb', failureCategory: 'reverted_on_chain', txHash, gasUsdLost: gasUsd, reason: 'arb reverted on-chain' });
+      }
       const result: ArbDispatchResult = { status: 'reverted_on_chain', txHash, flashSource: flashSel.flashSource };
       await deps.onResult?.(result, { opp, calldata });
       return result;
     }
 
     deps.failureTracker?.recordSuccess();
+
+    // Reconciliação (esperado vs realizado) — alimenta PnlAggregator + DriftTracker via onReconcile.
+    if (deps.pnlReconciler) {
+      try {
+        const decoded = deps.executorAddress ? decodeLiquidationEvent(receipt, deps.executorAddress) : null;
+        const realizedProfitWei = decoded?.profitWei ?? 0n;
+        const realizedProfitUsd = (Number(realizedProfitWei) / Math.pow(10, opp.pair.decimalsA)) * opp.pair.estimatedUsdValueA;
+        const block = await client.getBlock({ blockNumber: receipt.blockNumber }).catch(() => null);
+        const recon = deps.pnlReconciler.reconcile({
+          chain: chainConfig.name, protocol: 'arb', tx_hash: txHash, block_number: receipt.blockNumber,
+          expected_profit_wei: opp.profitWei, expected_profit_usd: opp.profitUsd,
+          realized_profit_wei: realizedProfitWei, realized_profit_usd: realizedProfitUsd,
+          realized_gas_units_used: receipt.gasUsed, realized_gas_usd: gasUsd,
+          realized_priority_fee_wei: realizedPriorityFeeWei(receipt.effectiveGasPrice, block?.baseFeePerGas),
+          eth_usd_price: deps.ethUsdPrice, opportunity_id: opp.pair.id, venue: opp.buyQuote.source, finality_status: 'soft',
+        });
+        deps.eventBus?.emit({ type: 'pnl.reconciled', timestamp: new Date().toISOString(), chain: chainConfig.name, mode, severity: 'info', protocol: 'arb', txHash, blockNumber: receipt.blockNumber.toString(), expectedNetUsd: recon.expected.net_profit_usd_estimated, realizedNetUsd: recon.realized.net_profit_usd, profitDeltaBps: recon.deltas.profit_delta_bps, gasUsd: recon.realized.gas_usd_actual, attributionCause: recon.attribution.primary_cause });
+      } catch (err) {
+        deps.logger.warn({ txHash, err: err instanceof Error ? err.message : err }, 'reconciliação de arb falhou (segue)');
+      }
+    }
+
     const result: ArbDispatchResult = { status: 'dispatched', txHash, netProfitUsd: filtered.netProfitUsd, flashSource: flashSel.flashSource };
     await deps.onResult?.(result, { opp, calldata });
     return result;

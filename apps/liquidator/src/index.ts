@@ -765,6 +765,8 @@ export async function boot(): Promise<LiquidatorState> {
   // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
   // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
   let lastBlocksProcessed = 0;
+  // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
+  const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   const metricsSyncInterval = setInterval(() => {
     try {
       const chain = ctx.chainConfig.name;
@@ -797,6 +799,12 @@ export async function boot(): Promise<LiquidatorState> {
       const dedupStats = dedupTracker.stats();
       metricRegistry.set('zeus_dedup_pending', dedupStats.pending, { chain });
       metricRegistry.set('zeus_dedup_confirmed', dedupStats.confirmed, { chain });
+      // Supressões (counter por status) via delta — quase-duplicados evitados (Fase 6).
+      for (const status of ['pending', 'confirmed', 'failed'] as const) {
+        const delta = dedupStats.suppressed[status] - (lastSuppressed[status] ?? 0);
+        if (delta > 0) metricRegistry.inc('zeus_dedup_suppressed_total', { chain, status }, delta);
+        lastSuppressed[status] = dedupStats.suppressed[status];
+      }
       // Competitor scanner
       const scannerStats = blockHistoryScanner.getStats();
       metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain });

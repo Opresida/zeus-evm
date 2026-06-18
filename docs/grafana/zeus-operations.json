@@ -235,7 +235,8 @@
       "type": "timeseries",
       "targets": [
         { "expr": "zeus_dedup_pending", "legendFormat": "{{chain}} pending" },
-        { "expr": "zeus_dedup_confirmed", "legendFormat": "{{chain}} confirmed" }
+        { "expr": "zeus_dedup_confirmed", "legendFormat": "{{chain}} confirmed" },
+        { "expr": "increase(zeus_dedup_suppressed_total[1h])", "legendFormat": "{{chain}} suprimidos {{status}} (1h)" }
       ]
     },
     {

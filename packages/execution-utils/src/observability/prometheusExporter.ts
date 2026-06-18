@@ -280,6 +280,7 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   // Queue/dedup
   { name: 'zeus_dedup_pending', help: 'Positions in dedup pending state', type: 'gauge', labels: ['chain'] },
   { name: 'zeus_dedup_confirmed', help: 'Positions in dedup confirmed state', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_dedup_suppressed_total', help: 'Quase-duplicados suprimidos pelo dedup, por status (Fase 6)', type: 'counter', labels: ['chain', 'status'] },
 
   // Latency (histograms)
   { name: 'zeus_dispatch_duration_seconds', help: 'Dispatch duration from submit to confirm', type: 'histogram', labels: ['chain', 'protocol'] },

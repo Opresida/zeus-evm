@@ -17,7 +17,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import dotenv from 'dotenv';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, createWalletClient, http, parseUnits, type Address } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { base, avalanche } from 'viem/chains';
 import pino from 'pino';
 
@@ -31,7 +32,9 @@ import {
   registerStandardMetrics,
   DimensionMetricsExporter,
   startHealthServer,
+  GasOracle,
   type InefficiencyObservation,
+  type PoolGroup,
 } from '@zeus-evm/execution-utils';
 import {
   BASE_CURATED_PAIRS,
@@ -42,8 +45,10 @@ import {
   type ResolvedPair,
 } from './poolGroups';
 import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
-import { optimizeFlashLoan, fetchEthUsd } from './flashEstimator';
+import { optimizeFlashLoan, fetchEthUsd, fetchTokenUsd } from './flashEstimator';
 import { loadConfig } from './config';
+import { findFreshArb } from './execution/arbOpportunity';
+import { dispatchArb, type ArbDispatchDeps } from './execution/arbDispatcher';
 
 // Carrega .env local + raiz do monorepo (2 níveis acima) — RPC fica na raiz
 dotenv.config();
@@ -189,6 +194,43 @@ async function main(): Promise<void> {
   // Budget de slippage do gate de profundidade: round-trip < (1−budget) = pool raso
   const maxSlippageBps = env.MIS_MAX_SLIPPAGE_BPS;
 
+  // ─── Execução de ARB (Motor 2) — opt-in (ARB_EXECUTION_ENABLED) ───
+  // Sem lista fixa: o ranking de persistência diz QUAIS pares têm edge; aqui re-cotamos
+  // FRESCO e disparamos nos melhores. Atomic-only (flashloan): falha = só gás.
+  let arbExec: { deps: Omit<ArbDispatchDeps, 'mode'> & { mode: ArbDispatchDeps['mode'] }; topN: number; notionalUsd: number } | null = null;
+  if (env.ARB_EXECUTION_ENABLED) {
+    const mode = env.ARB_MODE;
+    let wallet: ReturnType<typeof createWalletClient> | undefined;
+    let account: Address | undefined;
+    if (mode !== 'dryrun') {
+      if (!env.EXECUTOR_PRIVATE_KEY) {
+        logger.fatal('ARB_MODE != dryrun exige EXECUTOR_PRIVATE_KEY (chave EXCLUSIVA) — abortando');
+        process.exit(1);
+      }
+      const acct = privateKeyToAccount(env.EXECUTOR_PRIVATE_KEY as `0x${string}`);
+      account = acct.address;
+      wallet = createWalletClient({ account: acct, chain: sel.viem, transport: http(sel.rpc) });
+    }
+    const profitReceiver = (env.ARB_PROFIT_RECEIVER ?? account ?? '0x0000000000000000000000000000000000000000') as Address;
+    const gasOracle = new GasOracle({ priorityFeeGwei: env.GAS_PRIORITY_FEE_GWEI, maxFeeMultiplier: env.GAS_MAX_FEE_MULTIPLIER, logger });
+    const maxTradeWei = parseUnits(env.MAX_TRADE_ETH.toString(), 18);
+    arbExec = {
+      topN: env.ARB_TOP_N,
+      notionalUsd: env.ARB_NOTIONAL_USD,
+      deps: {
+        mode, client, wallet, account,
+        executorAddress: env.ARB_EXECUTOR_ADDRESS as Address | undefined,
+        chainConfig, gasOracle, profitReceiver,
+        ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE, logger,
+        minProfitUsd: env.MIN_ARB_PROFIT_USD, maxSlippageBps, maxTradeWei,
+        estimatedGasUsd: env.GAS_COST_USD_ESTIMATE,
+      },
+    };
+    logger.info({ mode, executor: env.ARB_EXECUTOR_ADDRESS ?? '(ausente)', topN: env.ARB_TOP_N }, `⚙️ Execução de ARB LIGADA (mode=${mode})`);
+  } else {
+    logger.info('⚙️ Execução de ARB desligada (ARB_EXECUTION_ENABLED=false) — só observação');
+  }
+
   // Graceful shutdown: salva snapshot + drena o ledger DuckDB ao sair (Ctrl+C)
   let stopping = false;
   const shutdown = async () => {
@@ -220,6 +262,8 @@ async function main(): Promise<void> {
         // Enriquece com dados do flash (quoter on-chain) só pras divergências fortes
         const strong = active.filter((o) => o.maxDivergenceBps >= flashMinBps && groupByLabel.has(o.groupLabel));
         const ethUsd = strong.length > 0 ? await fetchEthUsd(client, chainConfig) : 0; // cotado 1x/tick
+        // Candidatos viáveis deste scan (pra execução top-N por lucro, se ligada).
+        const execCandidates: { group: PoolGroup; netProfitUsd: number }[] = [];
         for (const o of strong) {
           const group = groupByLabel.get(o.groupLabel)!;
           try {
@@ -282,8 +326,32 @@ async function main(): Promise<void> {
               },
               `💰 ${b.pair}: ótimo $${b.loanUsd} → líquido $${b.netProfitUsd} (${b.profitPct}%) · teto viável $${opt.maxViableLoanUsd}`,
             );
+            execCandidates.push({ group, netProfitUsd: b.netProfitUsd });
           } catch (err) {
             logger.debug?.({ par: o.groupLabel, err: err instanceof Error ? err.message : err }, 'otimização de flash falhou');
+          }
+        }
+
+        // ─── EXECUÇÃO (opt-in): re-cota FRESCO os top-N por lucro e dispara ───
+        if (arbExec && execCandidates.length > 0) {
+          const top = execCandidates.sort((a, b2) => b2.netProfitUsd - a.netProfitUsd).slice(0, arbExec.topN);
+          for (const cand of top) {
+            try {
+              const estUsdA = await fetchTokenUsd(client, chainConfig, cand.group.tokenA, cand.group.decimalsA);
+              const estUsdB = await fetchTokenUsd(client, chainConfig, cand.group.tokenB, cand.group.decimalsB);
+              const opp = await findFreshArb({
+                client, group: cand.group, notionalUsd: arbExec.notionalUsd,
+                estimatedUsdValueA: estUsdA, estimatedUsdValueB: estUsdB,
+              });
+              if (!opp) {
+                logger.debug?.({ par: cand.group.label }, 'arb: re-cotação não confirmou lucro (spread fechou)');
+                continue;
+              }
+              const res = await dispatchArb(opp, arbExec.deps);
+              logger.info({ par: cand.group.label, status: res.status, txHash: res.txHash, net: res.netProfitUsd, flashSource: res.flashSource }, `⚡ arb ${cand.group.label}: ${res.status}`);
+            } catch (err) {
+              logger.warn({ par: cand.group.label, err: err instanceof Error ? err.message : err }, 'execução de arb falhou (continua)');
+            }
           }
         }
       }

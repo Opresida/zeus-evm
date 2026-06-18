@@ -259,6 +259,9 @@ importers:
       '@zeus-evm/execution-utils':
         specifier: workspace:*
         version: link:../../packages/execution-utils
+      '@zeus-evm/strategy':
+        specifier: workspace:*
+        version: link:../../packages/strategy
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2

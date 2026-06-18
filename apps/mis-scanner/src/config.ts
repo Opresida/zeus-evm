@@ -44,6 +44,28 @@ const envSchema = z.object({
   HEALTH_SERVER_ENABLED: boolDefault(true),
   HEALTH_SERVER_PORT: posInt(7883),
   HEALTH_SERVER_HOST: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('127.0.0.1')),
+
+  // ─── Execução de ARB (Motor 2) — DESLIGADA por padrão (observação first) ───
+  ARB_EXECUTION_ENABLED: boolDefault(false),
+  /** dryrun (simula, não submete) | testnet | mainnet. */
+  ARB_MODE: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() : v), z.enum(['dryrun', 'testnet', 'mainnet']).default('dryrun')),
+  /** Chave EXCLUSIVA do executor (regra inviolável: NÃO reusar entre projetos/ambientes). */
+  EXECUTOR_PRIVATE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional()),
+  ARB_EXECUTOR_ADDRESS: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
+  ARB_PROFIT_RECEIVER: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
+  /** Circuit breaker off-chain: cap absoluto do trade em ETH (espelha MAX_TRADE_ETH do contrato). */
+  MAX_TRADE_ETH: num(0.5),
+  /** Mínimo de profit líquido (USD) pra disparar. */
+  MIN_ARB_PROFIT_USD: num(1),
+  ARB_MAX_SLIPPAGE_BPS: posInt(50),
+  GAS_COST_USD_ESTIMATE: num(0.5),
+  ETH_USD_PRICE_ESTIMATE: num(3000),
+  GAS_PRIORITY_FEE_GWEI: num(0.01),
+  GAS_MAX_FEE_MULTIPLIER: posInt(200),
+  /** Notional alvo por tentativa (USD). */
+  ARB_NOTIONAL_USD: num(5000),
+  /** Quantos pares top (por persistência/viabilidade) tentar por scan. */
+  ARB_TOP_N: posInt(5),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

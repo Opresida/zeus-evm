@@ -122,6 +122,44 @@ async function quoteLeg(args: {
   return isQuote(q) ? q.amountOut : null;
 }
 
+/**
+ * Preço USD de 1 unidade de um token QUALQUER (genérico, pra sizing da execução).
+ * USDC → 1; senão cota `token → USDC` via UniV3 (fee 500 e 3000, pega o melhor). 0 se não cotar.
+ * NÃO usa lista fixa de preço — descobre on-chain.
+ */
+export async function fetchTokenUsd(
+  client: AnyPublicClient,
+  chainConfig: ChainConfig,
+  token: Address,
+  decimals: number,
+): Promise<number> {
+  const usdc = chainConfig.tokens['USDC'] as Address | undefined;
+  if (!usdc) return 0;
+  if (token.toLowerCase() === usdc.toLowerCase()) return 1;
+  let best = 0;
+  for (const fee of [500, 3000, 100, 10000]) {
+    try {
+      const q = await quoteUniswapV3({
+        client,
+        quoterAddress: chainConfig.uniswapV3.quoterV2,
+        tokenIn: token,
+        tokenOut: usdc,
+        amountIn: parseUnits('1', decimals),
+        fee,
+        decimalsIn: decimals,
+        decimalsOut: 6,
+      });
+      if (isQuote(q)) {
+        const px = Number(formatUnits(q.amountOut, 6));
+        if (px > best) best = px;
+      }
+    } catch {
+      /* fee tier sem pool — tenta o próximo */
+    }
+  }
+  return best;
+}
+
 /** Cota ~1 WETH → USDC pra obter o preço do ETH em USD (gas + conversões). */
 export async function fetchEthUsd(client: AnyPublicClient, chainConfig: ChainConfig): Promise<number> {
   const weth = chainConfig.tokens['WETH'] as Address | undefined;

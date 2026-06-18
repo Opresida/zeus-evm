@@ -24,6 +24,9 @@ import type {
   BackrunDispatchedEvent,
   PnlReconciler,
   FailureCollector,
+  FailureEvent,
+  CompetitorResolver,
+  BlockPositionTracker,
 } from '@zeus-evm/execution-utils';
 import {
   decodeLiquidationEvent,
@@ -62,6 +65,11 @@ export interface DispatchBackrunInput {
   failureCollector?: FailureCollector;
   /** MetricRegistry (Fase 7b) — cronometra dispatch (histograma zeus_dispatch_duration_seconds). */
   metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+  /** Post-mortem (Fase D2) — quem nos ganhou + posição no bloco (só com tx real). */
+  competitorResolver?: CompetitorResolver;
+  blockPositionTracker?: BlockPositionTracker;
+  /** Endereço do bot (pra o resolver ignorar nossas txs). */
+  botSender?: Address;
 }
 
 export interface DispatchBackrunResult {
@@ -236,7 +244,7 @@ export async function dispatchBackrun(
 
       // FailureCollector — schema rico (Item 4)
       if (input.failureCollector) {
-        input.failureCollector.record({
+        const failureEvent: FailureEvent = {
           id: generateFailureId(Date.now()),
           timestamp: Date.now(),
           chain: chainCtx.chainName,
@@ -256,7 +264,31 @@ export async function dispatchBackrun(
             buyVenue: opp.buyQuote.source,
             sellVenue: opp.sellQuote.source,
           },
-        });
+        };
+
+        // Fase D2 — post-mortem (só com tx real): posição no bloco + quem nos ganhou o backrun.
+        try {
+          if (input.blockPositionTracker) {
+            const pos = await input.blockPositionTracker.resolve(txHash, receipt.blockNumber);
+            if (pos) {
+              failureEvent.block_total_txs = pos.block_total_txs;
+              (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
+              (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+            }
+          }
+          if (input.competitorResolver && input.botSender) {
+            const winner = await input.competitorResolver.resolve(failureEvent, input.botSender);
+            if (winner) {
+              failureEvent.competitor_winner_sender = winner.winner_sender;
+              failureEvent.competitor_winner_alias = winner.winner_alias;
+              failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+            }
+          }
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : err, txHash }, 'post-mortem backrun falhou (segue)');
+        }
+
+        input.failureCollector.record(failureEvent);
         // Fase 4 — falha pro ledger central + counter (via EventBus).
         eventBus.emit({
           type: 'failure.recorded',

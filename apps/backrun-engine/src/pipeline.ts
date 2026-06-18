@@ -72,6 +72,10 @@ export interface BackrunPipelineDeps {
   failureCollector?: import('@zeus-evm/execution-utils').FailureCollector;
   /** MetricRegistry (Fase 7b) — cronometra planBackrun + dispatch (histogramas Prometheus). */
   metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+  /** Post-mortem (Fase D2) — quem nos ganhou + posição no bloco. */
+  competitorResolver?: import('@zeus-evm/execution-utils').CompetitorResolver;
+  blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
+  botSender?: Address;
 }
 
 export interface BackrunPipelineResult {
@@ -350,6 +354,9 @@ export async function processWhaleSwap(
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
     metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
   });
 
   logger.info(

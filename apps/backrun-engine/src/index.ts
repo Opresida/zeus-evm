@@ -28,7 +28,11 @@ import {
   AutoPauseManager,
   Tracer,
   PnlReconciler,
+  PnlAggregator,
+  CalibrationDriftTracker,
   FailureCollector,
+  CompetitorResolver,
+  BlockPositionTracker,
   MetricRegistry,
   registerStandardMetrics,
   SenderRegistry,
@@ -123,10 +127,26 @@ async function main() {
     logger,
   });
 
+  // ── Análise de PnL (Fase D1) — espelha o liquidator: agregação + alarme de drift ──
+  const pnlAggregator = new PnlAggregator({ logger });
+  const driftTracker = new CalibrationDriftTracker({ logger });
+
   // ── PnL Reconciler (Item 10) ──
   const pnlReconciler = new PnlReconciler({
     baseDir: resolvePath('logs', 'pnl-reconciliations'),
     logger,
+    onReconcile: (recon) => {
+      pnlAggregator.observe(recon);
+      driftTracker.observe({
+        timestamp: recon.timestamp,
+        protocol: recon.protocol,
+        pair: recon.context.opportunity_id,
+        venue: recon.context.venue,
+        hour_utc: new Date(recon.timestamp).getUTCHours(),
+        drift_bps: recon.deltas.profit_delta_bps,
+        realized_profit_usd: recon.realized.profit_usd,
+      });
+    },
   });
 
   // ── FailureCollector (Item 4) ──
@@ -166,6 +186,20 @@ async function main() {
     logger,
   });
   blockHistoryScanner.start();
+
+  // ── Post-mortem de falhas (Fase D2) — espelha o liquidator: quem nos ganhou + posição no bloco ──
+  // No backrun, os "targets" são os routers DEX (a corrida é por quem backrunna primeiro).
+  const competitorTargets = [
+    scannerTargets.aerodrome_router,
+    ...(scannerTargets.uniswap_v3_routers ?? []),
+  ].filter((a): a is Address => !!a);
+  const competitorResolver = new CompetitorResolver({
+    client: chainCtx.client,
+    senderRegistry,
+    targets: competitorTargets,
+    logger,
+  });
+  const blockPositionTracker = new BlockPositionTracker({ client: chainCtx.client, logger });
 
   // ── Tracer (Item 16B OB1) ──
   const tracer = new Tracer({ serviceName: 'backrun-engine', logger });
@@ -316,6 +350,9 @@ async function main() {
     pnlReconciler,
     failureCollector,
     metricRegistry,
+    competitorResolver,
+    blockPositionTracker,
+    botSender: chainCtx.account,
   };
 
   // Poll baseFee a cada 5s pra alimentar gasWarDetector
@@ -352,11 +389,26 @@ async function main() {
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain: chainName, percentile: 'p75' });
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain: chainName, percentile: 'p95' });
       metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain: chainName });
+      // Calibração (Fase D1) — drift sustentado + drift médio.
+      const drift = driftTracker.stats();
+      metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain: chainName });
+      metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain: chainName });
     } catch (err) {
       logger.debug({ err: err instanceof Error ? err.message : err }, 'metrics sync backrun: erro (drop)');
     }
   }, 5_000);
   metricsSyncInterval.unref();
+
+  // ── Alarme de drift (Fase D1) — WARN com sugestão quando há drift sustentado ──
+  const driftAlertInterval = setInterval(() => {
+    for (const alert of driftTracker.topAlerts(5)) {
+      logger.warn(
+        { dimension: alert.dimension, key: alert.key, avgDriftBps: alert.avg_drift_bps, samples: alert.samples },
+        `⚠️ drift sustentado (backrun): ${alert.suggested_action}`,
+      );
+    }
+  }, 10 * 60 * 1000);
+  driftAlertInterval.unref();
 
   // ── Snapshot da inteligência órfã → ledger (Fase 7, espelha o liquidator) ──
   const intelSnapshotInterval = setInterval(() => {

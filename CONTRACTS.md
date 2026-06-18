@@ -353,18 +353,18 @@ forge script script/Deploy.s.sol \
 
 | Ação | Quem | Como |
 |---|---|---|
-| Pause/Kill switch | Owner (multisig 2-de-3) | `kill()` |
-| Mudar max trade | Owner (multisig 2-de-3) | `setMaxTradeWei()` |
+| Kill switch | Owner (multisig 2-de-3) | `kill()` (por contrato — idempotente, só liga) |
+| Mudar max trade | Owner (multisig 2-de-3) | `setMaxTradeWei()` / `setMaxTradePerToken()` |
 | Adicionar operator | Owner (multisig 2-de-3) | `setOperator()` |
-| Aprovar novo adapter | Owner (multisig 2-de-3) | `approveDexAdapter()` |
+| Trocar WETH/router | Owner (multisig 2-de-3) | `setWeth()` / `setUniV3SwapRouter()` |
 | Rescue stuck tokens | Owner (multisig 2-de-3) | `rescueToken()` |
 | Upgrade contract | **Não há** — deploy novo (intencional, sem proxy) |
 
 **Decisão de design:** **NÃO usar proxy upgradeable.** Em caso de bug crítico:
-1. Owner chama `kill()`
+1. Owner chama `kill()` no(s) contrato(s) afetado(s)
 2. Owner chama `rescueToken()` pra recuperar fundos
-3. Deploya novo executor
-4. Atualiza detector pra usar novo address
+3. Deploya novo contrato (ZeusArbExecutor / ZeusLiquidator / etc.)
+4. Atualiza os apps off-chain pra usar o novo address
 
 Trade-off aceito: menos flexibilidade vs menos superfície de ataque (proxies têm CVEs documentadas).
 
@@ -376,13 +376,16 @@ Transparência sobre meus limites pra cada componente:
 
 | Área | Confiança | Mitigation |
 |---|---|---|
-| **ZeusExecutor com Ownable2Step + ReentrancyGuard + Pausable** | 🟢 Alto | Posso entregar direto, base OpenZeppelin |
-| **Adapter Uniswap V3** | 🟢 Alto | Padrão bem documentado, posso entregar |
-| **Adapter Aerodrome** | 🟡 Médio | Aerodrome tem nuances (ve(3,3), pools stable/volatile). Posso entregar mas recomendo conferir comportamento real em fork |
+| **Contratos v8 com Ownable2Step + ReentrancyGuard (kill switch `_killed`)** | 🟢 Alto | Posso entregar direto, base OpenZeppelin |
+| **Adapter Uniswap V3 (lib inline)** | 🟢 Alto | Padrão bem documentado, posso entregar |
+| **Adapter Aerodrome (lib inline)** | 🟡 Médio | Aerodrome tem nuances (ve(3,3), pools stable/volatile). Posso entregar mas recomendo conferir comportamento real em fork |
 | **Callback Aave V3 Flashloan** | 🟢 Alto | Padrão IFlashLoanReceiver bem conhecido |
-| **Liquidations Aave V3** | 🟢 Alto | `liquidationCall` é direto |
-| **Liquidations Compound V3** | 🟡 Médio | Compound V3 tem API diferente do V2, menos exemplos |
-| **Liquidations Morpho** | 🟡 Médio | Morpho tem variantes (Aave/Compound/Blue), API menos uniforme |
+| **Flashloan Morpho / Balancer (0% fee)** | 🟡 Médio | Callbacks e estilo de repago diferem do Aave; validar em fork (`MotorsProfit.fork`) |
+| **Liquidations Aave V3 (+ Seamless fork)** | 🟢 Alto | `liquidationCall` é direto |
+| **Liquidations Compound III** | 🟡 Médio | Compound V3 tem API diferente do V2, menos exemplos |
+| **Liquidations Morpho Blue** | 🟡 Médio | Morpho tem variantes (Aave/Compound/Blue), API menos uniforme |
+| **Liquidations Moonwell (fork Compound V2)** | 🟡 Médio | cToken API estilo Comp V2 (`liquidateBorrow`); contrato próprio |
+| **Bribe / OEV (BribeManager, coinbase transfer)** | 🟡 Médio | slippage floor crítico (`minBribeWei`); validar em fork |
 | **Detector TS com viem** | 🟢 Alto | Posso entregar direto |
 | **Mempool monitoring otimizado** | 🟡 Médio | Conheço Alchemy/Blocknative APIs, mas otimização extrema requer iteração |
 | **MEV Bundle submission (Flashbots)** | 🟡 Médio | Conheço, mas não usaremos em Base (sem Flashbots equivalente robusto ainda) |

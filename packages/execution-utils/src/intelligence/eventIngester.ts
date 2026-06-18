@@ -314,6 +314,19 @@ export class EventIngester {
           payload: { ...event } as Record<string, unknown>,
         };
 
+      case 'failure.recorded':
+        return {
+          ...base,
+          category: 'failure_recorded',
+          protocol: event.protocol,
+          tx_hash: event.txHash,
+          gas_usd: event.gasUsdLost,
+          payload: {
+            failureCategory: event.failureCategory,
+            reason: event.reason,
+          },
+        };
+
       case 'pnl.reconciled':
         return {
           ...base,

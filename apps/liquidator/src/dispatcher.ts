@@ -236,6 +236,19 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
             : undefined,
           payload: { revert_reason: 'on-chain revert', block_hash: receipt.blockHash },
         });
+        // Fase 4 — leva a falha pro ledger central + counter (via EventBus).
+        eventBus?.emit({
+          type: 'failure.recorded',
+          timestamp: nowIso(),
+          chain: chainName ?? 'Base',
+          mode,
+          severity: 'warn',
+          protocol,
+          failureCategory: 'reverted_on_chain',
+          txHash,
+          gasUsdLost: revertGasUsd,
+          reason: 'on-chain revert',
+        });
       }
 
       // Contagem de falha consecutiva — cooldown automático após N falhas

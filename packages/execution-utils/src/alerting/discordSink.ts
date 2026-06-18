@@ -42,6 +42,7 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.dispatched': '⚡',
   'backrun.rejected': '🟡',
   'pnl.reconciled': '📊',
+  'failure.recorded': '🔴',
 };
 
 interface DiscordEmbed {
@@ -263,6 +264,19 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
           { name: 'Net esperado', value: `$${event.expectedNetUsd.toFixed(2)}`, inline: true },
           { name: 'Net realizado', value: `$${event.realizedNetUsd.toFixed(2)}`, inline: true },
           { name: 'Gás', value: `$${event.gasUsd.toFixed(2)}`, inline: true },
+        ],
+        footer,
+      };
+
+    case 'failure.recorded':
+      return {
+        title: `${emoji} Falha (${event.failureCategory})`,
+        description: event.reason ?? event.protocol,
+        color,
+        timestamp: event.timestamp,
+        fields: [
+          { name: 'Protocolo', value: event.protocol, inline: true },
+          ...(event.gasUsdLost !== undefined ? [{ name: 'Gás perdido', value: `$${event.gasUsdLost.toFixed(2)}`, inline: true }] : []),
         ],
         footer,
       };

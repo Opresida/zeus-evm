@@ -249,6 +249,19 @@ export async function dispatchBackrun(
             sellVenue: opp.sellQuote.source,
           },
         });
+        // Fase 4 — falha pro ledger central + counter (via EventBus).
+        eventBus.emit({
+          type: 'failure.recorded',
+          timestamp: nowIso(),
+          chain: chainCtx.chainName,
+          mode,
+          severity: 'warn',
+          protocol: 'backrun',
+          failureCategory: 'reverted_on_chain',
+          txHash,
+          gasUsdLost: gasUsdSpent,
+          reason: 'backrun reverted on-chain',
+        });
       }
 
       logger.error(

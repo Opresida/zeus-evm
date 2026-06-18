@@ -261,6 +261,18 @@
       "targets": [
         { "expr": "zeus_gas_usd_paid_total", "legendFormat": "{{chain}}" }
       ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Falhas por categoria (lost_race, reverted_on_chain, gas_outbid, ...) — taxa por hora (Fase 4).",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
+      "id": 14,
+      "title": "Falhas por Categoria (1h)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "increase(zeus_failures_total[1h])", "legendFormat": "{{category}} {{protocol}}" }
+      ]
     }
   ],
   "refresh": "30s",

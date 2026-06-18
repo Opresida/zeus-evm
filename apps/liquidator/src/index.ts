@@ -571,6 +571,18 @@ export async function boot(): Promise<LiquidatorState> {
   registerStandardMetrics(metricRegistry);
   logger.info({ definitions: metricRegistry.stats().definitions }, '📊 Prometheus registry pronto');
 
+  // Fase 4 — counter de falhas por categoria: incrementa quando uma falha é registrada.
+  // Counter (não gauge) precisa ser incrementado por EVENTO (não por polling de janela rolling).
+  eventBus.subscribe((event) => {
+    if (event.type === 'failure.recorded') {
+      metricRegistry.inc('zeus_failures_total', {
+        chain: event.chain,
+        category: event.failureCategory,
+        protocol: event.protocol,
+      });
+    }
+  });
+
   // ── AutoPauseManager (Item 12 H10) ──
   const autoPauseManager = new AutoPauseManager({ logger });
 

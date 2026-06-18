@@ -66,4 +66,26 @@ describe('EventIngester — eventos órfãos mapeados (Fase 3/4)', () => {
     expect(Number(rows[0]!.gas_usd)).toBeCloseTo(0.42, 5);
     expect(Number(rows[0]!.profit_delta_bps)).toBe(-1500);
   });
+
+  it('failure.recorded → categoria failure_recorded com a categoria de falha no payload', async () => {
+    bus.emit({
+      type: 'failure.recorded',
+      timestamp: new Date().toISOString(),
+      chain: 'Base',
+      mode: 'dryrun',
+      severity: 'warn',
+      protocol: 'aave-v3',
+      failureCategory: 'lost_race',
+      txHash: '0xdef',
+      gasUsdLost: 0.3,
+      reason: 'outbid',
+    });
+    await store.flush();
+    const rows = await store.query<{ category: string; payload: string; gas_usd: number }>(
+      "SELECT category, payload, gas_usd FROM events WHERE category = 'failure_recorded'",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.payload).toContain('lost_race');
+    expect(Number(rows[0]!.gas_usd)).toBeCloseTo(0.3, 5);
+  });
 });

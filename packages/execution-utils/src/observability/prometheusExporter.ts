@@ -274,6 +274,9 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   { name: 'zeus_auto_pause_active', help: 'Auto-pause active (1) or not (0)', type: 'gauge', labels: ['service'] },
   { name: 'zeus_auto_pause_reasons', help: 'Number of active pause reasons', type: 'gauge', labels: ['service'] },
 
+  // Falhas categorizadas (Fase 4)
+  { name: 'zeus_failures_total', help: 'Falhas por categoria (lost_race/reverted_on_chain/...)', type: 'counter', labels: ['chain', 'category', 'protocol'] },
+
   // Queue/dedup
   { name: 'zeus_dedup_pending', help: 'Positions in dedup pending state', type: 'gauge', labels: ['chain'] },
   { name: 'zeus_dedup_confirmed', help: 'Positions in dedup confirmed state', type: 'gauge', labels: ['chain'] },

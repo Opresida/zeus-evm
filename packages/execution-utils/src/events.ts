@@ -33,7 +33,8 @@ export type ZeusEvent =
   | BackrunOpportunityFoundEvent
   | BackrunDispatchedEvent
   | BackrunRejectedEvent
-  | PnlReconciledEvent;
+  | PnlReconciledEvent
+  | FailureRecordedEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -223,4 +224,20 @@ export interface PnlReconciledEvent extends BaseEvent {
   gasUsd: number;
   /** Causa primária da diferença (do attributionAnalyzer). */
   attributionCause: string;
+}
+
+// ─── Falha categorizada (Fase 4) ────────────────────────────────────────
+// Emitido junto com o failureCollector.record() pra levar a falha pro ledger central
+// + alimentar o counter zeus_failures_total. Mapeado pra categoria 'failure_recorded'.
+
+export interface FailureRecordedEvent extends BaseEvent {
+  type: 'failure.recorded';
+  severity: 'warn' | 'info';
+  protocol: string;
+  /** Categoria da falha (FailureCategory: lost_race, reverted_on_chain, ...). */
+  failureCategory: string;
+  txHash?: `0x${string}`;
+  /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
+  gasUsdLost?: number;
+  reason?: string;
 }

@@ -84,6 +84,7 @@ import {
   createDiscordSink,
   createGenericWebhookSink,
   resolveIntelligenceDbPath,
+  ingestSnapshot,
   computeAdaptiveThresholds,
   type Severity,
   type ReadinessReport,
@@ -772,6 +773,12 @@ export async function boot(): Promise<LiquidatorState> {
       // Competitor scanner
       const scannerStats = blockHistoryScanner.getStats();
       metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain });
+      // Market-bribe (Fase 1) — lance de mercado agregado dos competidores ativos
+      const mkt = senderRegistry.marketBribeStats();
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain, percentile: 'p50' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain, percentile: 'p75' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain, percentile: 'p95' });
+      metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain });
     } catch (err) {
       logger.debug(
         { err: err instanceof Error ? err.message : err },
@@ -780,6 +787,29 @@ export async function boot(): Promise<LiquidatorState> {
     }
   }, 5_000);
   metricsSyncInterval.unref();
+
+  // ── Snapshot da inteligência "órfã" → ledger central (Fase 1: market-bribe) ──
+  // Grava periodicamente o "lance de mercado" no DuckDB pra ter histórico (não só métrica
+  // instantânea). Cadência lenta (5min) pra não inflar o ledger. Fire-and-forget.
+  const intelSnapshotInterval = setInterval(() => {
+    const chain = ctx.chainConfig.name;
+    const mkt = senderRegistry.marketBribeStats();
+    if (mkt.competitorsActive > 0) {
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'market_bribe',
+          protocol: 'bribe',
+          pair: 'MARKET',
+          amount_usd: mkt.p75Gwei, // proxy: lance p75 (gwei) no campo numérico pra agregação rápida
+          payload: { ...mkt },
+        },
+        logger,
+      );
+    }
+  }, 5 * 60 * 1000);
+  intelSnapshotInterval.unref();
 
   // PnL Reporter — Item 10 P7 (daily digest pra Discord)
   if (env.PNL_REPORTER_ENABLED && env.PNL_REPORTER_WEBHOOK_URL) {

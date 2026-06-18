@@ -33,6 +33,27 @@ export interface SenderRegistryOpts {
   logger?: LoggerLike;
 }
 
+/**
+ * Foto agregada do "lance de mercado" (priority fee dos competidores ativos).
+ * Tudo em gwei. Alimenta o BribeCalculator (piso de mercado) + ledger + Grafana.
+ */
+export interface MarketBribeStats {
+  /** Quantos competidores ativos entraram no agregado. */
+  competitorsActive: number;
+  /** Soma das amostras de gas dos competidores considerados. */
+  samples: number;
+  /** Média simples do priority fee (gwei). */
+  avgGwei: number;
+  /** Mediana entre competidores (gwei). */
+  p50Gwei: number;
+  /** Percentil 75 entre competidores (gwei) — lance "pra ganhar". */
+  p75Gwei: number;
+  /** Cauda agressiva (gwei) — maior p95 por-perfil observado. */
+  p95Gwei: number;
+  /** Timestamp do cálculo (ms). */
+  updatedAt: number;
+}
+
 export interface UpdateInput {
   sender: Address;
   protocol: keyof CompetitorProfile['protocols'];
@@ -45,6 +66,22 @@ export interface UpdateInput {
 
 const DEFAULT_BASE_DIR = 'logs/competitors';
 const DEFAULT_SNAPSHOT_FILE = 'registry.json';
+
+/** Percentil (interpolação linear) de um array JÁ ORDENADO asc. q ∈ [0,1]. */
+function percentile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0]!;
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (pos - lo);
+}
+
+/** Arredonda pra 4 casas (gwei tem casas decimais relevantes na Base). */
+function round4(v: number): number {
+  return Math.round(v * 1e4) / 1e4;
+}
 
 /**
  * Registry com lookup O(1) + snapshot persistente.
@@ -130,6 +167,56 @@ export class SenderRegistry {
    */
   get(sender: Address): CompetitorProfile | undefined {
     return this.profiles.get(sender.toLowerCase());
+  }
+
+  /**
+   * MARKET-BRIBE — quanto o mercado está pagando de priority fee pra ganhar inclusão.
+   *
+   * Na Base (sequencer único), o priority fee É o "bribe" prático: é o que os
+   * competidores pagam a mais pra serem incluídos antes. Aqui agregamos o priority
+   * fee dos competidores ATIVOS recentemente pra responder "qual o lance de mercado agora?".
+   *
+   * Como cada perfil só guarda o `avg_priority_fee_gwei` confiável (o p50 por-perfil
+   * fica 0 na coleta atual), derivamos os percentis de MERCADO a partir do conjunto
+   * dos `avg`s dos competidores (cada competidor = 1 amostra). O `p95` de mercado usa
+   * o maior `p95` por-perfil observado (cauda agressiva real).
+   *
+   * @param opts.activeWithinMs janela de atividade (default 1h) — só conta quem agiu recente.
+   * @param opts.minSamples mínimo de amostras de gas por perfil pra ser confiável (default 3).
+   */
+  marketBribeStats(opts: { activeWithinMs?: number; minSamples?: number; now?: number } = {}): MarketBribeStats {
+    const now = opts.now ?? Date.now();
+    const activeWithinMs = opts.activeWithinMs ?? 60 * 60 * 1000; // 1h
+    const minSamples = opts.minSamples ?? 3;
+
+    const avgs: number[] = [];
+    let totalSamples = 0;
+    let maxP95 = 0;
+    for (const p of this.profiles.values()) {
+      const recent = now - p.last_seen_at <= activeWithinMs;
+      const confiavel = p.gas.samples >= minSamples && p.gas.avg_priority_fee_gwei > 0;
+      if (!recent || !confiavel) continue;
+      avgs.push(p.gas.avg_priority_fee_gwei);
+      totalSamples += p.gas.samples;
+      if (p.gas.p95_priority_fee_gwei > maxP95) maxP95 = p.gas.p95_priority_fee_gwei;
+    }
+
+    if (avgs.length === 0) {
+      return { competitorsActive: 0, samples: 0, avgGwei: 0, p50Gwei: 0, p75Gwei: 0, p95Gwei: 0, updatedAt: now };
+    }
+
+    avgs.sort((a, b) => a - b);
+    const mean = avgs.reduce((s, v) => s + v, 0) / avgs.length;
+    return {
+      competitorsActive: avgs.length,
+      samples: totalSamples,
+      avgGwei: round4(mean),
+      p50Gwei: round4(percentile(avgs, 0.5)),
+      p75Gwei: round4(percentile(avgs, 0.75)),
+      // p95 de mercado = maior cauda real observada (mais informativo que p95 de poucos avgs)
+      p95Gwei: round4(Math.max(percentile(avgs, 0.95), maxP95)),
+      updatedAt: now,
+    };
   }
 
   /**

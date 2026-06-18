@@ -18,6 +18,7 @@
 
 import type { BribeConfig } from '@zeus-evm/strategy';
 import type { LoggerLike } from '@zeus-evm/aave-discovery';
+import type { MarketBribeStats } from '@zeus-evm/execution-utils';
 import type { GasWarLevel, GasWarSignals } from './gasWarDetector';
 
 export interface BribeCalculatorOpts {
@@ -48,6 +49,20 @@ export interface BribeCalcInput {
    * Calcular via `computeBribeSlippageFloor` de `@zeus-evm/execution-utils`.
    */
   swapSlippageFloorWei?: bigint;
+
+  /**
+   * MARKET-BRIBE (Fase 1) — "lance de mercado" agregado dos competidores
+   * (`SenderRegistry.marketBribeStats()`). Quando presente JUNTO de `expectedGasUnits`,
+   * o cálculo respeita um PISO: não brigamos abaixo do que o mercado já paga (p75).
+   * Ausente → comportamento idêntico ao de antes (tabela fixa). 100% aditivo.
+   */
+  marketBribeStats?: MarketBribeStats;
+
+  /**
+   * Gas units esperado pra nossa tx. Usado pra converter o priority fee de mercado
+   * (gwei/gas) em um piso absoluto (ETH→USD). Sem isso, o piso de mercado é ignorado.
+   */
+  expectedGasUnits?: bigint;
 }
 
 export type BribeDecision =
@@ -134,6 +149,23 @@ export class BribeCalculator {
       bribeUsd = tableEntry.minFloorUsd;
     }
 
+    // ── PISO DE MERCADO (Fase 1) ──
+    // Se sabemos quanto o mercado paga (p75 dos competidores) e o gas esperado, garantimos
+    // que o nosso lance não fica ABAIXO do mercado — senão perderíamos a corrida de inclusão.
+    const marketFloorWei = this._marketFloorWei(input);
+    const marketFloorUsd = this._weiToUsd(marketFloorWei);
+    // Se o mercado pede MAIS do que o profit aguenta (>95%), não adianta brigar: sangaríamos.
+    // Melhor SKIP do que pagar 95% pra ganhar trocados (ou prejuízo). Decisão explícita.
+    if (marketFloorUsd > expectedNetProfitUsd * 0.95) {
+      return {
+        skip: true,
+        reason: `mercado pede $${marketFloorUsd.toFixed(2)} (p75) > 95% do profit $${expectedNetProfitUsd.toFixed(2)} — não vale brigar`,
+      };
+    }
+    if (marketFloorUsd > bribeUsd) {
+      bribeUsd = marketFloorUsd;
+    }
+
     // Hard cap — bribe nunca passa de hardCapBps do profit
     const hardCapUsd = (expectedNetProfitUsd * this.hardCapBps) / 10_000;
     if (bribeUsd > hardCapUsd) {
@@ -160,7 +192,9 @@ export class BribeCalculator {
     // (Audit Pass 4 H-01). USD floor garante competitividade mínima do leilão.
     const usdFloorWei = this._usdToWei(tableEntry.minFloorUsd);
     const slippageFloorWei = input.swapSlippageFloorWei ?? 0n;
-    const minBribeWei = usdFloorWei > slippageFloorWei ? usdFloorWei : slippageFloorWei;
+    // minBribeWei = max(piso USD, piso slippage, piso de mercado)
+    let minBribeWei = usdFloorWei > slippageFloorWei ? usdFloorWei : slippageFloorWei;
+    if (marketFloorWei > minBribeWei) minBribeWei = marketFloorWei;
 
     const bribe: BribeConfig = {
       bribeBps: BigInt(bribeBpsApplied),
@@ -177,12 +211,34 @@ export class BribeCalculator {
         bpsBase,
         bribeUsd: bribeUsd.toFixed(2),
         bribeBpsApplied,
+        marketP75Gwei: input.marketBribeStats?.p75Gwei,
+        marketFloorUsd: marketFloorUsd > 0 ? marketFloorUsd.toFixed(2) : undefined,
         signals,
       },
       `🎯 bribe decided: ${bribeBpsApplied / 100}% = $${bribeUsd.toFixed(2)} (level=${gasWarLevel})`,
     );
 
     return { skip: false, bribe, bribeUsd, bribeBpsApplied };
+  }
+
+  /**
+   * Piso de mercado em wei = priority fee p75 (gwei) × gas units esperado.
+   * Retorna 0n quando não há dados de mercado ou gas esperado (→ piso desligado).
+   */
+  private _marketFloorWei(input: BribeCalcInput): bigint {
+    const stats = input.marketBribeStats;
+    const gas = input.expectedGasUnits;
+    if (!stats || stats.competitorsActive === 0 || !gas || gas <= 0n) return 0n;
+    if (stats.p75Gwei <= 0) return 0n;
+    // gwei → wei: 1 gwei = 1e9 wei. priorityFeePerGas(wei) × gasUnits = total wei.
+    const priorityWeiPerGas = BigInt(Math.floor(stats.p75Gwei * 1e9));
+    return priorityWeiPerGas * gas;
+  }
+
+  /** Converte wei de native token → USD usando ethUsdPrice. */
+  private _weiToUsd(wei: bigint): number {
+    if (this.ethUsdPrice <= 0 || wei <= 0n) return 0;
+    return (Number(wei) / 1e18) * this.ethUsdPrice;
   }
 
   /**

@@ -223,6 +223,33 @@
       "targets": [
         { "expr": "zeus_uptime_seconds", "legendFormat": "{{service}}" }
       ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Quanto o MERCADO paga de priority fee (gwei) pra ganhar inclusão — agregado dos competidores ativos. É o piso que o nosso BribeCalculator respeita (Fase 1 market-bribe).",
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 36 },
+      "id": 12,
+      "title": "Market Bribe — Priority Fee dos Competidores (gwei)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "zeus_market_bribe_priority_fee_gwei{percentile=\"p50\"}", "legendFormat": "p50 {{chain}}" },
+        { "expr": "zeus_market_bribe_priority_fee_gwei{percentile=\"p75\"}", "legendFormat": "p75 {{chain}} (piso)" },
+        { "expr": "zeus_market_bribe_priority_fee_gwei{percentile=\"p95\"}", "legendFormat": "p95 {{chain}} (cauda)" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Competidores ativos considerados no agregado de market-bribe.",
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
+      "id": 13,
+      "options": { "colorMode": "value", "graphMode": "area" },
+      "title": "Competidores Ativos (market-bribe)",
+      "type": "stat",
+      "targets": [
+        { "expr": "max(zeus_market_bribe_competitors_active)", "legendFormat": "{{chain}}" }
+      ]
     }
   ],
   "refresh": "30s",

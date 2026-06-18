@@ -31,6 +31,8 @@ const envSchema = z.object({
 
   // RPC URLs
   BASE_RPC_HTTP: optionalUrl(),
+  /** Fallback de RPC pra Base (ex: Alchemy). Viem faz failover automático se o primário falhar. */
+  BASE_RPC_HTTP_FALLBACK: optionalUrl(),
   BASE_RPC_WS: optionalUrl(),
   ARBITRUM_RPC_HTTP: optionalUrl(),
   OPTIMISM_RPC_HTTP: optionalUrl(),

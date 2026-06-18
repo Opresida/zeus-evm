@@ -107,7 +107,7 @@ def featurecard(pdf, x, y, w, h, title, desc, accent=GOLD):
 
 
 def compare_strip(pdf, y, title, rows):
-    """Faixa comparativa pra preencher o rodape com conteudo (3 colunas)."""
+    """Faixa comparativa pra preencher o rodape com conteúdo (3 colunas)."""
     h = 17 + len(rows) * 9 + 3
     fill(pdf, PANEL, 0, y, W, h)
     pdf.set_fill_color(*GOLD); pdf.rect(0, y, 3, h, "F")
@@ -115,7 +115,7 @@ def compare_strip(pdf, y, title, rows):
     pdf.set_font("Helvetica", "B", 10.5)
     pdf.set_text_color(*WHITE)
     pdf.cell(0, 6, title)
-    # cabecalho colunas (linha propria)
+    # cabecalho colunas (linha própria)
     pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*GREYD)
     pdf.set_xy(86, y + 11); pdf.cell(54, 4, "TRADING CLASSICO")
     pdf.set_xy(142, y + 11); pdf.cell(54, 4, "ZEUS")
@@ -174,12 +174,12 @@ pdf.cell(W, 30, "ZEUS", align="C")
 pdf.set_xy(0, 132)
 pdf.set_font("Helvetica", "B", 17)
 pdf.set_text_color(*GOLD)
-pdf.cell(W, 9, "A maquina que captura a ineficiencia do DeFi", align="C")
+pdf.cell(W, 9, "A máquina que captura a ineficiência do DeFi", align="C")
 pdf.set_xy(30, 150)
 pdf.set_font("Helvetica", "", 12.5)
 pdf.set_text_color(*GREY)
-pdf.multi_cell(W - 60, 7, "Arbitragem e liquidacao on-chain com CAPITAL ZERO via flashloan. "
-                         "Lucro mecanico, atomico e sem risco de capital na execucao.", align="C")
+pdf.multi_cell(W - 60, 7, "Arbitragem e liquidação on-chain com CAPITAL ZERO via flashloan. "
+                         "Lucro mecânico, atômico e sem risco de capital na execução.", align="C")
 # faixa inferior com 3 selos
 yb = 215
 fill(pdf, PANEL, 0, yb, W, 38)
@@ -204,19 +204,19 @@ pdf.cell(W, 6, "Oportunidade de Investimento  -  Documento Confidencial", align=
 page(pdf, BLACK)
 kicker(pdf, 14, 16, "O poder do flashloan", CYAN)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Uma transacao.\nZero capital. Centenas de milhoes.", 25, WHITE, W - 28, 11)
-body(pdf, 14, 62, "O flashloan e um emprestimo instantaneo, SEM garantia, que nasce e morre no mesmo bloco. "
-                  "Permite mover milhoes em uma unica transacao - sem ter o dinheiro. O mercado ja viu o "
-                  "poder dessa arma em eventos historicos:", 11, GREY, W - 28, 6)
+headline(pdf, 14, 30, "Uma transação.\nZero capital. Centenas de milhões.", 25, WHITE, W - 28, 11)
+body(pdf, 14, 62, "O flashloan é um empréstimo instantâneo, SEM garantia, que nasce e morre no mesmo bloco. "
+                  "Permite mover milhões em uma única transação - sem ter o dinheiro. O mercado já viu o "
+                  "poder dessa arma em eventos históricos:", 11, GREY, W - 28, 6)
 # Timeline de casos reais
 ty = 92
 events = [
     ("2020", "bZx", "~US$ 1M", "o primeiro caso famoso - nasce a era flashloan", GREY),
-    ("2020", "Harvest Finance", "~US$ 34M", "manipulacao de preco via flashloan", GREY),
-    ("2021", "PancakeBunny", "~US$ 45M", "exploit em minutos, capital proprio zero", GOLD),
-    ("2021", "Cream Finance", "~US$ 130M", "um dos maiores da historia DeFi", GOLD),
-    ("2022", "Beanstalk", "~US$ 182M", "ataque de governanca relampago", GOLD),
-    ("2023", "Euler Finance", "~US$ 197M", "movido por flashloan numa unica leva", CYAN),
+    ("2020", "Harvest Finance", "~US$ 34M", "manipulação de preço via flashloan", GREY),
+    ("2021", "PancakeBunny", "~US$ 45M", "exploit em minutos, capital próprio zero", GOLD),
+    ("2021", "Cream Finance", "~US$ 130M", "um dos maiores da história DeFi", GOLD),
+    ("2022", "Beanstalk", "~US$ 182M", "ataque de governança relâmpago", GOLD),
+    ("2023", "Euler Finance", "~US$ 197M", "movido por flashloan numa única leva", CYAN),
 ]
 # linha vertical
 pdf.set_draw_color(*GOLDD)
@@ -245,55 +245,55 @@ pdf.set_fill_color(*GOLD); pdf.rect(0, py, 3, 30, "F")
 pdf.set_xy(14, py + 6)
 pdf.set_font("Helvetica", "B", 11.5)
 pdf.set_text_color(*WHITE)
-pdf.multi_cell(W - 28, 6, "ZEUS usa a MESMA arma - o flashloan - de forma LEGAL, atomica e sem risco de capital: "
-                         "pra capturar arbitragem e liquidacao, nao para atacar.")
+pdf.multi_cell(W - 28, 6, "ZEUS usa a MESMA arma - o flashloan - de forma LEGAL, atômica e sem risco de capital: "
+                         "pra capturar arbitragem e liquidação, não para atacar.")
 pdf.set_xy(14, py + 30 + 1.5)
 pdf.set_font("Helvetica", "I", 7.5)
 pdf.set_text_color(*GREYD)
-pdf.cell(0, 4, "Valores publicos reportados. ZEUS opera arbitragem/liquidacao legitimas - os casos ilustram a ESCALA do primitivo.")
+pdf.cell(0, 4, "Valores públicos reportados. ZEUS opera arbitragem/liquidação legítimas - os casos ilustram a ESCALA do primitivo.")
 
 # ════════════ 3. A OPORTUNIDADE ════════════
 page(pdf, BLACK)
 kicker(pdf, 14, 16, "A oportunidade", GOLD)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "O DeFi e ineficiente POR DESIGN.\nE ineficiencia e dinheiro.", 24, WHITE, W - 28, 11)
-body(pdf, 14, 62, "Nao e especulacao - e captura mecanica. Tres fontes de lucro existem 24/7, independente do "
+headline(pdf, 14, 30, "O DeFi é ineficiente POR DESIGN.\nE ineficiência é dinheiro.", 24, WHITE, W - 28, 11)
+body(pdf, 14, 62, "Não é especulação - é captura mecânica. Três fontes de lucro existem 24/7, independente do "
                   "mercado subir ou cair:", 11, GREY, W - 28, 6)
 cy = 80
-featurecard(pdf, 14, cy, 58, 52, "Liquidacoes", "Sempre havera posicoes alavancadas em risco. "
+featurecard(pdf, 14, cy, 58, 52, "Liquidações", "Sempre haverá posições alavancadas em risco. "
             "Quando colapsam, quem liquida ganha um bonus garantido pelo protocolo.", GOLD)
-featurecard(pdf, 76, cy, 58, 52, "Arbitragem", "O mesmo ativo tem precos diferentes em DEXs diferentes, "
+featurecard(pdf, 76, cy, 58, 52, "Arbitragem", "O mesmo ativo tem preços diferentes em DEXs diferentes, "
             "o tempo todo. Comprar barato + vender caro na MESMA tx = lucro.", CYAN)
-featurecard(pdf, 138, cy, 58, 52, "MEV / Backrun", "Volatilidade gera dislocacao de preco. Reagir rapido "
-            "a grandes movimentos captura o reequilibrio.", GREEN)
+featurecard(pdf, 138, cy, 58, 52, "MEV / Backrun", "Volatilidade gera dislocação de preço. Reagir rápido "
+            "a grandes movimentos captura o reequilíbrio.", GREEN)
 # numerao
 ny = cy + 60
-stat(pdf, 14, ny, 88, "US$ bilhoes", "em MEV/ineficiencia extraida do DeFi por ano (mercado total)", GOLD)
-stat(pdf, 108, ny, 88, "24 / 7 / 365", "as ineficiencias nao dormem - sao mecanicas e recorrentes", CYAN)
+stat(pdf, 14, ny, 88, "US$ bilhões", "em MEV/ineficiência extraida do DeFi por ano (mercado total)", GOLD)
+stat(pdf, 108, ny, 88, "24 / 7 / 365", "as ineficiências não dormem - são mecânicas e recorrentes", CYAN)
 fill(pdf, PANEL2, 0, ny + 44, W, 24)
 pdf.set_xy(14, ny + 51)
 pdf.set_font("Helvetica", "B", 13)
 pdf.set_text_color(*GOLD)
-pdf.cell(0, 8, "O dinheiro ja esta na mesa. A questao e quem captura primeiro - e com que inteligencia.")
+pdf.cell(0, 8, "O dinheiro já está na mesa. A questão é quem captura primeiro - é com que inteligência.")
 bottom_band(pdf, 212, 60,
-            "Por que e RECORRENTE, nao um golpe de sorte:",
-            "Liquidacoes acontecem todo dia que o mercado se mexe. Pools de DEXs diferentes raramente "
-            "estao no mesmo preco. Whales movem o mercado a cada hora. Sao eventos MECANICOS e continuos - "
-            "o bot nao precisa 'acertar o mercado', precisa estar presente e ser rapido.",
-            CYAN, pills=[("Liquidacoes", GOLD), ("Spreads cross-DEX", CYAN), ("Backrun de whale", GREEN)])
+            "Por que é RECORRENTE, não um golpe de sorte:",
+            "Liquidações acontecem todo dia que o mercado se mexe. Pools de DEXs diferentes raramente "
+            "estão no mesmo preço. Whales movem o mercado a cada hora. São eventos MECÂNICOS e contínuos - "
+            "o bot não precisa 'acertar o mercado', precisa estar presente e ser rápido.",
+            CYAN, pills=[("Liquidações", GOLD), ("Spreads cross-DEX", CYAN), ("Backrun de whale", GREEN)])
 
 # ════════════ 4. A SACADA (risco zero) ════════════
 page(pdf, NAVY)
 kicker(pdf, 14, 16, "A sacada", CYAN)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Voce nao pode perder\nna execucao.", 28, WHITE, W - 28, 12)
-body(pdf, 14, 64, "Esse e o ponto que mais importa pra quem investe. A mecanica do ZEUS tem um piso de risco "
-                  "estrutural - nao por promessa, mas por como o codigo funciona:", 11.5, GREY, W - 28, 6.2)
+headline(pdf, 14, 30, "Você não pode perder\nna execução.", 28, WHITE, W - 28, 12)
+body(pdf, 14, 64, "Esse é o ponto que mais importa pra quem investe. A mecânica do ZEUS tem um piso de risco "
+                  "estrutural - não por promessa, mas por como o código funciona:", 11.5, GREY, W - 28, 6.2)
 yy = 92
-featurecard(pdf, 14, yy, 88, 56, "Atomic-only", "Se o trade nao da lucro, a transacao INTEIRA reverte. "
-            "Nao existe 'trade pela metade'. O downside maximo de uma execucao e o gas - centavos.", GOLD)
-featurecard(pdf, 108, yy, 88, 56, "Capital ZERO", "O flashloan empresta milhoes por 1 bloco, sem garantia. "
-            "Sem deposito, sem risco de liquidacao da nossa posicao. O capital nao e nosso.", CYAN)
+featurecard(pdf, 14, yy, 88, 56, "Atomic-only", "Se o trade não dá lucro, a transação INTEIRA reverte. "
+            "Não existe 'trade pela metade'. O downside máximo de uma execução é o gás - centavos.", GOLD)
+featurecard(pdf, 108, yy, 88, 56, "Capital ZERO", "O flashloan empresta milhões por 1 bloco, sem garantia. "
+            "Sem depósito, sem risco de liquidação da nossa posição. O capital não é nosso.", CYAN)
 # equacao
 ey = yy + 64
 fill(pdf, PANEL, 0, ey, W, 50)
@@ -304,33 +304,33 @@ pdf.cell(0, 7, "A assimetria que todo investidor procura:")
 pdf.set_xy(14, ey + 20)
 pdf.set_font("Helvetica", "B", 16)
 pdf.set_text_color(*RED)
-pdf.cell(95, 9, "Downside:  o gas (centavos)")
+pdf.cell(95, 9, "Downside:  o gás (centavos)")
 pdf.set_xy(14, ey + 32)
 pdf.set_font("Helvetica", "B", 16)
 pdf.set_text_color(*GREEN)
 pdf.cell(95, 9, "Upside:  o spread inteiro")
 bolt(pdf, 170, ey + 26, 2.6, GOLD)
-body(pdf, 14, ey + 56, "Risco de capital numa execucao = ZERO. O risco do negocio nao esta no trade - esta em "
-                       "competir bem e cobrir custo de infra. E e exatamente ai que entra o diferencial do ZEUS.",
+body(pdf, 14, ey + 56, "Risco de capital numa execução = ZERO. O risco do negócio não está no trade - esta em "
+                       "competir bem e cobrir custo de infra. E é exatamente aí que entra o diferencial do ZEUS.",
      10.5, GREY, W - 28, 6)
-compare_strip(pdf, 230, "Por que e estruturalmente diferente de operar trading:", [
-    ("Capital necessario", "alto (o seu)", "ZERO (flashloan)"),
-    ("Risco numa operacao", "perda do capital", "so o gas"),
-    ("Janela de exposicao", "minutos a dias", "1 bloco (atomico)"),
+compare_strip(pdf, 230, "Por que é estruturalmente diferente de operar trading:", [
+    ("Capital necessário", "alto (o seu)", "ZERO (flashloan)"),
+    ("Risco numa operação", "perda do capital", "so o gás"),
+    ("Janela de exposição", "minutos a dias", "1 bloco (atômico)"),
 ])
 
 # ════════════ 5. ZEUS - A SOLUCAO ════════════
 page(pdf, BLACK)
 kicker(pdf, 14, 16, "A solucao", GOLD)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Tres motores. Qualquer mercado.", 25, WHITE, W - 28, 11)
-body(pdf, 14, 46, "ZEUS nao aposta numa unica estrategia. Sao tres motores descorrelacionados - o bot fatura "
+headline(pdf, 14, 30, "Três motores. Qualquer mercado.", 25, WHITE, W - 28, 11)
+body(pdf, 14, 46, "ZEUS não aposta numa única estratégia. São três motores descorrelacionados - o bot fatura "
                   "no crash, no volume e na volatilidade. Quando um esfria, outro esquenta.", 11, GREY, W - 28, 6)
 my = 70
 motors = [
-    ("MOTOR 1", "Liquidacoes", "Aave - Compound - Morpho - Seamless - Moonwell. Lucra quando o mercado DESPENCA.", "Mercado de CRASH", GOLD),
-    ("MOTOR 2", "Arbitragem (Cross-DEX + Triangular)", "Captura divergencia de preco entre DEXs - inclusive ciclos triangulares 'na profundidade'. Lucra com VOLUME.", "Mercado de VOLUME", CYAN),
-    ("MOTOR 3", "Backrun / MEV", "Reage a grandes movimentos (whales) capturando o reequilibrio. Lucra com VOLATILIDADE.", "Mercado de VOLATILIDADE", GREEN),
+    ("MOTOR 1", "Liquidações", "Aave - Compound - Morpho - Seamless - Moonwell. Lucra quando o mercado DESPENCA.", "Mercado de CRASH", GOLD),
+    ("MOTOR 2", "Arbitragem (Cross-DEX + Triangular)", "Captura divergencia de preço entre DEXs - inclusive ciclos triangulares 'na profundidade'. Lucra com VOLUME.", "Mercado de VOLUME", CYAN),
+    ("MOTOR 3", "Backrun / MEV", "Reage a grandes movimentos (whales) capturando o reequilíbrio. Lucra com VOLATILIDADE.", "Mercado de VOLATILIDADE", GREEN),
 ]
 for i, (tag, name, desc, market, col) in enumerate(motors):
     yy = my + i * 50
@@ -354,27 +354,27 @@ for i, (tag, name, desc, market, col) in enumerate(motors):
     pdf.set_text_color(*col)
     pdf.multi_cell(40, 5, market, align="R")
 bottom_band(pdf, 226, 54,
-            "Descorrelacao = resiliencia.",
-            "Um fundo que depende de uma unica estrategia quebra quando o mercado vira. ZEUS nao: quando "
-            "as liquidacoes esfriam (mercado calmo), a arbitragem esquenta (volume); quando tudo dispara "
-            "(volatilidade), o backrun captura. Tres fontes de receita que NAO sobem e descem juntas.",
+            "Descorrelação = resiliência.",
+            "Um fundo que depende de uma única estratégia quebra quando o mercado vira. ZEUS não: quando "
+            "as liquidações esfriam (mercado calmo), a arbitragem esquenta (volume); quando tudo dispara "
+            "(volatilidade), o backrun captura. Três fontes de receita que NÃO sobem e descem juntas.",
             GOLD, pills=[("Crash", GOLD), ("Volume", CYAN), ("Volatilidade", GREEN)])
 
 # ════════════ 6. O MOAT ════════════
 page(pdf, NAVY)
 kicker(pdf, 14, 16, "O diferencial", CYAN)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Nao e so um bot.\nE uma maquina que aprende.", 24, WHITE, W - 28, 11)
-body(pdf, 14, 62, "Bots simples chutam. ZEUS sabe. Uma camada de inteligencia transforma cada operacao em dado, "
-                  "e o bot se calibra sozinho - vendo o adversario em tempo real:", 11, GREY, W - 28, 6)
+headline(pdf, 14, 30, "Não é só um bot.\nÉ uma máquina que aprende.", 24, WHITE, W - 28, 11)
+body(pdf, 14, 62, "Bots simples chutam. ZEUS sabe. Uma camada de inteligência transforma cada operação em dado, "
+                  "e o bot se calibra sozinho - vendo o adversário em tempo real:", 11, GREY, W - 28, 6)
 gy = 84
 items = [
-    ("Ve o competidor", "perfila quem disputa, mede quanto pagam pra ganhar a corrida (market-bribe).", GOLD),
+    ("Vê o competidor", "perfila quem disputa, mede quanto pagam pra ganhar a corrida (market-bribe).", GOLD),
     ("Reconcilia lucro", "esperado vs realizado + alarme quando algo quebra (drift sustentado).", CYAN),
     ("Post-mortem", "descobre QUEM nos ganhou e por que - e ajusta o lance.", GREEN),
-    ("Auto-calibravel", "aperta/afrouxa os gates sozinho a partir do historico real.", GOLD),
-    ("Ve na profundidade", "enxerga arbitragem triangular - onde os bots simples nao olham.", CYAN),
-    ("Tudo observavel", "ledger + dashboards: nada se perde, nada e chute.", GREEN),
+    ("Auto-calibrável", "aperta/afrouxa os gates sozinho a partir do histórico real.", GOLD),
+    ("Vê na profundidade", "enxerga arbitragem triangular - onde os bots simples não olham.", CYAN),
+    ("Tudo observável", "ledger + dashboards: nada se perde, nada é chute.", GREEN),
 ]
 for i, (t, d, col) in enumerate(items):
     cx = 14 + (i % 2) * 94
@@ -389,23 +389,24 @@ for i, (t, d, col) in enumerate(items):
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*GREY)
     pdf.multi_cell(80, 4.8, d)
-fill(pdf, PANEL2, 0, gy + 122, W, 20)
-pdf.set_xy(14, gy + 128)
-pdf.set_font("Helvetica", "B", 12.5)
+fill(pdf, PANEL2, 0, gy + 120, W, 26)
+pdf.set_xy(14, gy + 125)
+pdf.set_font("Helvetica", "B", 12)
 pdf.set_text_color(*GOLD)
-pdf.cell(0, 8, "O moat nao e velocidade pura - e INTELIGENCIA. Enquanto outros improvisam, ZEUS planeja.")
+pdf.multi_cell(W - 28, 6.5, "O moat não é velocidade pura - é INTELIGÊNCIA.\n"
+                           "Enquanto outros improvisam, ZEUS planeja.", align="C")
 
 # ════════════ 7. MODELO DE LUCRO ════════════
 page(pdf, BLACK)
 kicker(pdf, 14, 16, "Como gera lucro", GOLD)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Lucro = spread x frequencia,\ncom custo de capital ZERO.", 22, WHITE, W - 28, 10)
-body(pdf, 14, 60, "Como o capital e emprestado (flashloan), nao ha custo de capital - o lucro escala com a "
-                  "FREQUENCIA de oportunidades capturadas e o spread medio liquido. Cenarios ilustrativos:",
+headline(pdf, 14, 30, "Lucro = spread x frequência,\ncom custo de capital ZERO.", 22, WHITE, W - 28, 10)
+body(pdf, 14, 60, "Como o capital é emprestado (flashloan), não há custo de capital - o lucro escala com a "
+                  "FREQUENCIA de oportunidades capturadas e o spread médio líquido. Cenários ilustrativos:",
      10.5, GREY, W - 28, 6)
 # tabela de cenarios
 ty = 84
-heads = ["Cenario", "Op./dia", "Liquido medio/op.", "Potencial/mes*"]
+heads = ["Cenário", "Op./dia", "Líquido médio/op.", "Potencial/mes*"]
 ws = [44, 38, 56, 44]
 rows = [
     ("Conservador", "5", "US$ 8", "~US$ 1,2k", GREY),
@@ -430,28 +431,28 @@ for name, opd, avg, mo, col in rows:
 pdf.set_xy(14, yy + 2)
 pdf.set_font("Helvetica", "I", 8)
 pdf.set_text_color(*GREYD)
-pdf.multi_cell(W - 28, 4.5, "* Ilustrativo - potencial, NAO garantido. Pre-receita, em fase de validacao. Numeros dependem de "
-              "competicao, liquidez e calibracao real. Servem pra mostrar a ALAVANCA do modelo (capital zero), nao uma promessa.")
+pdf.multi_cell(W - 28, 4.5, "* Ilustrativo - potencial, NÃO garantido. Pré-receita, em fase de validação. Números dependem de "
+              "competição, liquidez e calibracao real. Servem pra mostrar a ALAVANCA do modelo (capital zero), não uma promessa.")
 # drivers
 dy = yy + 16
 stat(pdf, 14, dy, 58, "x0", "custo de capital (flashloan)", GREEN, 30)
-stat(pdf, 76, dy, 58, "x N", "escala com frequencia de captura", CYAN, 30)
-stat(pdf, 138, dy, 58, "atomico", "downside limitado ao gas", GOLD, 22)
-body(pdf, 14, dy + 40, "A tese de 3 motores reduz a dependencia de um unico mercado: o potencial total e a SOMA "
-                       "das oportunidades dos tres, descorrelacionadas.", 10.5, GREY, W - 28, 6)
+stat(pdf, 76, dy, 58, "x N", "escala com frequência de captura", CYAN, 30)
+stat(pdf, 138, dy, 58, "atômico", "downside limitado ao gás", GOLD, 22)
+body(pdf, 14, dy + 40, "A tese de 3 motores reduz a dependência de um único mercado: o potencial total é a SOMA "
+                       "das oportunidades dos três, descorrelacionadas.", 10.5, GREY, W - 28, 6)
 bottom_band(pdf, dy + 56, 60,
             "A alavanca do modelo: escala sem capital.",
-            "Num negocio tradicional, dobrar o lucro exige dobrar o capital. Aqui nao - como o capital e "
-            "emprestado a cada operacao, o lucro escala com FREQUENCIA e QUALIDADE de captura (a inteligencia), "
-            "nao com quanto dinheiro voce poe. A infra e custo fixo; cada oportunidade extra e margem quase pura.",
-            GREEN, pills=[("Capital fixo: ~0", GREEN), ("Custo: infra + gas", CYAN), ("Margem: o spread", GOLD)])
+            "Num negócio tradicional, dobrar o lucro exige dobrar o capital. Aqui não - como o capital e "
+            "emprestado a cada operação, o lucro escala com FREQUENCIA e QUALIDADE de captura (a inteligência), "
+            "não com quanto dinheiro você poe. A infra é custo fixo; cada oportunidade extra é margem quase pura.",
+            GREEN, pills=[("Capital fixo: ~0", GREEN), ("Custo: infra + gás", CYAN), ("Margem: o spread", GOLD)])
 
 # ════════════ 8. STATUS / POR QUE AGORA ════════════
 page(pdf, NAVY)
 kicker(pdf, 14, 16, "Onde estamos", GOLD)
 goldbar(pdf, 14, 24, 22, 3)
-headline(pdf, 14, 30, "Construido. Testado. Pronto pra ligar.", 22, WHITE, W - 28, 10)
-body(pdf, 14, 50, "Transparencia total - o que esta pronto e o que falta:", 11, GREY, W - 28, 6)
+headline(pdf, 14, 30, "Construído. Testado. Pronto pra ligar.", 22, WHITE, W - 28, 10)
+body(pdf, 14, 50, "Transparência total - o que esta pronto e o que falta:", 11, GREY, W - 28, 6)
 sy = 64
 PANEL_H = 116
 
@@ -472,11 +473,11 @@ def status_panel(px, head, hcol, items):
 
 
 status_panel(14, "PRONTO", GREEN, [
-    ("3 motores inteligentes", "competidor-aware + auto-calibraveis"),
+    ("3 motores inteligentes", "competidor-aware + auto-calibráveis"),
     ("Arbitragem cross-DEX executa", "re-cota fresco e dispara nos melhores"),
-    ("Ve arbitragem triangular", "ciclos A->B->C->A na profundidade"),
+    ("Vê arbitragem triangular", "ciclos A->B->C->A na profundidade"),
     ("Inteligencia 100% ligada", "ledger + Grafana, nada se perde"),
-    ("Contratos testados", "115 funcoes de teste Foundry"),
+    ("Contratos testados", "115 funções de teste Foundry"),
     ("~340 testes off-chain verdes", "typecheck + suite passando"),
     ("Audit interno (Pass 1+2)", "+ fixes H/M aplicados"),
 ])
@@ -484,7 +485,7 @@ status_panel(108, "PROXIMOS PASSOS", GOLD, [
     ("Coletar dados (DRY_RUN)", "mainnet read-only, sem deploy"),
     ("Validar edge", "qual motor fatura de verdade"),
     ("Deploy na mainnet", "quando o dado mandar"),
-    ("Capital pequeno (4 sem.)", "validacao com risco baixo"),
+    ("Capital pequeno (4 sem.)", "validação com risco baixo"),
     ("Infra: RPC pago + wallet", "+ mempool pro Motor 3"),
     ("Audit externo", "antes de capital alto"),
 ])
@@ -495,8 +496,8 @@ fill(pdf, PANEL2, 0, by, W, bh)
 pdf.set_fill_color(*GOLD); pdf.rect(0, by, 3, bh, "F")
 pdf.set_xy(14, by + 6)
 pdf.set_font("Helvetica", "B", 11.5); pdf.set_text_color(*WHITE)
-pdf.multi_cell(W - 28, 6, "O que falta NAO e software - e ligar a infra e validar com dado real. "
-                         "O risco de construcao ja foi pago.")
+pdf.multi_cell(W - 28, 6, "O que falta NÃO e software - e ligar a infra e validar com dado real. "
+                         "O risco de construção já foi pago.")
 pdf.set_xy(14, by + 20)
 pdf.set_font("Helvetica", "B", 10.5); pdf.set_text_color(*GOLD)
 pdf.cell(0, 6, "Caminho ate a primeira receita:")
@@ -518,8 +519,8 @@ for i, (n, t, d) in enumerate(steps):
 # linha de fechamento grande
 pdf.set_xy(14, ly + 18)
 pdf.set_font("Helvetica", "B", 13.5); pdf.set_text_color(*WHITE)
-pdf.multi_cell(W - 28, 7, "O investimento nao paga risco de construcao - compra VELOCIDADE de validacao "
-                         "e a infra pra ligar os tres motores.")
+pdf.multi_cell(W - 28, 7, "O investimento não paga risco de construção - compra VELOCIDADE de validação "
+                         "e a infra pra ligar os três motores.")
 
 # ════════════ 9. O CONVITE ════════════
 page(pdf, BLACK)
@@ -528,20 +529,20 @@ bolt(pdf, 105, 64, 4.2, GOLD)
 pdf.set_xy(0, 92)
 pdf.set_font("Helvetica", "B", 34)
 pdf.set_text_color(*WHITE)
-pdf.cell(W, 16, "O dinheiro ja esta na mesa.", align="C")
+pdf.cell(W, 16, "O dinheiro já está na mesa.", align="C")
 pdf.set_xy(0, 112)
 pdf.set_font("Helvetica", "B", 20)
 pdf.set_text_color(*GOLD)
-pdf.cell(W, 11, "ZEUS foi construido pra captura-lo.", align="C")
+pdf.cell(W, 11, "ZEUS foi construído pra capturá-lo.", align="C")
 pdf.set_xy(28, 134)
 pdf.set_font("Helvetica", "", 12.5)
 pdf.set_text_color(*GREY)
-pdf.multi_cell(W - 56, 7, "Capital zero. Risco de execucao zero. Tres motores que faturam em qualquer mercado, "
-                         "com uma inteligencia que aprende e se calibra sozinha. O hard work de engenharia esta feito "
+pdf.multi_cell(W - 56, 7, "Capital zero. Risco de execução zero. Três motores que faturam em qualquer mercado, "
+                         "com uma inteligência que aprende e se calibra sozinha. O hard work de engenharia esta feito "
                          "e testado - falta ligar a tomada.", align="C")
 # 3 highlights
 hy = 178
-hl = [("ZERO", "capital proprio na execucao"), ("3", "motores descorrelacionados"), ("100%", "inteligencia ligada")]
+hl = [("ZERO", "capital próprio na execução"), ("3", "motores descorrelacionados"), ("100%", "inteligência ligada")]
 sw = W / 3
 for i, (a, b) in enumerate(hl):
     cx = sw * i

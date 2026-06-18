@@ -84,6 +84,7 @@ import {
   createDiscordSink,
   createGenericWebhookSink,
   resolveIntelligenceDbPath,
+  computeAdaptiveThresholds,
   type Severity,
   type ReadinessReport,
 } from '@zeus-evm/execution-utils';
@@ -1729,6 +1730,33 @@ async function main() {
     );
   }, state.env.LIQUIDATOR_POLL_INTERVAL_SEC * 1000);
 
+  // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
+  // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o
+  // loop de feedback). Com ADAPTIVE_THRESHOLDS_ENABLED=true, injeta no gate de EV.
+  const runAdaptiveRecalc = async () => {
+    try {
+      const adaptive = await computeAdaptiveThresholds({
+        store: state.intelligenceStore,
+        chain: state.ctx.chainConfig.name,
+        windowMs: state.env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      });
+      const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
+      if (applied) {
+        // Injeção opt-in: liquidationEdgeGate lê deps.env.MIN_OPPORTUNITY_EV_USD (= state.env).
+        state.env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+      }
+      logger.info(
+        { applied, ...adaptive },
+        `📈 OIE adaptive: MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD} MIN_PROFIT=$${adaptive.MIN_PROFIT_USD} top=${adaptive.topProtocol ?? '-'} ${applied ? '(APLICADO)' : '(só log)'}`,
+      );
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc falhou (skip)');
+    }
+  };
+  void runAdaptiveRecalc();
+  const adaptiveTimer = setInterval(() => void runAdaptiveRecalc(), state.env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
+  adaptiveTimer.unref();
+
   // ─── Graceful shutdown (Item 7) ───
   // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
   // No DRY_RUN o crítico é não perder o buffer do DuckDB ao reiniciar.
@@ -1739,6 +1767,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     try {
+      clearInterval(adaptiveTimer);
       state.finalityTracker.stop();
       state.blockStalenessCheck.stop();
       state.processCheck.stop();

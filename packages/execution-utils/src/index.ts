@@ -397,6 +397,10 @@ export {
   SUCCESS_CATEGORIES,
   FAILED_CATEGORIES,
   type DimensionStatsQueryOpts,
+  // Etapa C — thresholds adaptativos
+  computeAdaptiveThresholds,
+  type AdaptiveThresholds,
+  type AdaptiveThresholdsDeps,
 } from './scoring';
 
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───

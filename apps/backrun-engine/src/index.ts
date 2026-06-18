@@ -33,6 +33,7 @@ import {
   createDiscordSink,
   createGenericWebhookSink,
   resolveIntelligenceDbPath,
+  computeAdaptiveThresholds,
   type WhaleSwapDetectedEvent,
   type ReadinessReport,
   type ComponentCheck,
@@ -290,6 +291,33 @@ async function main() {
     '⚡ Backrun engine ONLINE — aguardando whale swaps',
   );
 
+  // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
+  const adaptiveEnabled = (process.env.ADAPTIVE_THRESHOLDS_ENABLED ?? 'false') === 'true';
+  const adaptiveIntervalMs = Number(process.env.ADAPTIVE_RECALC_INTERVAL_SEC ?? 600) * 1000;
+  const adaptiveWindowMs = Number(process.env.ADAPTIVE_WINDOW_DAYS ?? 7) * 24 * 60 * 60 * 1000;
+  const runAdaptiveRecalc = async () => {
+    try {
+      const adaptive = await computeAdaptiveThresholds({
+        store: intelligenceStore,
+        chain: chainCtx.chainName,
+        windowMs: adaptiveWindowMs,
+      });
+      if (adaptiveEnabled) {
+        // Injeção opt-in: o gate de backrun lê env.MIN_OPPORTUNITY_EV_USD (mesma ref).
+        env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+      }
+      logger.info(
+        { applied: adaptiveEnabled, ...adaptive },
+        `📈 OIE adaptive: MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD} top=${adaptive.topProtocol ?? '-'} ${adaptiveEnabled ? '(APLICADO)' : '(só log)'}`,
+      );
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc falhou (skip)');
+    }
+  };
+  void runAdaptiveRecalc();
+  const adaptiveTimer = setInterval(() => void runAdaptiveRecalc(), adaptiveIntervalMs);
+  adaptiveTimer.unref();
+
   // ─── Graceful shutdown (Item 7) ───
   // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
   // TODO(live): aguardar tx in-flight confirmar antes do exit quando submeter de verdade.
@@ -298,6 +326,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     try {
+      clearInterval(adaptiveTimer);
       finalityTracker.stop();
       blockStalenessCheck.stop();
       processCheck.stop();

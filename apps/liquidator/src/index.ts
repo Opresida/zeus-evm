@@ -56,6 +56,8 @@ import {
   EventIngester,
   startHealthServer,
   PnlReconciler,
+  PnlAggregator,
+  CalibrationDriftTracker,
   FailureCollector,
   FinalityTracker,
   CacheInvalidator,
@@ -550,12 +552,30 @@ export async function boot(): Promise<LiquidatorState> {
   });
   eventIngester.start();
 
+  // ── Análise de PnL (Fase 5a): agregação multi-dimensional + alarme de drift ──
+  // Alimentados pelo onReconcile do reconciler (fan-out desacoplado). Em DRY_RUN ficam vazios até
+  // haver reconciliações; ficam PRONTOS pra quando a TX real ligar.
+  const pnlAggregator = new PnlAggregator({ logger });
+  const driftTracker = new CalibrationDriftTracker({ logger });
+
   // ── PnL Reconciler (Item 10) ──
   const pnlReconciler = new PnlReconciler({
     baseDir: resolvePath('logs', 'pnl-reconciliations'),
     logger,
+    onReconcile: (recon) => {
+      pnlAggregator.observe(recon);
+      driftTracker.observe({
+        timestamp: recon.timestamp,
+        protocol: recon.protocol,
+        pair: recon.context.opportunity_id,
+        venue: recon.context.venue,
+        hour_utc: new Date(recon.timestamp).getUTCHours(),
+        drift_bps: recon.deltas.profit_delta_bps,
+        realized_profit_usd: recon.realized.profit_usd,
+      });
+    },
   });
-  logger.info('📊 PnlReconciler pronto');
+  logger.info('📊 PnlReconciler + PnlAggregator + DriftTracker prontos');
 
   // ── FailureCollector (Item 4) ──
   const failureCollector = new FailureCollector({
@@ -824,6 +844,10 @@ export async function boot(): Promise<LiquidatorState> {
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain, percentile: 'p75' });
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain, percentile: 'p95' });
       metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain });
+      // Calibração (Fase 5a) — alertas de drift sustentado + drift médio.
+      const drift = driftTracker.stats();
+      metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
+      metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
     } catch (err) {
       logger.debug(
         { err: err instanceof Error ? err.message : err },
@@ -832,6 +856,18 @@ export async function boot(): Promise<LiquidatorState> {
     }
   }, 5_000);
   metricsSyncInterval.unref();
+
+  // ── Alarme de drift (Fase 5a) — loga WARN com sugestão quando há drift sustentado ──
+  // Cadência lenta (10min). É o "alarme de que o bot está mentindo pra si mesmo".
+  const driftAlertInterval = setInterval(() => {
+    for (const alert of driftTracker.topAlerts(5)) {
+      logger.warn(
+        { dimension: alert.dimension, key: alert.key, avgDriftBps: alert.avg_drift_bps, samples: alert.samples },
+        `⚠️ drift sustentado: ${alert.suggested_action}`,
+      );
+    }
+  }, 10 * 60 * 1000);
+  driftAlertInterval.unref();
 
   // ── Snapshot da inteligência "órfã" → ledger central ──
   // Grava periodicamente sinais que antes só viviam em JSON/RAM no DuckDB pra ter HISTÓRICO

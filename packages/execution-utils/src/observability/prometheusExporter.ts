@@ -277,6 +277,10 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   // Falhas categorizadas (Fase 4)
   { name: 'zeus_failures_total', help: 'Falhas por categoria (lost_race/reverted_on_chain/...)', type: 'counter', labels: ['chain', 'category', 'protocol'] },
 
+  // Calibração de PnL (Fase 5a)
+  { name: 'zeus_drift_sustained_alerts', help: 'Alertas de drift sustentado (real vs esperado) abaixo do threshold', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_pnl_avg_drift_bps_all', help: 'Drift médio (bps) de todas as ops na janela', type: 'gauge', labels: ['chain'] },
+
   // Queue/dedup
   { name: 'zeus_dedup_pending', help: 'Positions in dedup pending state', type: 'gauge', labels: ['chain'] },
   { name: 'zeus_dedup_confirmed', help: 'Positions in dedup confirmed state', type: 'gauge', labels: ['chain'] },

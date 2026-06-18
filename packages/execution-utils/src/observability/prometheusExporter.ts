@@ -284,6 +284,7 @@ export const STANDARD_METRICS: MetricDefinition[] = [
 
   // Competitor scanner
   { name: 'zeus_competitor_profiles_total', help: 'Total competitor profiles tracked', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_competitor_category_total', help: 'Competitor profiles por categoria (liquidator/mev_searcher/...)', type: 'gauge', labels: ['chain', 'category'] },
   { name: 'zeus_scanner_blocks_processed_total', help: 'Total blocks scanned by competitor scanner', type: 'counter', labels: ['chain'] },
 
   // Market-bribe (Fase 1) — quanto o mercado paga de priority fee pra ganhar inclusão

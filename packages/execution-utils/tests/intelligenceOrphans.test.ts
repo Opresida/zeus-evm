@@ -66,6 +66,20 @@ describe('Fase 0 — ingestSnapshot', () => {
     expect(rows.some((r) => r.pair === 'MARKET')).toBe(true);
   });
 
+  it('grava perfil de competidor com sender consultável (Fase 2)', async () => {
+    ingestSnapshot(store, {
+      chain: 'Base', category: 'competitor', protocol: 'mev_searcher',
+      sender: '0xdead', amount_usd: 87, payload: { alias: 'known-bot' },
+    });
+    await store.flush();
+    const rows = await store.query<{ category: string; sender: string; amount_usd: number }>(
+      "SELECT category, sender, amount_usd FROM events WHERE category = 'competitor'",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.sender).toBe('0xdead');
+    expect(Number(rows[0]!.amount_usd)).toBe(87);
+  });
+
   it('é fire-and-forget: store quebrado NÃO lança (engole o erro)', () => {
     const brokenStore = {
       ingest() {

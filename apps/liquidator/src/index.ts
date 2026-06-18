@@ -743,6 +743,8 @@ export async function boot(): Promise<LiquidatorState> {
 
   // Sync periódico de gauges Prometheus (a cada 5s) — pega snapshots de trackers
   // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
+  // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
+  let lastBlocksProcessed = 0;
   const metricsSyncInterval = setInterval(() => {
     try {
       const chain = ctx.chainConfig.name;
@@ -773,6 +775,15 @@ export async function boot(): Promise<LiquidatorState> {
       // Competitor scanner
       const scannerStats = blockHistoryScanner.getStats();
       metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain });
+      // Blocos varridos é COUNTER — incrementa pelo delta desde o último sync.
+      const blocksDelta = scannerStats.blocks_processed - lastBlocksProcessed;
+      if (blocksDelta > 0) metricRegistry.inc('zeus_scanner_blocks_processed_total', { chain }, blocksDelta);
+      lastBlocksProcessed = scannerStats.blocks_processed;
+      // Competidores por categoria (Fase 2) — pra ver o mix de ameaças no Grafana.
+      const compByCat = senderRegistry.stats().by_category;
+      for (const [category, count] of Object.entries(compByCat)) {
+        metricRegistry.set('zeus_competitor_category_total', count, { chain, category });
+      }
       // Market-bribe (Fase 1) — lance de mercado agregado dos competidores ativos
       const mkt = senderRegistry.marketBribeStats();
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain, percentile: 'p50' });
@@ -788,11 +799,13 @@ export async function boot(): Promise<LiquidatorState> {
   }, 5_000);
   metricsSyncInterval.unref();
 
-  // ── Snapshot da inteligência "órfã" → ledger central (Fase 1: market-bribe) ──
-  // Grava periodicamente o "lance de mercado" no DuckDB pra ter histórico (não só métrica
-  // instantânea). Cadência lenta (5min) pra não inflar o ledger. Fire-and-forget.
+  // ── Snapshot da inteligência "órfã" → ledger central ──
+  // Grava periodicamente sinais que antes só viviam em JSON/RAM no DuckDB pra ter HISTÓRICO
+  // (não só métrica instantânea). Cadência lenta (5min) pra não inflar o ledger. Fire-and-forget.
   const intelSnapshotInterval = setInterval(() => {
     const chain = ctx.chainConfig.name;
+
+    // Fase 1 — lance de mercado (market-bribe).
     const mkt = senderRegistry.marketBribeStats();
     if (mkt.competitorsActive > 0) {
       ingestSnapshot(
@@ -807,6 +820,38 @@ export async function boot(): Promise<LiquidatorState> {
         },
         logger,
       );
+    }
+
+    // Fase 2 — perfis de competidores: 1 linha agregada + 1 por top-ameaça.
+    const compStats = senderRegistry.stats();
+    if (compStats.total_profiles > 0) {
+      // Agregado (total + distribuição por categoria).
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'competitor',
+          protocol: 'aggregate',
+          amount_usd: compStats.total_profiles,
+          payload: { total: compStats.total_profiles, byCategory: compStats.by_category },
+        },
+        logger,
+      );
+      // Top ameaças (sender + threat score) — granularidade por competidor no ledger.
+      for (const t of senderRegistry.topThreats(10)) {
+        ingestSnapshot(
+          intelligenceStore,
+          {
+            chain,
+            category: 'competitor',
+            protocol: t.category,
+            sender: t.sender,
+            amount_usd: t.threat.overall_score,
+            payload: { alias: t.known_alias ?? null, category: t.category, avgPriorityFeeGwei: t.gas.avg_priority_fee_gwei },
+          },
+          logger,
+        );
+      }
     }
   }, 5 * 60 * 1000);
   intelSnapshotInterval.unref();

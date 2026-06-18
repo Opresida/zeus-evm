@@ -161,7 +161,8 @@
       "title": "Competitor Profiles Tracked",
       "type": "timeseries",
       "targets": [
-        { "expr": "zeus_competitor_profiles_total", "legendFormat": "{{chain}}" }
+        { "expr": "zeus_competitor_profiles_total", "legendFormat": "{{chain}}" },
+        { "expr": "zeus_competitor_category_total", "legendFormat": "{{category}} {{chain}}" }
       ]
     },
     {

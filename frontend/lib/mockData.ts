@@ -1,0 +1,179 @@
+import type { TxRow } from "./types";
+
+// ===== Dados representativos portados de ZEUS Command.dc.html =====
+// Servem de fallback (modo demo) e definem o layout exato do painel.
+
+export const MOCK = {
+  botStatus: "RUNNING",
+  runwayDays: "6.2",
+  adaptiveEv: "$4.20",
+  gas: { eth: "0.412", usd: 1340 },
+
+  k: {
+    today: 1284.5,
+    todayTx: 53,
+    w7: 8940.2,
+    w7delta: "+18.4%",
+    m30: 34210.75,
+    proj: 41800,
+    winRate: "88.7%",
+    ok: 47,
+    fail: 6,
+    w14sum: 15820,
+  },
+
+  raw14: [620, 880, -210, 1140, 760, 1320, 410, 980, -160, 1450, 720, 1180, 540, 1284],
+
+  motors: [
+    { tag: "M1", name: "Liquidações", pnl: 4120, ops: 18, share: "12%", barPct: "12" },
+    { tag: "M2", name: "Arbitragem", pnl: 21480, ops: 312, share: "63%", barPct: "63" },
+    { tag: "M3", name: "Backrun", pnl: 8610, ops: 64, share: "25%", barPct: "25" },
+  ],
+
+  insights: [
+    { color: "var(--gold)", text: "Motor 2 (Arbitragem) respondeu por 63% do lucro hoje — concentração acima da média semanal." },
+    { color: "var(--red)", text: "Drift do Morpho subiu ~300 bps nas últimas 2h; calibração de EV sugerida." },
+    { color: "var(--cyan)", text: "Perdemos 4 corridas seguidas para o builder bob-the-builder.eth — considere subir o bribe em WETH/USDC." },
+    { color: "var(--gold)", text: "Gás com 6.2 dias de runway — acima do limiar de alerta (3 dias)." },
+  ],
+
+  ticker: [
+    { color: "var(--green)", text: "tx.confirmed · Morpho · +$94.20 net", t: 2 },
+    { color: "var(--cyan)", text: "backrun.dispatched · AERO/WETH", t: 9 },
+    { color: "var(--green)", text: "tx.confirmed · Aave V3 · +$211.80 net", t: 18 },
+    { color: "var(--red)", text: "tx.reverted_on_chain · Compound · −3.10 gás", t: 27 },
+    { color: "var(--cyan)", text: "whale.swap_detected · 412 WETH", t: 41 },
+    { color: "var(--green)", text: "tx.confirmed · Moonwell · +$57.40 net", t: 58 },
+  ],
+
+  allRows: [
+    { st: "ok", protocol: "Aave V3", pair: "WETH/USDC", net: 211.8, gas: 8.4, drift: -12, hash: "0x8f2a91c4", mode: "main", time: "14:42" },
+    { st: "ok", protocol: "Morpho Blue", pair: "cbETH/WETH", net: 94.2, gas: 5.1, drift: 6, hash: "0x1d77e0ab", mode: "main", time: "14:40" },
+    { st: "rev", protocol: "Compound V3", pair: "USDC/USDbC", net: -3.1, gas: 3.1, drift: 0, hash: "0x4b09fa21", mode: "main", time: "14:36" },
+    { st: "ok", protocol: "Moonwell", pair: "WETH/DAI", net: 57.4, gas: 4.8, drift: -4, hash: "0xa7c3210d", mode: "main", time: "14:31" },
+    { st: "ok", protocol: "Aerodrome", pair: "AERO/WETH", net: 128.9, gas: 6.2, drift: 9, hash: "0xe51b88f0", mode: "main", time: "14:27" },
+    { st: "pre", protocol: "Seamless", pair: "WETH/USDC", net: 0, gas: 0, drift: 0, hash: null, mode: "main", time: "14:22", reason: "min EV não atingido" },
+    { st: "ok", protocol: "Aave V3", pair: "cbETH/USDC", net: 342.1, gas: 9.7, drift: -18, hash: "0x90fd14ce", mode: "main", time: "14:18" },
+    { st: "rev", protocol: "Morpho Blue", pair: "WETH/USDC", net: -4.4, gas: 4.4, drift: 0, hash: "0x33ab7e92", mode: "main", time: "14:11" },
+    { st: "ok", protocol: "Uniswap V3", pair: "WETH/USDC", net: 76.3, gas: 5.5, drift: 3, hash: "0xc8e201bb", mode: "main", time: "14:04" },
+    { st: "pre", protocol: "Compound V3", pair: "USDbC/USDC", net: 0, gas: 0, drift: 0, hash: null, mode: "main", time: "13:58", reason: "gás acima do EV líquido" },
+    { st: "ok", protocol: "Moonwell", pair: "WETH/USDC", net: 188.6, gas: 7.1, drift: -8, hash: "0x2f6d99a1", mode: "main", time: "13:51" },
+    { st: "ok", protocol: "Aerodrome", pair: "AERO/USDC", net: 41.2, gas: 3.9, drift: 2, hash: "0x7ba4c310", mode: "main", time: "13:44" },
+  ] as TxRow[],
+
+  pnlSeries: {
+    daily: [0, 620, 1480, 1270, 2410, 3170, 4150, 4560, 5540, 5380, 6830, 7550, 8730, 9270, 10554],
+    weekly: [0, 8940, 17200, 24800, 34210],
+    monthly: [0, 9800, 19400, 28700, 34210],
+  } as Record<string, number[]>,
+  expSeries: {
+    daily: [0, 700, 1620, 1480, 2680, 3520, 4600, 5060, 6150, 6020, 7600, 8400, 9700, 10350, 11800],
+    weekly: [0, 9900, 18800, 27200, 37600],
+    monthly: [0, 10600, 21000, 31000, 37600],
+  } as Record<string, number[]>,
+
+  motorBreak: [
+    { name: "M2 Arbitragem", val: 21480, pct: "63" },
+    { name: "M3 Backrun", val: 8610, pct: "25" },
+    { name: "M1 Liquidações", val: 4120, pct: "12" },
+  ],
+  protoBreak: [
+    { name: "Aave V3", val: 11240, pct: "90" },
+    { name: "Morpho Blue", val: 8930, pct: "72" },
+    { name: "Aerodrome", val: 6410, pct: "52" },
+    { name: "Moonwell", val: 4870, pct: "39" },
+    { name: "Compound V3", val: 2760, pct: "22" },
+  ],
+
+  wallet: { gas24h: 214, gas24hEth: "0.066", gas30d: 4180, gas30dPct: "11%" },
+  whRaw: [0.62, 0.59, 0.55, 0.51, 0.47, 0.43, 0.4, 0.8, 0.76, 0.71, 0.67, 0.63, 0.58, 0.54, 0.5, 0.46, 0.42, 0.38, 0.78, 0.74, 0.69, 0.65, 0.61, 0.57, 0.52, 0.48, 0.45, 0.43, 0.41, 0.412],
+  gasAlerts: [
+    { color: "var(--red)", time: "hoje 03:12", text: "Saldo cruzou 3 dias de runway — push enviado", tag: "CRITICAL" },
+    { color: "var(--gold)", time: "ontem 21:40", text: "Saldo abaixo de 0.45 ETH", tag: "WARN" },
+    { color: "var(--green)", time: "ontem 09:05", text: "Reabastecido +0.40 ETH · gas.recovered", tag: "RECOVERED" },
+  ],
+
+  bribe: [
+    { pct: "P50", gwei: "0.18", note: "mediana" },
+    { pct: "P75", gwei: "0.42", note: "disputado" },
+    { pct: "P95", gwei: "1.30", note: "guerra de bribe" },
+  ],
+  ourBribe: "0.24 gwei",
+  driftAlarms: [
+    { color: "var(--red)", text: "Morpho Blue · drift sustentado há 2h08m", bps: "+312" },
+    { color: "var(--gold)", text: "Aave V3 · drift acima do limiar", bps: "+148" },
+    { color: "var(--green)", text: "Aerodrome · dentro da faixa", bps: "+22" },
+  ],
+  competitors: [
+    { name: "bob-the-builder.eth", won: 41, lost: 12, bribe: "0.51 gwei", kind: "builder" },
+    { name: "0x9a3f…c102", won: 28, lost: 33, bribe: "0.33 gwei", kind: "searcher" },
+    { name: "flashbots-rpc", won: 19, lost: 51, bribe: "0.28 gwei", kind: "relay" },
+    { name: "0x4b71…ee90", won: 14, lost: 22, bribe: "0.44 gwei", kind: "searcher" },
+    { name: "0xc0ff…ee01", won: 7, lost: 9, bribe: "0.19 gwei", kind: "sybil?" },
+  ],
+  postmortem: [
+    { time: "14:33", text: "Morpho · perdemos para bob-the-builder.eth", pos: "pos #2" },
+    { time: "13:50", text: "Aave V3 · incluído 1 bloco depois", pos: "pos #5" },
+    { time: "13:12", text: "WETH/USDC · bribe insuficiente (−0.27 gwei)", pos: "pos #3" },
+    { time: "12:47", text: "Aerodrome · reorg desfez inclusão", pos: "reorg" },
+  ],
+  calib: [
+    { time: "hoje 11:20", effect: "win-rate +4.2%", text: "min EV elevado de $3.60 → $4.20 após sequência de reverts" },
+    { time: "ontem 18:05", effect: "gás −9%", text: "priority fee teto reduzido em pares de baixa disputa" },
+    { time: "ontem 07:30", effect: "win-rate +2.1%", text: "cooldown de falhas encurtado de 90s → 60s" },
+    { time: "2d atrás", effect: "neutro", text: "whitelist de protocolos: + Seamless" },
+  ],
+  edgePairs: [
+    { pair: "WETH/USDC", edge: "92%", pct: "92", note: "persistente · 14d" },
+    { pair: "cbETH/WETH", edge: "78%", pct: "78", note: "persistente · 9d" },
+    { pair: "AERO/WETH", edge: "64%", pct: "64", note: "volátil" },
+    { pair: "WETH/DAI", edge: "51%", pct: "51", note: "intermitente" },
+  ],
+
+  components: [
+    { name: "RPC primário (Base)", status: "READY", color: "var(--green)", detail: "38ms" },
+    { name: "RPC fallback", status: "READY", color: "var(--green)", detail: "64ms" },
+    { name: "Mempool stream", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "Bundle relay", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "DuckDB sink", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "Price oracle", status: "DEGRADED", color: "var(--gold)", detail: "stale 4s" },
+    { name: "Heartbeat", status: "READY", color: "var(--green)", detail: "30s" },
+  ],
+  cooldowns: [
+    { scope: "Motor 1 · Liquidações", state: "ATIVO", color: "var(--gold)", reason: "3 falhas consecutivas · expira em 00:42" },
+    { scope: "Motor 2 · Arbitragem", state: "OK", color: "var(--green)", reason: "sem falhas em sequência" },
+    { scope: "Auto-pause global", state: "INATIVO", color: "var(--green)", reason: "última pausa há 6h · oracle stale" },
+  ],
+  latP50: [128, 135, 142, 138, 150, 162, 144, 139, 152, 148, 160, 143, 137, 145, 158, 166, 149, 141, 136, 144, 151, 147, 142, 142],
+  latP95: [360, 372, 410, 395, 430, 470, 420, 388, 440, 415, 455, 402, 378, 410, 448, 468, 422, 395, 372, 408, 430, 418, 405, 410],
+  ks: { loss: -420, limit: 2000, pct: "21", last: "há 6 dias · oracle stale" },
+  eventLog: [
+    { time: "14:42", color: "var(--green)", type: "zeus.heartbeat", text: "Heartbeat ok · gás 0.412 ETH · uptime 3d 07h" },
+    { time: "14:31", color: "var(--gold)", type: "reorg", text: "Reorg profundidade 1 · tx reanexada no bloco seguinte" },
+    { time: "13:42", color: "var(--gold)", type: "cooldown_activated", text: "Cooldown M1 ativado · 3 falhas consecutivas · 60s" },
+    { time: "12:47", color: "var(--red)", type: "reorg", text: "Reorg profundidade 2 · inclusão desfeita em AERO/WETH" },
+    { time: "11:20", color: "var(--cyan)", type: "auto-calibração", text: "min EV ajustado $3.60 → $4.20 após sequência de reverts" },
+    { time: "09:05", color: "var(--green)", type: "liquidator.boot", text: "Serviço liquidator reiniciado · readyz ok em 1.8s" },
+    { time: "03:12", color: "var(--red)", type: "gas.alert", text: "Gás cruzou 3 dias de runway · push crítico enviado" },
+  ],
+
+  repByPeriod: {
+    daily: { net: 1284.5, win: "88.7%", ops: "53", gas: 214, drift: "−118bps", bestMotor: "M2 Arbitragem", range: "22 jun 2026", label: "Diário" },
+    weekly: { net: 8940.2, win: "86.1%", ops: "371", gas: 1480, drift: "−132bps", bestMotor: "M2 Arbitragem", range: "16–22 jun 2026", label: "Semanal" },
+    monthly: { net: 34210.75, win: "85.4%", ops: "1.642", gas: 4180, drift: "−141bps", bestMotor: "M2 Arbitragem", range: "jun 2026", label: "Mensal" },
+  } as Record<string, { net: number; win: string; ops: string; gas: number; drift: string; bestMotor: string; range: string; label: string }>,
+
+  notifMeta: [
+    ["kill", "Kill switch acionado", "sempre"],
+    ["gas", "Gás crítico (<3d runway)", "<3 dias"],
+    ["cooldown", "Cooldown ativado", "3 falhas"],
+    ["drift", "Drift sustentado", ">200 bps / 2h"],
+    ["bigtx", "Tx confirmada acima de valor", ">$500"],
+  ] as [string, string, string][],
+  notifDefault: { kill: true, gas: true, cooldown: true, drift: true, bigtx: false } as Record<string, boolean>,
+  chanMeta: [
+    ["push", "Web Push (PWA)", "instalável"],
+    ["email", "Email (Resend)", "digest diário"],
+  ] as [string, string, string][],
+  chanDefault: { push: true, email: true } as Record<string, boolean>,
+};

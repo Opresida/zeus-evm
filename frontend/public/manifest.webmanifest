@@ -1,0 +1,13 @@
+{
+  "name": "ZEUS Command",
+  "short_name": "ZEUS",
+  "description": "Painel de controle em tempo real do bot ZEUS.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#080b14",
+  "theme_color": "#080b14",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

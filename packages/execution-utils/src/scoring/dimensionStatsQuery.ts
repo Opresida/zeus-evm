@@ -22,6 +22,11 @@ export interface DimensionStatsQueryOpts {
   windowMs?: number;
   /** Filtra por chain (ex.: 'Base'). Omitir agrega todas as chains. */
   chain?: string;
+  /**
+   * Categorias que contam como "valor" (profit + successful_ops). Default = `SUCCESS_CATEGORIES`
+   * (execução). Pra ler OBSERVAÇÃO do DRY_RUN, passe `OBSERVATION_VALUE_CATEGORIES`.
+   */
+  valueCategories?: readonly string[];
 }
 
 /** Linha crua retornada pelo DuckDB. */
@@ -46,19 +51,37 @@ function sqlStr(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
-const SUCCESS_IN = `(${SUCCESS_CATEGORIES.map(sqlStr).join(',')})`;
 const FAILED_IN = `(${FAILED_CATEGORIES.map(sqlStr).join(',')})`;
 
-/** Colunas agregadas comuns às 3 dimensões. */
-const AGG_COLUMNS = `
+/**
+ * Categorias que carregam VALOR observado no DRY_RUN (sem execução real). Os callers de
+ * observação (exporter/adaptive/relatório) passam isto como `valueCategories` pra o profit
+ * e a contagem refletirem o que foi OBSERVADO — não só o que foi executado. Sem isto, no
+ * DRY_RUN o net_profit/successful ficam 0 (só há arb_observed/mis_observed).
+ * Nota: aqui `win_rate` (successful/(successful+failed)) vira "share observado" (sem falhas).
+ */
+export const OBSERVATION_VALUE_CATEGORIES = [
+  'arb_observed', 'mis_observed', 'opportunity_found', ...SUCCESS_CATEGORIES,
+] as const;
+
+/** Monta o predicado `IN (...)` das categorias de valor (default = execução). */
+function successIn(valueCategories?: readonly string[]): string {
+  const list = valueCategories && valueCategories.length > 0 ? valueCategories : SUCCESS_CATEGORIES;
+  return `(${list.map(sqlStr).join(',')})`;
+}
+
+/** Colunas agregadas comuns às 3 dimensões (filtro de valor parametrizado). */
+function aggColumns(sIn: string): string {
+  return `
   COUNT(*) AS total_ops,
-  COUNT(*) FILTER (WHERE category IN ${SUCCESS_IN}) AS successful_ops,
+  COUNT(*) FILTER (WHERE category IN ${sIn}) AS successful_ops,
   COUNT(*) FILTER (WHERE category IN ${FAILED_IN}) AS failed_ops,
-  COALESCE(SUM(profit_usd) FILTER (WHERE category IN ${SUCCESS_IN}), 0)
-    - COALESCE(SUM(gas_usd) FILTER (WHERE category IN ${SUCCESS_IN}), 0) AS net_profit_usd,
+  COALESCE(SUM(profit_usd) FILTER (WHERE category IN ${sIn}), 0)
+    - COALESCE(SUM(gas_usd) FILTER (WHERE category IN ${sIn}), 0) AS net_profit_usd,
   COUNT(DISTINCT sender) AS unique_competitors,
   AVG(amount_usd) AS avg_amount_usd,
   COUNT(DISTINCT hour_utc) AS active_hours`;
+}
 
 /**
  * Monta o SQL de agregação por dimensão. Puro — testável sem DuckDB.
@@ -70,13 +93,15 @@ export function buildDimensionStatsSql(
   dimension: Dimension,
   sinceTimestamp: number,
   chain?: string,
+  valueCategories?: readonly string[],
 ): string {
   const chainFilter = chain ? ` AND chain = ${sqlStr(chain)}` : '';
+  const cols = aggColumns(successIn(valueCategories));
 
   if (dimension === 'token') {
     // Explode o par em tokens individuais, depois agrega.
     return `
-SELECT token AS key,${AGG_COLUMNS}
+SELECT token AS key,${cols}
 FROM (
   SELECT split_part(pair, '/', 1) AS token, category, profit_usd, gas_usd, sender, amount_usd, hour_utc, chain, timestamp
     FROM events WHERE pair IS NOT NULL
@@ -91,7 +116,7 @@ ORDER BY total_ops DESC`.trim();
 
   const col = dimension === 'protocol' ? 'protocol' : 'pair';
   return `
-SELECT ${col} AS key,${AGG_COLUMNS}
+SELECT ${col} AS key,${cols}
 FROM events
 WHERE ${col} IS NOT NULL AND timestamp >= ${sinceTimestamp}${chainFilter}
 GROUP BY ${col}
@@ -108,7 +133,7 @@ export async function queryDimensionStats(
 ): Promise<DimensionStats[]> {
   const windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
   const sinceTimestamp = Date.now() - windowMs;
-  const sql = buildDimensionStatsSql(dimension, sinceTimestamp, opts.chain);
+  const sql = buildDimensionStatsSql(dimension, sinceTimestamp, opts.chain, opts.valueCategories);
 
   const rows = await store.query<RawRow>(sql);
 

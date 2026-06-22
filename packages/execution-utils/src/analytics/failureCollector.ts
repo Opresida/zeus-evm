@@ -52,9 +52,17 @@ export class FailureCollector {
     this.windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
     this.logger = opts.logger;
 
-    // Garante diretório existe
-    if (!existsSync(this.baseDir)) {
-      mkdirSync(this.baseDir, { recursive: true });
+    // Garante diretório existe. NUNCA derruba o bot — se o mkdir falhar (path inválido,
+    // permissão), só loga; o record() tenta criar o dir de novo e degrada gracefully.
+    try {
+      if (!existsSync(this.baseDir)) {
+        mkdirSync(this.baseDir, { recursive: true });
+      }
+    } catch (err) {
+      this.logger?.warn(
+        { err: err instanceof Error ? err.message : err, baseDir: this.baseDir },
+        'FailureCollector: erro criando baseDir no boot (segue mesmo assim)',
+      );
     }
   }
 

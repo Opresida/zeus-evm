@@ -28,11 +28,23 @@ import {
   AutoPauseManager,
   Tracer,
   PnlReconciler,
+  PnlAggregator,
+  CalibrationDriftTracker,
   FailureCollector,
+  CompetitorResolver,
+  BlockPositionTracker,
+  MetricRegistry,
+  registerStandardMetrics,
+  SenderRegistry,
+  BlockHistoryScanner,
+  CooccurrenceAnalyzer,
+  BuilderAttributionTracker,
+  ingestSnapshot,
   subscribeWhaleSwaps,
   createDiscordSink,
   createGenericWebhookSink,
   resolveIntelligenceDbPath,
+  computeAdaptiveThresholds,
   type WhaleSwapDetectedEvent,
   type ReadinessReport,
   type ComponentCheck,
@@ -40,6 +52,7 @@ import {
 import type { Severity } from '@zeus-evm/execution-utils';
 import type { Address, Hex } from 'viem';
 import { resolve as resolvePath } from 'node:path';
+import { writeFileSync } from 'node:fs';
 
 import { loadConfig } from './config';
 import { buildChainContext } from './chainContext';
@@ -70,7 +83,7 @@ async function main() {
   // Coleta automática de eventos pra dataset histórico do ZEUS.
   // Mesmo .duckdb file que liquidator pra dataset unificado cross-engine.
   const intelligenceStore = new TimeseriesStore({
-    dbPath: resolveIntelligenceDbPath('intelligence.duckdb'),
+    dbPath: resolveIntelligenceDbPath('intelligence-backrun.duckdb'),
     logger,
   });
   await intelligenceStore.init();
@@ -81,6 +94,22 @@ async function main() {
     defaultChain: chainCtx.chainName,
   });
   eventIngester.start();
+
+  // ── Prometheus MetricRegistry (Fase 7) — antes o motor 3 NÃO expunha /metrics ──
+  const metricRegistry = new MetricRegistry({ logger });
+  registerStandardMetrics(metricRegistry);
+  // Counter de falhas por categoria — incrementa por evento (igual ao liquidator).
+  eventBus.subscribe((event) => {
+    if (event.type === 'failure.recorded') {
+      metricRegistry.inc('zeus_failures_total', {
+        chain: event.chain,
+        category: event.failureCategory,
+        protocol: event.protocol,
+      });
+    }
+  });
+  logger.info({ definitions: metricRegistry.stats().definitions }, '📊 Prometheus registry pronto (backrun)');
+
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: env.PNL_LOG_FILE,
@@ -98,10 +127,26 @@ async function main() {
     logger,
   });
 
+  // ── Análise de PnL (Fase D1) — espelha o liquidator: agregação + alarme de drift ──
+  const pnlAggregator = new PnlAggregator({ logger });
+  const driftTracker = new CalibrationDriftTracker({ logger });
+
   // ── PnL Reconciler (Item 10) ──
   const pnlReconciler = new PnlReconciler({
     baseDir: resolvePath('logs', 'pnl-reconciliations'),
     logger,
+    onReconcile: (recon) => {
+      pnlAggregator.observe(recon);
+      driftTracker.observe({
+        timestamp: recon.timestamp,
+        protocol: recon.protocol,
+        pair: recon.context.opportunity_id,
+        venue: recon.context.venue,
+        hour_utc: new Date(recon.timestamp).getUTCHours(),
+        drift_bps: recon.deltas.profit_delta_bps,
+        realized_profit_usd: recon.realized.profit_usd,
+      });
+    },
   });
 
   // ── FailureCollector (Item 4) ──
@@ -109,6 +154,52 @@ async function main() {
     baseDir: resolvePath('logs', 'failures'),
     logger,
   });
+
+  // ── SenderRegistry + scanner + analisadores (Fase 7) ──
+  // Antes só o liquidator tinha dados de competidor. Agora o motor 3 também coleta — isso faz
+  // o market-bribe (Fase 1) valer aqui, onde o bribe REALMENTE importa (corrida de inclusão).
+  const senderRegistry = new SenderRegistry({ baseDir: resolvePath('logs', 'competitors'), logger });
+  const cooccurrence = new CooccurrenceAnalyzer();
+  const builderAttribution = new BuilderAttributionTracker({
+    ourAccount: chainCtx.account ?? '0x0000000000000000000000000000000000000000',
+    logger,
+  });
+  const scannerTargets = {
+    aave_v3_pool: chainCtx.chainConfig.aave?.pool,
+    compound_comets: [
+      chainCtx.chainConfig.compoundV3?.cUSDCv3,
+      chainCtx.chainConfig.compoundV3?.cWETHv3,
+    ].filter((a): a is Address => !!a && a !== '0x0000000000000000000000000000000000000000'),
+    morpho_blue: chainCtx.chainConfig.morpho?.morphoBlue,
+    uniswap_v3_routers: [
+      chainCtx.chainConfig.uniswapV3?.swapRouter02,
+      chainCtx.chainConfig.uniswapV3?.universalRouter,
+    ].filter((a): a is Address => !!a),
+    aerodrome_router: chainCtx.chainConfig.aerodrome?.router,
+  };
+  const blockHistoryScanner = new BlockHistoryScanner({
+    client: chainCtx.client,
+    registry: senderRegistry,
+    targets: scannerTargets,
+    cooccurrence,
+    builderAttribution,
+    logger,
+  });
+  blockHistoryScanner.start();
+
+  // ── Post-mortem de falhas (Fase D2) — espelha o liquidator: quem nos ganhou + posição no bloco ──
+  // No backrun, os "targets" são os routers DEX (a corrida é por quem backrunna primeiro).
+  const competitorTargets = [
+    scannerTargets.aerodrome_router,
+    ...(scannerTargets.uniswap_v3_routers ?? []),
+  ].filter((a): a is Address => !!a);
+  const competitorResolver = new CompetitorResolver({
+    client: chainCtx.client,
+    senderRegistry,
+    targets: competitorTargets,
+    logger,
+  });
+  const blockPositionTracker = new BlockPositionTracker({ client: chainCtx.client, logger });
 
   // ── Tracer (Item 16B OB1) ──
   const tracer = new Tracer({ serviceName: 'backrun-engine', logger });
@@ -175,6 +266,8 @@ async function main() {
         processCheck,
         mode: env.BACKRUN_MODE,
       }),
+      // Fase 7 — expõe /metrics (antes o motor 3 era invisível no Prometheus).
+      metricsProvider: () => metricRegistry.render(),
     });
   }
 
@@ -256,12 +349,95 @@ async function main() {
     relayRouter,
     pnlReconciler,
     failureCollector,
+    metricRegistry,
+    competitorResolver,
+    blockPositionTracker,
+    botSender: chainCtx.account,
   };
 
   // Poll baseFee a cada 5s pra alimentar gasWarDetector
   setInterval(() => {
     void gasWarDetector.pollBaseFee(chainCtx.client);
   }, 5_000);
+
+  // ── Sync de métricas Prometheus (Fase 7) — a cada 5s ──
+  let lastBlocksProcessed = 0;
+  const chainName = chainCtx.chainName;
+  const metricsSyncInterval = setInterval(() => {
+    try {
+      const proc = processCheck.getStatus();
+      metricRegistry.set('zeus_uptime_seconds', proc.uptime_sec, { service: 'backrun-engine' });
+      metricRegistry.set('zeus_process_memory_rss_mb', proc.memory_mb.rss, { service: 'backrun-engine' });
+      metricRegistry.set('zeus_event_loop_lag_ms', proc.event_loop_lag_ms, { service: 'backrun-engine' });
+      const stale = blockStalenessCheck.getStatus();
+      metricRegistry.set('zeus_block_staleness_seconds', stale.age_seconds, { chain: chainName });
+      // PnL (realizado + esperado + drift + gás) a partir da reconciliação.
+      metricRegistry.set('zeus_pnl_realized_usd_total', pnlTracker.stats().netPnlUsd, { chain: chainName, protocol: 'backrun' });
+      const reconStats = pnlReconciler.stats();
+      metricRegistry.set('zeus_pnl_expected_usd_total', reconStats.expectedTotalUsd, { chain: chainName, protocol: 'backrun' });
+      metricRegistry.set('zeus_pnl_drift_bps', reconStats.avgDriftBps, { chain: chainName, protocol: 'backrun' });
+      metricRegistry.set('zeus_gas_usd_paid_total', pnlReconciler.cumulativeGasUsdPaid(), { chain: chainName });
+      // Competidores + scanner (delta no counter de blocos).
+      const scannerStats = blockHistoryScanner.getStats();
+      metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain: chainName });
+      const blocksDelta = scannerStats.blocks_processed - lastBlocksProcessed;
+      if (blocksDelta > 0) metricRegistry.inc('zeus_scanner_blocks_processed_total', { chain: chainName }, blocksDelta);
+      lastBlocksProcessed = scannerStats.blocks_processed;
+      // Market-bribe (lance de mercado) — agora também no motor 3.
+      const mkt = senderRegistry.marketBribeStats();
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain: chainName, percentile: 'p50' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain: chainName, percentile: 'p75' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain: chainName, percentile: 'p95' });
+      metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain: chainName });
+      // Calibração (Fase D1) — drift sustentado + drift médio.
+      const drift = driftTracker.stats();
+      metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain: chainName });
+      metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain: chainName });
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'metrics sync backrun: erro (drop)');
+    }
+  }, 5_000);
+  metricsSyncInterval.unref();
+
+  // ── Alarme de drift (Fase D1) — WARN com sugestão quando há drift sustentado ──
+  const driftAlertInterval = setInterval(() => {
+    for (const alert of driftTracker.topAlerts(5)) {
+      logger.warn(
+        { dimension: alert.dimension, key: alert.key, avgDriftBps: alert.avg_drift_bps, samples: alert.samples },
+        `⚠️ drift sustentado (backrun): ${alert.suggested_action}`,
+      );
+    }
+  }, 10 * 60 * 1000);
+  driftAlertInterval.unref();
+
+  // ── Snapshot da inteligência órfã → ledger (Fase 7, espelha o liquidator) ──
+  const intelSnapshotInterval = setInterval(() => {
+    const mkt = senderRegistry.marketBribeStats();
+    if (mkt.competitorsActive > 0) {
+      ingestSnapshot(intelligenceStore, {
+        chain: chainName, category: 'market_bribe', protocol: 'bribe', pair: 'MARKET',
+        amount_usd: mkt.p75Gwei, payload: { ...mkt },
+      }, logger);
+    }
+    const compStats = senderRegistry.stats();
+    if (compStats.total_profiles > 0) {
+      ingestSnapshot(intelligenceStore, {
+        chain: chainName, category: 'competitor', protocol: 'aggregate',
+        amount_usd: compStats.total_profiles, payload: { total: compStats.total_profiles, byCategory: compStats.by_category },
+      }, logger);
+    }
+    const coSnap = cooccurrence.snapshot();
+    metricRegistry.set('zeus_sybil_clusters_total', coSnap.clusters.length, { chain: chainName });
+    metricRegistry.set('zeus_sybil_strong_links', coSnap.stats.strong_links, { chain: chainName });
+    metricRegistry.set('zeus_builders_tracked', builderAttribution.size(), { chain: chainName });
+    try {
+      writeFileSync(resolvePath('logs', 'competitors', 'cooccurrence-backrun.json'), JSON.stringify(coSnap, null, 2));
+      writeFileSync(resolvePath('logs', 'competitors', 'builders-backrun.json'), JSON.stringify(builderAttribution.snapshot(), null, 2));
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'snapshot sybil/builder backrun: erro (segue)');
+    }
+  }, 5 * 60 * 1000);
+  intelSnapshotInterval.unref();
 
   // Subscribe ao bus pra processar WhaleSwapDetectedEvent
   eventBus.subscribe(async (event) => {
@@ -289,6 +465,57 @@ async function main() {
     },
     '⚡ Backrun engine ONLINE — aguardando whale swaps',
   );
+
+  // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
+  const adaptiveEnabled = (process.env.ADAPTIVE_THRESHOLDS_ENABLED ?? 'false') === 'true';
+  const adaptiveIntervalMs = Number(process.env.ADAPTIVE_RECALC_INTERVAL_SEC ?? 600) * 1000;
+  const adaptiveWindowMs = Number(process.env.ADAPTIVE_WINDOW_DAYS ?? 7) * 24 * 60 * 60 * 1000;
+  const runAdaptiveRecalc = async () => {
+    try {
+      const adaptive = await computeAdaptiveThresholds({
+        store: intelligenceStore,
+        chain: chainCtx.chainName,
+        windowMs: adaptiveWindowMs,
+      });
+      if (adaptiveEnabled) {
+        // Injeção opt-in: o gate de backrun lê env.MIN_OPPORTUNITY_EV_USD (mesma ref).
+        env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+      }
+      logger.info(
+        { applied: adaptiveEnabled, ...adaptive },
+        `📈 OIE adaptive: MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD} top=${adaptive.topProtocol ?? '-'} ${adaptiveEnabled ? '(APLICADO)' : '(só log)'}`,
+      );
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc falhou (skip)');
+    }
+  };
+  void runAdaptiveRecalc();
+  const adaptiveTimer = setInterval(() => void runAdaptiveRecalc(), adaptiveIntervalMs);
+  adaptiveTimer.unref();
+
+  // ─── Graceful shutdown (Item 7) ───
+  // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
+  // TODO(live): aguardar tx in-flight confirmar antes do exit quando submeter de verdade.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      clearInterval(adaptiveTimer);
+      finalityTracker.stop();
+      blockStalenessCheck.stop();
+      processCheck.stop();
+      blockHistoryScanner.stop();       // salva snapshot do registry
+      await eventIngester.stop();       // flush do store
+      await intelligenceStore.shutdown();
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'erro no shutdown (segue)');
+    }
+    logger.info('💾 ledger drenado — backrun encerrado');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 
   // Mantém processo vivo
   await new Promise(() => {});

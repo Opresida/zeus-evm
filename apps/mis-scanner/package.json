@@ -7,12 +7,13 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@zeus-evm/chain-config": "workspace:*",
     "@zeus-evm/dex-adapters": "workspace:*",
     "@zeus-evm/execution-utils": "workspace:*",
+    "@zeus-evm/strategy": "workspace:*",
     "dotenv": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",

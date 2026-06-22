@@ -37,3 +37,10 @@ export {
   type MetricDefinition,
   type MetricType,
 } from './prometheusExporter';
+
+export {
+  DimensionMetricsExporter,
+  defineDimensionMetrics,
+  DIMENSION_METRICS,
+  type DimensionMetricsExporterOpts,
+} from './dimensionMetricsExporter';

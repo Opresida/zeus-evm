@@ -4,123 +4,161 @@ Especificação detalhada dos smart contracts do bot. Incluindo padrões, audit 
 
 ---
 
-> ## 🔄 ESTADO ATUAL (2026-05-29) — SPLIT v8 em 4 contratos
+> ## 🔄 ESTADO ATUAL (2026-06-17) — SPLIT v8 em 4 contratos
 >
 > O `ZeusExecutor` monolítico descrito abaixo **foi dividido em 4 contratos (v8)** pra respeitar o limite de
 > tamanho do Ethereum (EIP-170, 24KB). A lógica de cada função continua igual — só mudou onde mora:
 >
 > | Contrato | Funções | Herança |
 > |---|---|---|
-> | **BribeManager** | `pay()` — gorjeta MEV ao block.coinbase (compartilhado) | ReentrancyGuard |
-> | **ZeusLiquidator** | `executeLiquidation` (Aave) · `executeCompoundLiquidation` · `executeMorphoLiquidation` (+ variantes WithBribe) | Ownable2Step + ReentrancyGuard |
-> | **ZeusArbExecutor** | `executeArbitrage` · `executeFlashloanArbitrage` · `executeFlashloanBackrun` + `executeOperation` | Ownable2Step + ReentrancyGuard |
-> | **ZeusMoonwellLiquidator** | liquidation Moonwell (fork Compound V2 — não usa BribeManager) | Ownable2Step + ReentrancyGuard |
+> | **ZeusArbExecutor** | `executeArbitrage` (wallet) · `executeFlashloanArbitrage` · `executeFlashloanBackrun` (com bribe) + `executeOperation` | Ownable2Step + ReentrancyGuard |
+> | **ZeusLiquidator** | `executeLiquidation` (Aave) · `executeCompoundLiquidation` · `executeMorphoLiquidation` (+ variantes `*WithBribe`) + `executeOperation` | Ownable2Step + ReentrancyGuard |
+> | **ZeusMoonwellLiquidator** | `executeMoonwellLiquidation` (fork Compound V2 — não usa BribeManager) | Ownable2Step + ReentrancyGuard |
+> | **BribeManager** | `pay()` — gorjeta MEV ao block.coinbase + slippage floor (compartilhado) | ReentrancyGuard |
 >
 > Mudanças vs. o texto antigo: **Pausable removido** (kill switch `_killed` é o circuit breaker primário) ·
-> **Morpho é função do ZeusLiquidator, não contrato** · **Moonwell é contrato próprio** · cobertura agora é
-> **5 protocolos** (Aave/Compound/Morpho/Seamless/Moonwell). Validado: 67 unit + 34 fork tests (Alchemy).
+> **flashloan multi-fonte** (`FlashSource` enum: Aave 0,05% · Morpho 0% · Balancer 0%) ·
+> **SwapStep[] multi-hop** (N steps → suporta triangular) · **Morpho é função do ZeusLiquidator, não contrato** ·
+> **Moonwell é contrato próprio** · cobertura agora é **5 protocolos** (Aave/Compound/Morpho/Seamless/Moonwell).
+> Validado: **115 funções Foundry em 9 arquivos** (4 unit + 5 fork via Alchemy).
 > A spec abaixo descreve a lógica/funções (ainda fiel) usando o nome antigo `ZeusExecutor`.
 
 ## 🧭 Visão geral
 
-ZEUS EVM tem **4 contratos v8** (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator) + adapters modulares por DEX (UniV3, Aerodrome, Trader Joe LB). Toda a lógica hot-path passa por esses contratos atômicos.
+ZEUS EVM tem **4 contratos v8** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager) + libraries-adapter inline por DEX (UniV3, Aerodrome). Toda a lógica hot-path passa por esses contratos atômicos.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    ZeusExecutor.sol                           │
-│  (Entry point único — owner-controlled, kill switch)          │
-└──────────────────────────────────────────────────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌──────────────┐    ┌─────────────────────┐    ┌──────────────┐
-│ DEX adapters │    │ Flashloan callback  │    │ Liquidator   │
-│              │    │ (Aave V3)           │    │ (Aave/Comp)  │
-│ UniV3        │    │                     │    │              │
-│ Aerodrome    │    │ executeOperation()  │    │              │
-│ Curve*       │    │                     │    │              │
-│ Balancer*    │    │                     │    │              │
-└──────────────┘    └─────────────────────┘    └──────────────┘
-
-(* = Fase futura)
+┌─────────────────────┐  ┌─────────────────────┐  ┌──────────────────────┐
+│  ZeusArbExecutor    │  │   ZeusLiquidator    │  │ ZeusMoonwellLiquidator│
+│  motores 1+3        │  │   liquidações       │  │  Moonwell (Comp V2)  │
+│  executeArbitrage   │  │   Aave/Compound/    │  │  executeMoonwell-    │
+│  executeFlashloanArb│  │   Morpho (+WithBribe│  │    Liquidation       │
+│  executeFlashloan-  │  │   variants)         │  │                      │
+│    Backrun          │  │   + executeOperation│  │  + executeOperation  │
+│  + executeOperation │  │                     │  │                      │
+└──────────┬──────────┘  └─────────┬───────────┘  └──────────────────────┘
+           │                       │                  variantes *WithBribe
+           │                       └──────────┬───────────────┘
+           ▼                                  ▼
+┌──────────────────────────┐      ┌──────────────────────────┐
+│ DEX libs (inline adapter)│      │   BribeManager.pay()     │
+│  UniswapV3Lib            │      │  bribe ao block.coinbase │
+│  AerodromeLib            │      │  + slippage floor (H-01) │
+│  (DexType: V2/V3/Aero/   │      └──────────────────────────┘
+│   Curve*/Balancer*)      │
+└──────────────────────────┘      Flashloan (FlashSource enum):
+                                   Aave 0,05% · Morpho 0% · Balancer 0%
+(* = stub / Fase futura)
 ```
 
 ---
 
 ## ⛓️ Contratos
 
-### 1. `ZeusExecutor.sol` — Entry point principal
+### 1. `ZeusArbExecutor.sol` — Motores 1 (arb wallet) + 3 (backrun)
 
-**Propósito:** Orquestrar arbitragens atômicas (wallet + flashloan + liquidations).
+**Propósito:** Orquestrar arbitragens atômicas (capital próprio + flashloan + backrun com bribe).
 
 **Inheritance:**
 - `Ownable2Step` (OpenZeppelin) — propriedade transferível com confirmação
-- `Pausable` (OpenZeppelin) — kill switch global
 - `ReentrancyGuard` (OpenZeppelin) — proteção contra reentrância
+- _(Pausable removido — `_killed` é o circuit breaker primário)_
 
-**Storage (atualizado 2026-05-25 pós Audit Pass 2):**
+**Storage (pós Audit Pass 2):**
 ```solidity
-address public immutable AAVE_V3_POOL;          // imutável após deploy
 uint256 public maxTradeWei;                     // circuit breaker fallback global
 mapping(address => uint256) private _maxTradePerToken;  // H-02 fix: cap específico por token
 mapping(address => bool) private _operators;    // wallets autorizadas além do owner
-bool private _killed;                            // override do Pausable pra UX
+bool private _killed;                            // kill switch (deploya killed=true)
+address public weth;                             // mutável via setWeth
+address public uniV3SwapRouter;                  // mutável via setUniV3SwapRouter
 ```
 
-**Funções principais (v6 — Aave + Compound + Morpho):**
+**Funções principais:**
 
 ```solidity
-// ─── Modalidade 1: Capital próprio ───
+// ─── Motor 1: Capital próprio ───
 function executeArbitrage(ArbitrageParams calldata params)
-    external onlyOperator whenNotPaused whenAlive nonReentrant;
+    external onlyOperator whenAlive nonReentrant;
 
-// ─── Modalidade 2: Flashloan arbitrage ───
+// ─── Motor 1/3: Flashloan arbitrage (3 fontes via FlashSource enum) ───
 function executeFlashloanArbitrage(
+    FlashSource src,                 // Aave (0,05%) | Morpho (0%) | Balancer (0%)
     address flashloanAsset,
     uint256 flashloanAmount,
     ArbitrageParams calldata params
-) external onlyOperator whenNotPaused whenAlive nonReentrant;
+) external onlyOperator whenAlive nonReentrant;
 
-// ─── Modalidade 3: Liquidação Aave V3 ───
-function executeLiquidation(LiquidationParams calldata params)
-    external onlyOperator whenNotPaused whenAlive nonReentrant;
+// ─── Motor 3: Backrun de dislocação (com bribe ao block.coinbase) ───
+function executeFlashloanBackrun(/* ... + BribeConfig */)
+    external onlyOperator whenAlive nonReentrant;
 
-// ─── Modalidade 4: Liquidação Compound III (Comet) ───
-function executeCompoundLiquidation(CompoundLiquidationParams calldata params)
-    external onlyOperator whenNotPaused whenAlive nonReentrant;
-
-// ─── Modalidade 5: Liquidação Morpho Blue ───
-function executeMorphoLiquidation(MorphoLiquidationParams calldata params)
-    external onlyOperator whenNotPaused whenAlive nonReentrant;
-
-// Callback Aave V3 — só AAVE_V3_POOL pode chamar, initiator deve ser this
+// Callback flashloan — repago varia por fonte:
+//   Aave: approve(pool, amount+premium) · Morpho: approve(singleton, amount)
+//   Balancer: transfer(vault, amount+premium)
 function executeOperation(
-    address asset,
-    uint256 amount,
-    uint256 premium,
-    address initiator,
-    bytes calldata params
+    address asset, uint256 amount, uint256 premium,
+    address initiator, bytes calldata params
 ) external returns (bool);
+// + onMorphoFlashLoan / receiveFlashLoan (callbacks Morpho/Balancer)
 
 // ─── Admin (só owner) ───
-function kill() external onlyOwner;
-function revive() external onlyOwner;
+function kill() external onlyOwner;                                // só liga (idempotente)
 function setMaxTradeWei(uint256 newMax) external onlyOwner;
 function setMaxTradePerToken(address token, uint256 newMax) external onlyOwner;  // H-02 fix
-function getMaxTradeFor(address token) external view returns (uint256);          // H-02 fix
 function setOperator(address op, bool allowed) external onlyOwner;
 function rescueToken(address token, uint256 amount, address to) external onlyOwner;
-function pause() external onlyOwner;
-function unpause() external onlyOwner;
+function setWeth(address newWeth) external onlyOwner;
+function setUniV3SwapRouter(address newRouter) external onlyOwner;
 ```
+
+**Multi-hop / triangular:** `params.steps` é um `SwapStep[]` dinâmico de N hops. Cada step define
+`DexType` (UniswapV2 / UniswapV3 / Aerodrome / Curve* / Balancer*) e roteia via library inline.
+`amountIn=0` num step significa "usar saldo atual do contrato" (encadeamento). Isso cobre triangular.
+
+**Circuit breakers:** `_killed` (kill switch) + `maxTradeWei` global + `_maxTradePerToken`
+(H-02 fix, cap por token) + `params.minProfitWei` (revert se profit < mínimo).
+
+---
+
+### 1b. `ZeusLiquidator.sol` — Liquidações Aave / Compound / Morpho
+
+```solidity
+function executeLiquidation(LiquidationParams calldata params) ...           // Aave V3 (+ Seamless fork)
+function executeCompoundLiquidation(CompoundLiquidationParams calldata p) ... // Compound III (Comet)
+function executeMorphoLiquidation(MorphoLiquidationParams calldata p) ...      // Morpho Blue
+// variantes com bribe (chamam BribeManager.pay()):
+function executeLiquidationWithBribe(LiquidationParams p, BribeConfig b) ...
+function executeCompoundLiquidationWithBribe(...) ...
+function executeMorphoLiquidationWithBribe(...) ...
+function executeOperation(...) external returns (bool);  // callback flashloan
+```
+Mesma herança (Ownable2Step + ReentrancyGuard) e mesmos circuit breakers do ZeusArbExecutor.
+
+### 1c. `ZeusMoonwellLiquidator.sol` — Moonwell (fork Compound V2)
+
+```solidity
+function executeMoonwellLiquidation(MoonwellLiquidationParams calldata params) ...
+function executeOperation(...) external returns (bool);
+```
+Contrato próprio (Moonwell tem API de cToken estilo Compound V2). **Não usa BribeManager.**
+
+### 1d. `BribeManager.sol` — Bribe MEV (compartilhado)
+
+```solidity
+function pay(BribeConfig calldata bribe, ...) external nonReentrant;  // transfere ao block.coinbase
+function validateConfig(BribeConfig calldata bribe) external pure;
+```
+Herança: só `ReentrancyGuard`. **Slippage floor (Audit Pass 4 H-01):** caller DEVE setar
+`minBribeWei` (~90% do quote esperado) pra proteger contra slippage no swap que financia a bribe.
 
 **Eventos (todos com profit em wei do asset do retorno):**
 - `ArbitrageExecuted(initiator, profitToken, profit, swapsCount)`
-- `FlashloanArbitrageExecuted(initiator, flashloanAsset, flashloanAmount, flashloanFee, profitToken, profit)`
-- `LiquidationExecuted(initiator, user, collateralAsset, debtAsset, debtCovered, collateralReceived, profit)`
-- `CompoundLiquidationExecuted(initiator, comet, borrower, collateralAsset, baseAmount, collateralReceived, profit)`
-- `MorphoLiquidationExecuted(initiator, borrower, collateralToken, loanToken, assetsLiquidated, collateralReceived, profit)`
+- `FlashloanArbitrageExecuted(...)` / `FlashloanBackrunExecuted(...)`
+- `LiquidationExecuted(...)` / `CompoundLiquidationExecuted(...)` / `MorphoLiquidationExecuted(...)`
+- `MoonwellLiquidationExecuted(...)` · `BribePaid(...)`
 - `MaxTradePerTokenUpdated(token, oldValue, newValue)` — H-02 fix
-- `Killed()` / `Revived()` / `OperatorSet()` / `TokenRescued()`
+- `Killed()` / `OperatorSet()` / `TokenRescued()`
 
 **Custom errors (gas-efficient):**
 - `NotAuthorized()` — operator/owner check failed
@@ -131,7 +169,7 @@ function unpause() external onlyOwner;
 - `FlashloanRepayShortfall(uint256 available, uint256 required)`
 - `TradeTooLarge(uint256 amount, uint256 max)` — cap per-token excedido
 - `EmptySteps()`
-- `InvalidCaller()` — Aave callback ou initiator inválido
+- `InvalidCaller()` — callback de flashloan ou initiator inválido
 
 ---
 
@@ -193,73 +231,54 @@ Documentados mas não bloqueantes pra mainnet:
 | Reentrancy guard | `nonReentrant` em todas as state-changing externas |
 | Checks-effects-interactions | Validações primeiro, side effects no fim |
 | Ownership 2-step | `Ownable2Step` evita perda acidental |
-| Pausable | Kill switch testado mensalmente |
-| Approved adapters | Mapping `approvedDexAdapters` previne swap em adapter desconhecido |
-| MaxTradeWei | Cap absoluto no entry point |
+| Kill switch | `_killed` (deploya `killed=true`) — circuit breaker primário, Pausable removido |
+| DexType allowlist | `DexType` enum roteia só pra libraries conhecidas; `InvalidDexType` reverte o resto |
+| MaxTradeWei + per-token | Cap global + `_maxTradePerToken` (H-02) no entry point |
+| Bribe slippage floor | `minBribeWei` no BribeManager (Audit Pass 4 H-01) |
 | Profit obrigatório | `require(profit >= minProfitWei)` ou revert |
 | Eventos completos | Toda operação emit pra auditabilidade |
 
 ---
 
-### 2. Adapters DEX
+### 2. DEX adapters — libraries inline (não contratos separados)
 
-**Propósito:** Cada adapter expõe `swap(SwapStep)` retornando o valor de output.
+**Decisão:** os adapters não são contratos com interface `IDexAdapter`; são **libraries inline**
+(`UniswapV3Lib`, `AerodromeLib`) embarcadas nos executores. Cada step de swap carrega um `DexType`
+e a library faz o roteamento. Sem chamadas externas a "adapter contracts" → menos gas, menos superfície.
 
-**Interface comum (`IDexAdapter.sol`):**
-```solidity
-interface IDexAdapter {
-    /// @notice Executa swap único usando este DEX
-    /// @param step parâmetros do swap codificados
-    /// @return amountOut quanto recebemos do tokenOut
-    function swap(SwapStep calldata step) external returns (uint256 amountOut);
+`enum DexType { UniswapV2, UniswapV3, Aerodrome, Curve, Balancer }` — Curve e Balancer hoje são
+**stubs** (revertem com `InvalidDexType` até implementação futura).
 
-    /// @notice Calcula amountOut esperado sem executar (view)
-    function quote(SwapStep calldata step) external view returns (uint256);
-}
-```
-
-#### UniswapV3Adapter.sol
-- Usa `ISwapRouter.exactInputSingle()`
-- Suporta fee tiers 100 (0.01%), 500 (0.05%), 3000 (0.3%), 10000 (1%)
-- Decode `extraData` pra fee tier
+#### UniswapV3Lib
+- Usa `ISwapRouter.exactInputSingle()` (SwapRouter02)
+- Fee tiers 100 (0.01%), 500 (0.05%), 3000 (0.3%), 10000 (1%) via `extraData`
 - Approve via `forceApprove` (SafeERC20)
 
-#### AerodromeAdapter.sol
-- Suporta pools `stable` (curva ve(3,3)) e `volatile` (curva x*y=k)
+#### AerodromeLib
+- Pools `stable` (curva ve(3,3)) e `volatile` (curva x*y=k)
 - Decode `extraData` pra tipo de pool + factory
 - Usa `IRouter.swapExactTokensForTokens()`
 
-#### Adapters futuros (Fase 9+)
-- CurveAdapter.sol (StableSwap)
-- BalancerAdapter.sol (Weighted + Composable Stable)
-- SushiAdapter.sol (V2 + V3)
+> Off-chain o pricing tem equivalentes em `@zeus-evm/dex-adapters` (UniV3 + Aerodrome + Velodrome
+> + Trader Joe LB pra Avalanche). On-chain só UniV3 + Aerodrome estão ativos hoje.
 
 ---
 
-### 3. Liquidator interno
+### 3. Liquidator — ZeusLiquidator + ZeusMoonwellLiquidator
 
-**Propósito:** Executar liquidations Aave V3 / Compound III / Morpho via flashloan.
+**Propósito:** Executar liquidations Aave V3 (+ Seamless fork) / Compound III / Morpho Blue / Moonwell via flashloan.
 
-```solidity
-struct LiquidationParams {
-    uint8 protocol;          // 0=AaveV3, 1=CompoundV3, 2=Morpho
-    address user;            // dono da posição under-collateralized
-    address debtAsset;
-    address collateralAsset;
-    uint256 debtAmount;
-    uint256 maxFlashloanFee; // safety
-    uint256 minProfitWei;
-}
+Cada protocolo tem sua própria struct de params (`LiquidationParams`, `CompoundLiquidationParams`,
+`MorphoLiquidationParams`, `MoonwellLiquidationParams`) com o `flashloanAmount` explícito (M-02 fix
+pro Morpho) e `minProfitWei`. A fonte do flashloan é escolhida via `FlashSource`.
 
-function liquidatePosition(LiquidationParams calldata params) external;
-```
-
-Internamente:
-1. Flashloan `debtAsset` na quantia necessária
-2. Callback chama `liquidationCall` no protocol
+Fluxo interno (genérico):
+1. Flashloan `debtAsset` na quantia necessária (Aave / Morpho / Balancer)
+2. Callback chama `liquidationCall` / `absorb+buyCollateral` / `liquidate` / `liquidateBorrow` no protocol
 3. Recebe `collateralAsset` + bonus 5-10%
-4. Swap collateral → debt asset (pra repagar flashloan)
+4. Swap collateral → debt asset (pra repagar flashloan, via UniV3Lib/AerodromeLib)
 5. Profit residual fica no executor → owner
+6. Variantes `*WithBribe` pagam parte do profit ao `block.coinbase` via `BribeManager.pay()` (OEV)
 
 ---
 
@@ -267,11 +286,11 @@ Internamente:
 
 ### Pre-Foundry build (automatizado)
 1. **Slither** (`slither contracts/`) — static analysis
-2. **Mythril** (`myth analyze contracts/src/ZeusExecutor.sol`) — symbolic execution
+2. **Mythril** (`myth analyze contracts/src/ZeusArbExecutor.sol`) — symbolic execution (rodar pros 4)
 3. **Forge fmt** — formatação consistente
 
 ### Foundry tests
-4. **Unit tests** — coverage 95%+ em ZeusExecutor
+4. **Unit tests** — coverage 95%+ nos 4 contratos (**115 funções em 9 arquivos**: 4 unit + 5 fork)
 5. **Fuzz tests** — `forge test --fuzz-runs 100000`
 6. **Invariant tests** — propriedades globais sempre verdade
 7. **Fork tests** — `vm.createFork(BASE_RPC)` testando contra DEXs reais
@@ -313,17 +332,17 @@ forge coverage --report lcov
 
 # Static analysis
 slither .
-myth analyze src/ZeusExecutor.sol
+myth analyze src/ZeusArbExecutor.sol   # repetir pros 4 contratos
 
 # Deploy testnet
-forge script script/DeployExecutor.s.sol \
+forge script script/Deploy.s.sol \
     --rpc-url base_sepolia \
     --broadcast \
     --verify \
     --etherscan-api-key $BASESCAN_API_KEY
 
 # Deploy mainnet (após audit + multisig configurado)
-forge script script/DeployExecutor.s.sol \
+forge script script/Deploy.s.sol \
     --rpc-url base \
     --broadcast \
     --verify \
@@ -334,18 +353,18 @@ forge script script/DeployExecutor.s.sol \
 
 | Ação | Quem | Como |
 |---|---|---|
-| Pause/Kill switch | Owner (multisig 2-de-3) | `kill()` |
-| Mudar max trade | Owner (multisig 2-de-3) | `setMaxTradeWei()` |
+| Kill switch | Owner (multisig 2-de-3) | `kill()` (por contrato — idempotente, só liga) |
+| Mudar max trade | Owner (multisig 2-de-3) | `setMaxTradeWei()` / `setMaxTradePerToken()` |
 | Adicionar operator | Owner (multisig 2-de-3) | `setOperator()` |
-| Aprovar novo adapter | Owner (multisig 2-de-3) | `approveDexAdapter()` |
+| Trocar WETH/router | Owner (multisig 2-de-3) | `setWeth()` / `setUniV3SwapRouter()` |
 | Rescue stuck tokens | Owner (multisig 2-de-3) | `rescueToken()` |
 | Upgrade contract | **Não há** — deploy novo (intencional, sem proxy) |
 
 **Decisão de design:** **NÃO usar proxy upgradeable.** Em caso de bug crítico:
-1. Owner chama `kill()`
+1. Owner chama `kill()` no(s) contrato(s) afetado(s)
 2. Owner chama `rescueToken()` pra recuperar fundos
-3. Deploya novo executor
-4. Atualiza detector pra usar novo address
+3. Deploya novo contrato (ZeusArbExecutor / ZeusLiquidator / etc.)
+4. Atualiza os apps off-chain pra usar o novo address
 
 Trade-off aceito: menos flexibilidade vs menos superfície de ataque (proxies têm CVEs documentadas).
 
@@ -357,13 +376,16 @@ Transparência sobre meus limites pra cada componente:
 
 | Área | Confiança | Mitigation |
 |---|---|---|
-| **ZeusExecutor com Ownable2Step + ReentrancyGuard + Pausable** | 🟢 Alto | Posso entregar direto, base OpenZeppelin |
-| **Adapter Uniswap V3** | 🟢 Alto | Padrão bem documentado, posso entregar |
-| **Adapter Aerodrome** | 🟡 Médio | Aerodrome tem nuances (ve(3,3), pools stable/volatile). Posso entregar mas recomendo conferir comportamento real em fork |
+| **Contratos v8 com Ownable2Step + ReentrancyGuard (kill switch `_killed`)** | 🟢 Alto | Posso entregar direto, base OpenZeppelin |
+| **Adapter Uniswap V3 (lib inline)** | 🟢 Alto | Padrão bem documentado, posso entregar |
+| **Adapter Aerodrome (lib inline)** | 🟡 Médio | Aerodrome tem nuances (ve(3,3), pools stable/volatile). Posso entregar mas recomendo conferir comportamento real em fork |
 | **Callback Aave V3 Flashloan** | 🟢 Alto | Padrão IFlashLoanReceiver bem conhecido |
-| **Liquidations Aave V3** | 🟢 Alto | `liquidationCall` é direto |
-| **Liquidations Compound V3** | 🟡 Médio | Compound V3 tem API diferente do V2, menos exemplos |
-| **Liquidations Morpho** | 🟡 Médio | Morpho tem variantes (Aave/Compound/Blue), API menos uniforme |
+| **Flashloan Morpho / Balancer (0% fee)** | 🟡 Médio | Callbacks e estilo de repago diferem do Aave; validar em fork (`MotorsProfit.fork`) |
+| **Liquidations Aave V3 (+ Seamless fork)** | 🟢 Alto | `liquidationCall` é direto |
+| **Liquidations Compound III** | 🟡 Médio | Compound V3 tem API diferente do V2, menos exemplos |
+| **Liquidations Morpho Blue** | 🟡 Médio | Morpho tem variantes (Aave/Compound/Blue), API menos uniforme |
+| **Liquidations Moonwell (fork Compound V2)** | 🟡 Médio | cToken API estilo Comp V2 (`liquidateBorrow`); contrato próprio |
+| **Bribe / OEV (BribeManager, coinbase transfer)** | 🟡 Médio | slippage floor crítico (`minBribeWei`); validar em fork |
 | **Detector TS com viem** | 🟢 Alto | Posso entregar direto |
 | **Mempool monitoring otimizado** | 🟡 Médio | Conheço Alchemy/Blocknative APIs, mas otimização extrema requer iteração |
 | **MEV Bundle submission (Flashbots)** | 🟡 Médio | Conheço, mas não usaremos em Base (sem Flashbots equivalente robusto ainda) |

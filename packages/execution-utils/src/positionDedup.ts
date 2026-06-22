@@ -39,6 +39,8 @@ export interface DedupStats {
   pending: number;
   confirmed: number;
   failed: number;
+  /** Supressões acumuladas (lifetime) por status — "quase-duplicados evitados" (Fase 6). */
+  suppressed: { pending: number; confirmed: number; failed: number };
 }
 
 export interface DedupTrackerOpts {
@@ -72,6 +74,8 @@ export class PositionDedupTracker {
   private pendingTimeoutMs: number;
   private recentTtlMs: number;
   private logger: LoggerLike | undefined;
+  /** Contagem lifetime de supressões por status (Fase 6 — visibilidade do que foi evitado). */
+  private suppressedCount: Record<DedupStatus, number> = { pending: 0, confirmed: 0, failed: 0 };
 
   constructor(opts: DedupTrackerOpts) {
     this.pendingTimeoutMs = opts.pendingTimeoutMs;
@@ -101,6 +105,8 @@ export class PositionDedupTracker {
       return { blocked: false };
     }
 
+    // Supressão real (um quase-duplicado evitado) — contabiliza pra métrica.
+    this.suppressedCount[entry.status]++;
     return { blocked: true, status: entry.status, ageMs: age };
   }
 
@@ -145,7 +151,7 @@ export class PositionDedupTracker {
       else if (entry.status === 'confirmed') confirmed++;
       else failed++;
     }
-    return { total: this.store.size, pending, confirmed, failed };
+    return { total: this.store.size, pending, confirmed, failed, suppressed: { ...this.suppressedCount } };
   }
 
   /** Pra testes / ops em emergência. */

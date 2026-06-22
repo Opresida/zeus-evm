@@ -24,6 +24,12 @@ export interface PnlReconcilerOpts {
   baseDir?: string;
   /** Window em ms pra stats rolling. Default 24h. */
   windowMs?: number;
+  /**
+   * Observers chamados após cada reconcile (fan-out desacoplado). Usado pra alimentar
+   * PnlAggregator + CalibrationDriftTracker sem o reconciler conhecer esses tipos.
+   * Erro num observer NUNCA quebra o reconcile (try/catch interno).
+   */
+  onReconcile?: (recon: PnlReconciliation) => void;
   logger?: LoggerLike;
 }
 
@@ -80,12 +86,16 @@ export class PnlReconciler {
   private readonly baseDir: string;
   private readonly windowMs: number;
   private readonly logger: LoggerLike | undefined;
+  private readonly onReconcile: ((recon: PnlReconciliation) => void) | undefined;
   private rolling: PnlReconciliation[] = [];
+  /** Gás USD acumulado em TODA a vida do processo (pra gauge zeus_gas_usd_paid_total). */
+  private cumulativeGasUsd = 0;
 
   constructor(opts: PnlReconcilerOpts = {}) {
     this.baseDir = opts.baseDir ?? DEFAULT_BASE_DIR;
     this.windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
     this.logger = opts.logger;
+    this.onReconcile = opts.onReconcile;
     if (!existsSync(this.baseDir)) {
       mkdirSync(this.baseDir, { recursive: true });
     }
@@ -227,6 +237,7 @@ export class PnlReconciler {
     // ─── Persiste JSONL + rolling window ───
     this._persist(recon);
     this.rolling.push(recon);
+    this.cumulativeGasUsd += input.realized_gas_usd;
     this._pruneOldEntries();
 
     // ─── Log informativo + sugestão ───
@@ -245,7 +256,21 @@ export class PnlReconciler {
       `📊 reconciliation ${id} | cause=${attr.primary_cause} delta=${profitDeltaBps}bps`,
     );
 
+    // Fan-out desacoplado (PnlAggregator + CalibrationDriftTracker). Nunca quebra o reconcile.
+    if (this.onReconcile) {
+      try {
+        this.onReconcile(recon);
+      } catch (err) {
+        this.logger?.warn({ err: err instanceof Error ? err.message : err }, 'onReconcile observer falhou (ignorado)');
+      }
+    }
+
     return recon;
+  }
+
+  /** Gás USD total pago desde o boot (cumulativo, pra gauge Prometheus). */
+  cumulativeGasUsdPaid(): number {
+    return this.cumulativeGasUsd;
   }
 
   /**

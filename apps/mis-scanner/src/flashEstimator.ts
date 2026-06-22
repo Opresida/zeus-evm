@@ -122,6 +122,44 @@ async function quoteLeg(args: {
   return isQuote(q) ? q.amountOut : null;
 }
 
+/**
+ * Preço USD de 1 unidade de um token QUALQUER (genérico, pra sizing da execução).
+ * USDC → 1; senão cota `token → USDC` via UniV3 (fee 500 e 3000, pega o melhor). 0 se não cotar.
+ * NÃO usa lista fixa de preço — descobre on-chain.
+ */
+export async function fetchTokenUsd(
+  client: AnyPublicClient,
+  chainConfig: ChainConfig,
+  token: Address,
+  decimals: number,
+): Promise<number> {
+  const usdc = chainConfig.tokens['USDC'] as Address | undefined;
+  if (!usdc) return 0;
+  if (token.toLowerCase() === usdc.toLowerCase()) return 1;
+  let best = 0;
+  for (const fee of [500, 3000, 100, 10000]) {
+    try {
+      const q = await quoteUniswapV3({
+        client,
+        quoterAddress: chainConfig.uniswapV3.quoterV2,
+        tokenIn: token,
+        tokenOut: usdc,
+        amountIn: parseUnits('1', decimals),
+        fee,
+        decimalsIn: decimals,
+        decimalsOut: 6,
+      });
+      if (isQuote(q)) {
+        const px = Number(formatUnits(q.amountOut, 6));
+        if (px > best) best = px;
+      }
+    } catch {
+      /* fee tier sem pool — tenta o próximo */
+    }
+  }
+  return best;
+}
+
 /** Cota ~1 WETH → USDC pra obter o preço do ETH em USD (gas + conversões). */
 export async function fetchEthUsd(client: AnyPublicClient, chainConfig: ChainConfig): Promise<number> {
   const weth = chainConfig.tokens['WETH'] as Address | undefined;
@@ -162,9 +200,15 @@ export async function estimateFlashArb(args: {
   const ethUsd = opts.ethUsd ?? (await fetchEthUsd(client, chainConfig));
   const gasUnits = opts.gasUnits ?? DEFAULT_FLASH_GAS_UNITS;
 
+  // H4: sem preço de ETH confiável (quote falhou → 0/NaN) NÃO dá pra precificar gás. Emitir um
+  // "lucro" com gás $0 contaminaria o ledger do DRY_RUN. Melhor pular esta observação.
+  if (!Number.isFinite(ethUsd) || ethUsd <= 0) return null;
+
   const { bSym } = splitPair(group.label);
-  // Preço de tokenB (quote) em USD: stable→1, WETH→ethUsd, senão best-effort via spot ratio
-  const bUsd = STABLE_SYMBOLS.has(bSym.toUpperCase()) ? 1 : bSym.toUpperCase() === 'WETH' ? ethUsd : ethUsd;
+  // Preço de tokenB (quote) em USD: stable→1, WETH→ethUsd. Token que não é stable nem WETH NÃO tem
+  // preço confiável aqui (antes caía pra ethUsd, mispricing) → pula (mantém o ledger honesto).
+  const bUpper = bSym.toUpperCase();
+  const bUsd = STABLE_SYMBOLS.has(bUpper) ? 1 : bUpper === 'WETH' ? ethUsd : 0;
   if (bUsd <= 0) return null;
 
   // Notional em tokenB (wei)

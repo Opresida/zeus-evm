@@ -79,36 +79,43 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
-## 📊 Status atual (snapshot 2026-05-29)
+## 📊 Status atual (snapshot 2026-06-15)
 
 ### ✅ Concluído
 
 **Camada on-chain (4 contratos v8 split — resolve EIP-170):**
 - **BribeManager** (gorjeta MEV) + **ZeusLiquidator** (Aave/Compound/Morpho) + **ZeusArbExecutor** (arb/backrun) + **ZeusMoonwellLiquidator** (Moonwell)
-- Audit interno Pass 1-4 + fixes B-1 a B-7. Os 3 primeiros deployados em Base Sepolia; Moonwell entra no próximo deploy (já no Deploy.s.sol).
+- Audit interno Pass 1-4 + fixes B-1 a B-7. Deployados em **Sepolia (testnet), NÃO mainnet**.
+- **Flashloan 3 fontes** no ZeusArbExecutor: Aave V3 + Morpho Blue + Balancer V2 (Morpho/Balancer **0% fee**, multi-fonte) + **multi-hop N steps**.
 
-**Motor 1 — Liquidations (5 protocolos):** Aave V3 · Compound III · Morpho Blue · Seamless (fork Aave) · Moonwell (fork Compound V2). Discovery on-chain (event scan + BorrowerCache acumulativo) + subgraph. Pipeline com gates (kill/cooldown/dedup/gas/stale) + EIP-1559 + caixa-preta (intelligence DuckDB).
+**Motor 1 — Liquidations (5 protocolos):** Aave V3 · Compound III · Morpho Blue · Seamless (fork Aave) · Moonwell (fork Compound V2). Discovery on-chain (event scan + BorrowerCache acumulativo) + subgraph. Pipeline com gates (kill/cooldown/dedup/gas/stale) + EIP-1559 + caixa-preta (intelligence DuckDB). **OIE prioriza Morpho via OEV haircut.**
 
 **Multi-chain code-ready (Motor 1):** Base · Arbitrum · Optimism · **Polygon** · **Avalanche** — endereços verificados na fonte (aave-address-book, Uniswap sdk-core, LFJ docs).
 
-**Motor 2 — Cross-DEX Arb (radar MIS):** `apps/mis-scanner` — pricing local (UniV3 tick / Aero / Trader Joe LB), varredura em multicall, derivação on-chain de tokens (colaterais dos protocolos), flash estimator via quoter, **sizing ótimo do empréstimo** + gate de profundidade (descarta pool raso). Ranqueia por PERSISTÊNCIA. Observação pura (não submete tx).
+**Motor 2 — Cross-DEX Arb (radar MIS):** `apps/mis-scanner` — pricing local (UniV3 tick / Aero / Trader Joe LB), varredura em multicall, derivação on-chain de colaterais dos protocolos, flash estimator via quoter, **sizing ótimo do empréstimo** + gate de profundidade (descarta pool raso) + **persistência no ledger**. Ranqueia por PERSISTÊNCIA. Observação pura (não submete tx).
 
-**Motor 3 — Backrun:** `apps/backrun-engine` — planner + bribe + bundling (Flashbots/Atlas/Blocknative) + trackers. Esperando feed de mempool premium (placeholder).
+**Motor 3 — Backrun:** `apps/backrun-engine` — planner + bribe + bundling (Flashbots/Atlas/Blocknative) + **EV gate competitor-aware** (gas war priors) + trackers. Esperando feed de mempool premium (placeholder).
 
-**Validação contra mainnet (fork via Alchemy):** **34/34 fork tests verdes**, incluindo prova de LUCRO ponta-a-ponta dos 3 motores (Motor 1 liquidação +$6.157 realista; Motor 2/3 +$300k+ com gap inflado de propósito pra provar a mecânica). Endereços/ABIs/premium flashloan (0.05%) confirmados nas 3 chains via eth_call.
+**Discovery + detector:** `apps/discovery-scraper` (varredura GeckoTerminal → auto-targets) alimenta `apps/detector` (arb radar, consome varredura dinâmica + grava no ledger DuckDB).
 
-- **Total**: 67 unit + 34 fork (Foundry) · execution-utils 256 · liquidator 22 · mis-scanner 6 · **13/13 typecheck**
+**Camada OIE (2026-06-15) — Opportunity Intelligence Engine:** scoring puro (Opportunity / Protocol / Pool / Token) + ledger DuckDB (`packages/execution-utils/src/scoring/`). Gates EV plugados: **backrun competitor-aware** (gas war) + **liquidator ciente de OEV** (prioriza Morpho). Detector + MIS gravam observações no ledger em DRY_RUN. Deploy Fly.io (Dockerfile + `deploy/fly/*.toml`, volume persistente). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
+
+**Validação contra mainnet (fork via Alchemy):** fork tests verdes incluindo prova de LUCRO ponta-a-ponta dos 3 motores (`MotorsProfit.fork.t.sol`; Motor 1 liquidação realista, Motor 2/3 com gap inflado de propósito pra provar a mecânica). Endereços/ABIs/premium flashloan confirmados nas chains via eth_call.
+
+- **Total**: **115 funções Foundry** (9 arquivos: 4 unit + 5 fork) · **43 testes TS** · **13/13 typecheck**
 
 ### 🔍 Aprendizados consolidados (Doutrina de Edge)
 
 - **Edge NÃO é velocidade** (perdemos pros bots top em blue-chips) — é **cobertura + persistência** em pares sub-servidos (LSDs, stables fragmentadas) e protocolos de nicho (Morpho/Moonwell/Seamless).
-- **Cross-DEX repositionado:** não é "dead-end" — é o Motor 2, mirando ineficiência PERSISTENTE (não pico de 1 bloco). O MIS é o radar disso.
-- **Lucro real até hoje = US$ 0:** lógica provada (fork), mas não deployado. Oportunidade real exige movimento de mercado + ganhar a corrida + dias de coleta do MIS.
+- **Achado estratégico (2026-06-15):** liquidação na Base está se fechando por **OEV capture** — Aave V3 ~85% (Chainlink SVR), Moonwell ~99% (MEV tax on-chain). **Morpho Blue continua ABERTO (0% recapture) = único edge real em liquidação.** Estratégia decantada: **núcleo = liquidação Morpho** (lumpy, paga no crash) + **baseline = arb cross-DEX** (pequeno, contínuo, paga a infra). Ver [`docs/refs/engine-strategy.md`](./docs/refs/engine-strategy.md) + [`competitive-landscape.md`](./docs/refs/competitive-landscape.md) + [`morpho-profit-projection.md`](./docs/refs/morpho-profit-projection.md).
+- **Nota competitiva honesta:** **~7,5/10 como software/engenharia · ~4,5/10 como competidor que ganha dinheiro hoje** (falta fosso de orderflow/latência + edge comprovado).
+- **Lucro real até hoje = US$ 0:** lógica provada (fork), mas não deployado. Oportunidade real exige movimento de mercado + ganhar a corrida + dias de coleta do MIS/ledger.
 
 ### 🎯 Em andamento / próximos passos
 
 - **Deploy mainnet** dos 4 contratos (técnico) + capital + multisig.
-- **2 semanas DRY_RUN** mainnet + dias de coleta do MIS pra persistência emergir.
+- **2 semanas DRY_RUN** mainnet + dias de coleta do MIS/ledger pra persistência emergir.
+- **OIE Etapa B (detector)** + **Etapa C** (thresholds adaptativos) + **Etapa D** (dashboards Grafana). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
 - **RPC pago + Fly.io** pra rodar MIS/discovery 24/7 (dRPC free serve reads; fork test usa Alchemy).
 
 ### 📅 Roadmap futuro
@@ -118,11 +125,15 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 | Item | Status |
 |---|---|
 | 4 contratos + 5 protocolos + multi-chain code-ready | ✅ |
-| Motor 2 radar MIS + Trader Joe LB (Avalanche) | ✅ |
-| Motor 3 backrun engine | ✅ código |
-| Fork tests de lucro dos 3 motores (Alchemy) | ✅ 34/34 |
-| Deploy mainnet (4 contratos) + capital + multisig | ❌ |
-| 2 semanas DRY_RUN + coleta MIS | ❌ |
+| Flashloan 3 fontes (Aave/Morpho/Balancer, 0% multi-fonte) + multi-hop N steps | ✅ |
+| Motor 2 radar MIS + Trader Joe LB (Avalanche) + persistência no ledger | ✅ |
+| Motor 3 backrun engine (EV gate competitor-aware + bribe) | ✅ código |
+| Discovery scraper (GeckoTerminal → auto-targets) + detector no ledger | ✅ |
+| Camada OIE: scoring + ledger DuckDB + gates OEV/competidor + deploy Fly.io | ✅ |
+| Fork tests de lucro dos 3 motores (Alchemy) | ✅ 115 funções Foundry |
+| Deploy mainnet (4 contratos) + capital + multisig | ❌ (testnet only) |
+| 2 semanas DRY_RUN + coleta MIS/ledger | 🟡 próximo |
+| OIE Etapa C (thresholds adaptativos) + Etapa D (Grafana) | 🟡 |
 | Motor 3 ao vivo (mempool premium ~$199/mês) | ❌ pós-receita |
 | Audit externo (capital > $50k) | ❌ |
 
@@ -141,15 +152,21 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 - ✅ Owner em prod: multisig Safe Wallet
 - ✅ Provider RPC dev: dRPC free tier; prod: Alchemy Growth ($49/mês)
 - ✅ Carteira testnet dedicada: `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4`
-- ✅ Contratos testnet v6 (Aave + Compound + Morpho): ver tabela em "Concluído" acima
+- ✅ Contratos v8 split deployados em **Sepolia (testnet), NÃO mainnet**
 - ✅ Audit externo recomendado: Trail of Bits / Spearbit (NÃO Certik) — quando capital > $50k
 - ✅ Audit interno (Pass 1 + Pass 2) substitui Certik provisoriamente (decisão Humberto 2026-05-25)
+- ✅ **Estratégia de receita (2026-06-15):** núcleo = liquidação **Morpho** (único edge aberto pós-OEV) + baseline = arb cross-DEX pequeno e contínuo (paga a infra). Backrun adiado.
+- ✅ **Camada OIE adotada** (scoring + ledger DuckDB) — Etapas A/B feitas; gates EV opt-in via `MIN_OPPORTUNITY_EV_USD`.
+- ✅ **Deploy via Fly.io** com volume persistente pro ledger (Dockerfile + `deploy/fly/*.toml`).
+- ✅ Histórico de trades: **ledger DuckDB** (single-writer, volume persistente Fly.io) — substitui a dúvida Postgres.
 
 ## 🤔 Decisões abertas
 
-- ❓ Multisig provider concreto: Safe Wallet (padrão) vs alternativa — antes de Fase 7
-- ❓ Histórico de trades: Neon Postgres futuro ou logs persistidos em Fly.io?
-- ❓ Sequencer Base — quando justificar mempool premium ($199-499/mês) — gatilho: receita > $1k/mês
+- ❓ **Deploy mainnet** dos 4 contratos — gatilho: checklist pré-mainnet verde + capital + multisig definidos
+- ❓ **Multisig provider** concreto: Safe Wallet (padrão) vs alternativa — antes do deploy mainnet
+- ❓ **Capital inicial** concreto — código abstrai; decidir antes do deploy mainnet
+- ❓ **Audit provider** externo (Trail of Bits / Spearbit) — antes de capital > $50k
+- ❓ **Mempool premium** ($199-499/mês) pro Motor 3 ao vivo — gatilho: receita > $1k/mês
 
 ## ⚠️ Checklist obrigatório pré-mainnet
 

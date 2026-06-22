@@ -31,6 +31,8 @@ const envSchema = z.object({
 
   // RPC URLs
   BASE_RPC_HTTP: optionalUrl(),
+  /** Fallback de RPC pra Base (ex: Alchemy). Viem faz failover automático se o primário falhar. */
+  BASE_RPC_HTTP_FALLBACK: optionalUrl(),
   BASE_RPC_WS: optionalUrl(),
   ARBITRUM_RPC_HTTP: optionalUrl(),
   OPTIMISM_RPC_HTTP: optionalUrl(),
@@ -100,7 +102,7 @@ const envSchema = z.object({
   /** Habilita discovery + liquidation Moonwell. Requer MOONWELL_LIQUIDATOR_ADDRESS pra dispatch real. */
   MOONWELL_ENABLED: z.coerce.boolean().default(true),
   /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
-  MOONWELL_LIQUIDATOR_ADDRESS: optionalString(),
+  MOONWELL_LIQUIDATOR_ADDRESS: optionalAddress(),
 
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:
@@ -138,6 +140,19 @@ const envSchema = z.object({
     (v) => (v === '' ? undefined : v),
     z.coerce.number().optional(),
   ),
+
+  // ─── OIE Etapa C — thresholds adaptativos (auto-ajuste por observação) ───
+  /**
+   * Liga o auto-ajuste. Default `false` = só COMPUTA + LOGA o que ele faria (você vê o
+   * loop de feedback sem mudar comportamento). `true` = injeta MIN_OPPORTUNITY_EV_USD
+   * adaptativo no gate. Adapta dos sinais de observação do ledger (DRY_RUN-safe).
+   */
+  ADAPTIVE_THRESHOLDS_ENABLED: z.coerce.boolean().default(false),
+  /** Intervalo de recálculo (s). Default 600 (10min). */
+  ADAPTIVE_RECALC_INTERVAL_SEC: z.coerce.number().int().positive().default(600),
+  /** Janela de observação pro recálculo (dias). Default 7. */
+  ADAPTIVE_WINDOW_DAYS: z.coerce.number().positive().default(7),
+
   /** Preço estimado de ETH em USD pra calcular gasCostUsd nos logs.
    *  ⚠️ Hardcoded MVP — refinar via Chainlink oracle on-chain depois. */
   ETH_USD_PRICE_ESTIMATE: z.coerce.number().positive().default(3000),

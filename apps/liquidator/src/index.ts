@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
 import { runAavePipeline, runCompoundPipeline, runMorphoPipeline, runMoonwellPipeline } from './pipeline';
@@ -55,6 +56,8 @@ import {
   EventIngester,
   startHealthServer,
   PnlReconciler,
+  PnlAggregator,
+  CalibrationDriftTracker,
   FailureCollector,
   FinalityTracker,
   CacheInvalidator,
@@ -65,6 +68,10 @@ import {
   AutoPauseManager,
   SenderRegistry,
   BlockHistoryScanner,
+  CooccurrenceAnalyzer,
+  BuilderAttributionTracker,
+  CompetitorResolver,
+  BlockPositionTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -84,11 +91,14 @@ import {
   createDiscordSink,
   createGenericWebhookSink,
   resolveIntelligenceDbPath,
+  ingestSnapshot,
+  computeAdaptiveThresholds,
   type Severity,
   type ReadinessReport,
 } from '@zeus-evm/execution-utils';
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { parseEther } from 'viem';
 
 // ABI fragment do executor pra cache de getMaxTradeFor
@@ -177,6 +187,9 @@ interface LiquidatorState {
   tracer: Tracer;
   /** Prometheus MetricRegistry (Item 16B OB2). */
   metricRegistry: MetricRegistry;
+  /** Post-mortem de falhas (Fase 5b). */
+  competitorResolver: CompetitorResolver;
+  blockPositionTracker: BlockPositionTracker;
 }
 
 /**
@@ -544,12 +557,30 @@ export async function boot(): Promise<LiquidatorState> {
   });
   eventIngester.start();
 
+  // ── Análise de PnL (Fase 5a): agregação multi-dimensional + alarme de drift ──
+  // Alimentados pelo onReconcile do reconciler (fan-out desacoplado). Em DRY_RUN ficam vazios até
+  // haver reconciliações; ficam PRONTOS pra quando a TX real ligar.
+  const pnlAggregator = new PnlAggregator({ logger });
+  const driftTracker = new CalibrationDriftTracker({ logger });
+
   // ── PnL Reconciler (Item 10) ──
   const pnlReconciler = new PnlReconciler({
     baseDir: resolvePath('logs', 'pnl-reconciliations'),
     logger,
+    onReconcile: (recon) => {
+      pnlAggregator.observe(recon);
+      driftTracker.observe({
+        timestamp: recon.timestamp,
+        protocol: recon.protocol,
+        pair: recon.context.opportunity_id,
+        venue: recon.context.venue,
+        hour_utc: new Date(recon.timestamp).getUTCHours(),
+        drift_bps: recon.deltas.profit_delta_bps,
+        realized_profit_usd: recon.realized.profit_usd,
+      });
+    },
   });
-  logger.info('📊 PnlReconciler pronto');
+  logger.info('📊 PnlReconciler + PnlAggregator + DriftTracker prontos');
 
   // ── FailureCollector (Item 4) ──
   const failureCollector = new FailureCollector({
@@ -568,6 +599,18 @@ export async function boot(): Promise<LiquidatorState> {
   const metricRegistry = new MetricRegistry({ logger });
   registerStandardMetrics(metricRegistry);
   logger.info({ definitions: metricRegistry.stats().definitions }, '📊 Prometheus registry pronto');
+
+  // Fase 4 — counter de falhas por categoria: incrementa quando uma falha é registrada.
+  // Counter (não gauge) precisa ser incrementado por EVENTO (não por polling de janela rolling).
+  eventBus.subscribe((event) => {
+    if (event.type === 'failure.recorded') {
+      metricRegistry.inc('zeus_failures_total', {
+        chain: event.chain,
+        category: event.failureCategory,
+        protocol: event.protocol,
+      });
+    }
+  });
 
   // ── AutoPauseManager (Item 12 H10) ──
   const autoPauseManager = new AutoPauseManager({ logger });
@@ -658,14 +701,35 @@ export async function boot(): Promise<LiquidatorState> {
     ].filter((a): a is Address => !!a),
     aerodrome_router: ctx.chainConfig.aerodrome?.router,
   };
+  // Fase 5 — analisadores de sybil (co-ocorrência) + builder attribution, alimentados pelo scanner.
+  const cooccurrence = new CooccurrenceAnalyzer();
+  const builderAttribution = new BuilderAttributionTracker({ ourAccount: callerAddress, logger });
   const blockHistoryScanner = new BlockHistoryScanner({
     client: ctx.client,
     registry: senderRegistry,
     targets: scannerTargets,
+    cooccurrence,
+    builderAttribution,
     logger,
   });
   blockHistoryScanner.start();
   logger.info({ targets: Object.keys(scannerTargets).length }, '🔭 BlockHistoryScanner iniciado em background');
+
+  // ── Post-mortem de falhas (Fase 5b) — só roda com tx real (dormente em DRY_RUN) ──
+  // CompetitorResolver: descobre QUEM nos ganhou (sender + gás) varrendo blocos vizinhos.
+  // BlockPositionTracker: onde nossa tx caiu no bloco (top/bottom 10% = corrida/sandwich).
+  const liquidationTargets = [
+    scannerTargets.aave_v3_pool,
+    scannerTargets.morpho_blue,
+    ...(scannerTargets.compound_comets ?? []),
+  ].filter((a): a is Address => !!a);
+  const competitorResolver = new CompetitorResolver({
+    client: ctx.client,
+    senderRegistry,
+    targets: liquidationTargets,
+    logger,
+  });
+  const blockPositionTracker = new BlockPositionTracker({ client: ctx.client, logger });
 
   // ChainProfitabilityScorer (Doutrina) — score por (chain, protocol) pra decisão de capital
   const scorer = new ChainProfitabilityScorer({
@@ -741,6 +805,10 @@ export async function boot(): Promise<LiquidatorState> {
 
   // Sync periódico de gauges Prometheus (a cada 5s) — pega snapshots de trackers
   // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
+  // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
+  let lastBlocksProcessed = 0;
+  // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
+  const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   const metricsSyncInterval = setInterval(() => {
     try {
       const chain = ctx.chainConfig.name;
@@ -754,6 +822,11 @@ export async function boot(): Promise<LiquidatorState> {
       // PnL
       const pnlStats = pnlTracker.stats();
       metricRegistry.set('zeus_pnl_realized_usd_total', pnlStats.netPnlUsd, { chain, protocol: 'all' });
+      // Fase 3 — revive métricas mortas a partir da reconciliação (esperado/drift/gas).
+      const reconStats = pnlReconciler.stats();
+      metricRegistry.set('zeus_pnl_expected_usd_total', reconStats.expectedTotalUsd, { chain, protocol: 'all' });
+      metricRegistry.set('zeus_pnl_drift_bps', reconStats.avgDriftBps, { chain, protocol: 'all' });
+      metricRegistry.set('zeus_gas_usd_paid_total', pnlReconciler.cumulativeGasUsdPaid(), { chain });
       // Gas reserve
       const gasStats = gasReserveTracker.stats();
       metricRegistry.set('zeus_gas_reserve_eth', Number(gasStats.balanceEth ?? 0), { chain, account: callerAddress });
@@ -768,9 +841,34 @@ export async function boot(): Promise<LiquidatorState> {
       const dedupStats = dedupTracker.stats();
       metricRegistry.set('zeus_dedup_pending', dedupStats.pending, { chain });
       metricRegistry.set('zeus_dedup_confirmed', dedupStats.confirmed, { chain });
+      // Supressões (counter por status) via delta — quase-duplicados evitados (Fase 6).
+      for (const status of ['pending', 'confirmed', 'failed'] as const) {
+        const delta = dedupStats.suppressed[status] - (lastSuppressed[status] ?? 0);
+        if (delta > 0) metricRegistry.inc('zeus_dedup_suppressed_total', { chain, status }, delta);
+        lastSuppressed[status] = dedupStats.suppressed[status];
+      }
       // Competitor scanner
       const scannerStats = blockHistoryScanner.getStats();
       metricRegistry.set('zeus_competitor_profiles_total', scannerStats.unique_senders, { chain });
+      // Blocos varridos é COUNTER — incrementa pelo delta desde o último sync.
+      const blocksDelta = scannerStats.blocks_processed - lastBlocksProcessed;
+      if (blocksDelta > 0) metricRegistry.inc('zeus_scanner_blocks_processed_total', { chain }, blocksDelta);
+      lastBlocksProcessed = scannerStats.blocks_processed;
+      // Competidores por categoria (Fase 2) — pra ver o mix de ameaças no Grafana.
+      const compByCat = senderRegistry.stats().by_category;
+      for (const [category, count] of Object.entries(compByCat)) {
+        metricRegistry.set('zeus_competitor_category_total', count, { chain, category });
+      }
+      // Market-bribe (Fase 1) — lance de mercado agregado dos competidores ativos
+      const mkt = senderRegistry.marketBribeStats();
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain, percentile: 'p50' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain, percentile: 'p75' });
+      metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain, percentile: 'p95' });
+      metricRegistry.set('zeus_market_bribe_competitors_active', mkt.competitorsActive, { chain });
+      // Calibração (Fase 5a) — alertas de drift sustentado + drift médio.
+      const drift = driftTracker.stats();
+      metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
+      metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
     } catch (err) {
       logger.debug(
         { err: err instanceof Error ? err.message : err },
@@ -779,6 +877,118 @@ export async function boot(): Promise<LiquidatorState> {
     }
   }, 5_000);
   metricsSyncInterval.unref();
+
+  // ── Alarme de drift (Fase 5a) — loga WARN com sugestão quando há drift sustentado ──
+  // Cadência lenta (10min). É o "alarme de que o bot está mentindo pra si mesmo".
+  const driftAlertInterval = setInterval(() => {
+    for (const alert of driftTracker.topAlerts(5)) {
+      logger.warn(
+        { dimension: alert.dimension, key: alert.key, avgDriftBps: alert.avg_drift_bps, samples: alert.samples },
+        `⚠️ drift sustentado: ${alert.suggested_action}`,
+      );
+    }
+  }, 10 * 60 * 1000);
+  driftAlertInterval.unref();
+
+  // ── Snapshot da inteligência "órfã" → ledger central ──
+  // Grava periodicamente sinais que antes só viviam em JSON/RAM no DuckDB pra ter HISTÓRICO
+  // (não só métrica instantânea). Cadência lenta (5min) pra não inflar o ledger. Fire-and-forget.
+  const intelSnapshotInterval = setInterval(() => {
+    const chain = ctx.chainConfig.name;
+
+    // Fase 1 — lance de mercado (market-bribe).
+    const mkt = senderRegistry.marketBribeStats();
+    if (mkt.competitorsActive > 0) {
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'market_bribe',
+          protocol: 'bribe',
+          pair: 'MARKET',
+          amount_usd: mkt.p75Gwei, // proxy: lance p75 (gwei) no campo numérico pra agregação rápida
+          payload: { ...mkt },
+        },
+        logger,
+      );
+    }
+
+    // Fase 2 — perfis de competidores: 1 linha agregada + 1 por top-ameaça.
+    const compStats = senderRegistry.stats();
+    if (compStats.total_profiles > 0) {
+      // Agregado (total + distribuição por categoria).
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'competitor',
+          protocol: 'aggregate',
+          amount_usd: compStats.total_profiles,
+          payload: { total: compStats.total_profiles, byCategory: compStats.by_category },
+        },
+        logger,
+      );
+      // Top ameaças (sender + threat score) — granularidade por competidor no ledger.
+      for (const t of senderRegistry.topThreats(10)) {
+        ingestSnapshot(
+          intelligenceStore,
+          {
+            chain,
+            category: 'competitor',
+            protocol: t.category,
+            sender: t.sender,
+            amount_usd: t.threat.overall_score,
+            payload: { alias: t.known_alias ?? null, category: t.category, avgPriorityFeeGwei: t.gas.avg_priority_fee_gwei },
+          },
+          logger,
+        );
+      }
+    }
+
+    // Fase 5 — clusters sybil (co-ocorrência) + builder attribution.
+    const coSnap = cooccurrence.snapshot();
+    // Gauges (no timer de 5min — detectClusters é mais pesado que o loop de 5s).
+    metricRegistry.set('zeus_sybil_clusters_total', coSnap.clusters.length, { chain });
+    metricRegistry.set('zeus_sybil_strong_links', coSnap.stats.strong_links, { chain });
+    metricRegistry.set('zeus_builders_tracked', builderAttribution.size(), { chain });
+    if (coSnap.clusters.length > 0) {
+      for (const cl of coSnap.clusters) {
+        ingestSnapshot(
+          intelligenceStore,
+          {
+            chain,
+            category: 'cluster',
+            protocol: 'sybil',
+            amount_usd: cl.members.length, // tamanho do cluster no campo numérico
+            payload: { members: cl.members, avgJaccard: cl.avg_jaccard, totalBlocksSeen: cl.total_blocks_seen },
+          },
+          logger,
+        );
+      }
+    }
+    for (const b of builderAttribution.topByCompetitorVolume(10)) {
+      ingestSnapshot(
+        intelligenceStore,
+        {
+          chain,
+          category: 'cluster',
+          protocol: 'builder',
+          sender: b.builder_address,
+          amount_usd: b.our_inclusion_rate,
+          payload: { alias: b.builder_alias ?? null, blocks: b.total_blocks_seen, ourTxs: b.our_txs_included, competitorTxs: b.competitor_txs_seen },
+        },
+        logger,
+      );
+    }
+    // Persiste JSON local pra reconstruir após restart (mesma pasta dos competidores).
+    try {
+      writeFileSync(resolvePath('logs', 'competitors', 'cooccurrence.json'), JSON.stringify(coSnap, null, 2));
+      writeFileSync(resolvePath('logs', 'competitors', 'builders.json'), JSON.stringify(builderAttribution.snapshot(), null, 2));
+    } catch (err) {
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'snapshot sybil/builder: erro ao gravar JSON (segue)');
+    }
+  }, 5 * 60 * 1000);
+  intelSnapshotInterval.unref();
 
   // PnL Reporter — Item 10 P7 (daily digest pra Discord)
   if (env.PNL_REPORTER_ENABLED && env.PNL_REPORTER_WEBHOOK_URL) {
@@ -876,6 +1086,8 @@ export async function boot(): Promise<LiquidatorState> {
     scorer,
     tracer,
     metricRegistry,
+    competitorResolver,
+    blockPositionTracker,
   };
 }
 
@@ -1203,6 +1415,10 @@ export async function processOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1234,6 +1450,10 @@ export async function processCompoundOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1262,6 +1482,10 @@ export async function processMorphoOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1290,6 +1514,10 @@ export async function processMoonwellOpportunity(
     gasReserveTracker: state.gasReserveTracker,
     eventBus: state.eventBus,
     gasOracle: state.gasOracle,
+    metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1425,17 +1653,19 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   await state.gasReserveTracker.check(ctx.client, ctx.account);
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
-  if (env.THEGRAPH_API_KEY && state.aaveMarkets.length > 0) {
+  // H3 (resiliência): NÃO gateamos o loop inteiro em THEGRAPH_API_KEY. O discovery on-chain
+  // (event scan + BorrowerCache) roda SEMPRE; o subgraph é só um acelerador quando há key.
+  // Assim, sem a key, Aave core E Seamless continuam descobrindo posições (auto-feed do mercado).
+  if (state.aaveMarkets.length > 0) {
     for (const market of state.aaveMarkets) {
       try {
-        // Markets com subgraph usam subgraph (mais eficiente); forks sem subgraph
-        // (Seamless) caem pro discovery on-chain via event scan (Opção 3 da Doutrina).
-        const positions = market.subgraphId
+        // Subgraph só quando o market tem subgraphId E a key existe; senão → on-chain.
+        const positions = useSubgraphDiscovery(Boolean(market.subgraphId), Boolean(env.THEGRAPH_API_KEY))
           ? await discoverAaveLiquidatablePositions({
               client: ctx.client,
               poolAddress: market.pool,
-              apiKey: env.THEGRAPH_API_KEY,
-              subgraphId: market.subgraphId,
+              apiKey: env.THEGRAPH_API_KEY as string,
+              subgraphId: market.subgraphId as string,
               cache: market.reservesCache,
               hfThreshold: env.HF_AT_RISK_THRESHOLD,
               maxCandidates: 200,
@@ -1728,6 +1958,59 @@ async function main() {
       logger.error({ err: err instanceof Error ? err.message : err }, 'tick falhou'),
     );
   }, state.env.LIQUIDATOR_POLL_INTERVAL_SEC * 1000);
+
+  // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
+  // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o
+  // loop de feedback). Com ADAPTIVE_THRESHOLDS_ENABLED=true, injeta no gate de EV.
+  const runAdaptiveRecalc = async () => {
+    try {
+      const adaptive = await computeAdaptiveThresholds({
+        store: state.intelligenceStore,
+        chain: state.ctx.chainConfig.name,
+        windowMs: state.env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      });
+      const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
+      if (applied) {
+        // Injeção opt-in: liquidationEdgeGate lê deps.env.MIN_OPPORTUNITY_EV_USD (= state.env).
+        state.env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+      }
+      logger.info(
+        { applied, ...adaptive },
+        `📈 OIE adaptive: MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD} MIN_PROFIT=$${adaptive.MIN_PROFIT_USD} top=${adaptive.topProtocol ?? '-'} ${applied ? '(APLICADO)' : '(só log)'}`,
+      );
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc falhou (skip)');
+    }
+  };
+  void runAdaptiveRecalc();
+  const adaptiveTimer = setInterval(() => void runAdaptiveRecalc(), state.env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
+  adaptiveTimer.unref();
+
+  // ─── Graceful shutdown (Item 7) ───
+  // Drena o ledger (eventIngester.stop() faz o flush) + para timers de background.
+  // No DRY_RUN o crítico é não perder o buffer do DuckDB ao reiniciar.
+  // TODO(live): quando submeter TX de verdade, aguardar tx in-flight (txStateMachine)
+  // confirmar antes do exit pra evitar corrupção de nonce.
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      clearInterval(adaptiveTimer);
+      state.finalityTracker.stop();
+      state.blockStalenessCheck.stop();
+      state.processCheck.stop();
+      state.blockHistoryScanner.stop();
+      await state.eventIngester.stop();       // flush do store
+      await state.intelligenceStore.shutdown();
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'erro no shutdown (segue)');
+    }
+    logger.info('💾 ledger drenado — liquidator encerrado');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
 
   // Mantém processo vivo
   await new Promise(() => {});

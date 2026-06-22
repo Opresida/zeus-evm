@@ -29,6 +29,7 @@ export {
   SenderRegistry,
   type SenderRegistryOpts,
   type UpdateInput as SenderObserveInput,
+  type MarketBribeStats,
 } from './senderRegistry';
 
 export {

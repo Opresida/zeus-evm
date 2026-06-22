@@ -24,11 +24,15 @@ import type {
   BackrunDispatchedEvent,
   PnlReconciler,
   FailureCollector,
+  FailureEvent,
+  CompetitorResolver,
+  BlockPositionTracker,
 } from '@zeus-evm/execution-utils';
 import {
   decodeLiquidationEvent,
   estimateUsd,
   gasCostUsd,
+  realizedPriorityFeeWei,
   generateFailureId,
 } from '@zeus-evm/execution-utils';
 import type { BackrunOpportunity } from '@zeus-evm/strategy';
@@ -59,6 +63,13 @@ export interface DispatchBackrunInput {
   pnlReconciler?: PnlReconciler;
   /** Failure Collector (Item 4) — schema rico pra failures persistidos JSONL. */
   failureCollector?: FailureCollector;
+  /** MetricRegistry (Fase 7b) — cronometra dispatch (histograma zeus_dispatch_duration_seconds). */
+  metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+  /** Post-mortem (Fase D2) — quem nos ganhou + posição no bloco (só com tx real). */
+  competitorResolver?: CompetitorResolver;
+  blockPositionTracker?: BlockPositionTracker;
+  /** Endereço do bot (pra o resolver ignorar nossas txs). */
+  botSender?: Address;
 }
 
 export interface DispatchBackrunResult {
@@ -160,6 +171,7 @@ export async function dispatchBackrun(
     //    deve monitorar inclusion off-chain (próxima iteração).
     let txHash: `0x${string}`;
     let viaBundle = false;
+    const dispatchStart = Date.now(); // Fase 7b — cronômetro do dispatch (submit→confirm)
 
     if (relayRouter) {
       const targetBlock = (await chainCtx.client.getBlockNumber()) + 1n;
@@ -210,6 +222,10 @@ export async function dispatchBackrun(
       hash: txHash,
       confirmations: 1,
     });
+    input.metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+      chain: chainCtx.chainName,
+      protocol: 'backrun',
+    });
 
     const gasUsdSpent = gasCostUsd(
       receipt.gasUsed,
@@ -228,7 +244,7 @@ export async function dispatchBackrun(
 
       // FailureCollector — schema rico (Item 4)
       if (input.failureCollector) {
-        input.failureCollector.record({
+        const failureEvent: FailureEvent = {
           id: generateFailureId(Date.now()),
           timestamp: Date.now(),
           chain: chainCtx.chainName,
@@ -248,6 +264,43 @@ export async function dispatchBackrun(
             buyVenue: opp.buyQuote.source,
             sellVenue: opp.sellQuote.source,
           },
+        };
+
+        // Fase D2 — post-mortem (só com tx real): posição no bloco + quem nos ganhou o backrun.
+        try {
+          if (input.blockPositionTracker) {
+            const pos = await input.blockPositionTracker.resolve(txHash, receipt.blockNumber);
+            if (pos) {
+              failureEvent.block_total_txs = pos.block_total_txs;
+              (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
+              (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+            }
+          }
+          if (input.competitorResolver && input.botSender) {
+            const winner = await input.competitorResolver.resolve(failureEvent, input.botSender);
+            if (winner) {
+              failureEvent.competitor_winner_sender = winner.winner_sender;
+              failureEvent.competitor_winner_alias = winner.winner_alias;
+              failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+            }
+          }
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : err, txHash }, 'post-mortem backrun falhou (segue)');
+        }
+
+        input.failureCollector.record(failureEvent);
+        // Fase 4 — falha pro ledger central + counter (via EventBus).
+        eventBus.emit({
+          type: 'failure.recorded',
+          timestamp: nowIso(),
+          chain: chainCtx.chainName,
+          mode,
+          severity: 'warn',
+          protocol: 'backrun',
+          failureCategory: 'reverted_on_chain',
+          txHash,
+          gasUsdLost: gasUsdSpent,
+          reason: 'backrun reverted on-chain',
         });
       }
 
@@ -292,7 +345,9 @@ export async function dispatchBackrun(
     // PnL Reconciliation — Item 10 P1 (schema rico expected vs realized + attribution)
     if (input.pnlReconciler) {
       try {
-        input.pnlReconciler.reconcile({
+        // Priority fee REAL = effectiveGasPrice − baseFee do bloco (não o gas price cheio).
+        const block = await chainCtx.client.getBlock({ blockNumber: receipt.blockNumber }).catch(() => null);
+        const recon = input.pnlReconciler.reconcile({
           chain: chainCtx.chainName,
           protocol: 'backrun',
           tx_hash: txHash,
@@ -304,11 +359,28 @@ export async function dispatchBackrun(
           realized_profit_usd: profitUsd ?? 0,
           realized_gas_units_used: receipt.gasUsed,
           realized_gas_usd: gasUsdSpent,
-          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          realized_priority_fee_wei: realizedPriorityFeeWei(receipt.effectiveGasPrice, block?.baseFeePerGas),
           eth_usd_price: env.ETH_USD_PRICE_ESTIMATE,
           opportunity_id: opp.pair.id,
           venue: opp.buyQuote.source,
           finality_status: 'soft',
+        });
+
+        // Fase 3 — reconciliação no ledger central (EventIngester mapeia 'pnl_reconciled').
+        eventBus.emit({
+          type: 'pnl.reconciled',
+          timestamp: nowIso(),
+          chain: chainCtx.chainName,
+          mode,
+          severity: 'info',
+          protocol: 'backrun',
+          txHash,
+          blockNumber: receipt.blockNumber.toString(),
+          expectedNetUsd: recon.expected.net_profit_usd_estimated,
+          realizedNetUsd: recon.realized.net_profit_usd,
+          profitDeltaBps: recon.deltas.profit_delta_bps,
+          gasUsd: recon.realized.gas_usd_actual,
+          attributionCause: recon.attribution.primary_cause,
         });
       } catch (err) {
         logger.warn(

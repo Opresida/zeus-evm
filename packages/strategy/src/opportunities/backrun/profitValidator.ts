@@ -15,12 +15,14 @@
  */
 
 import type { Address, PublicClient } from 'viem';
+import type { ChainConfig } from '@zeus-evm/chain-config';
 
 import {
   buildFlashloanCalldata,
   buildBackrunCalldata,
   type BribeConfig,
 } from '../../executor/txBuilder';
+import { selectFlashSource } from '../../executor/flashSourceSelector';
 import { simulateArbitrage, type SimulationResult } from '../../executor/simulator';
 import type { CrossDexOpportunity } from '../crossDex';
 import type { BackrunOpportunity } from './types';
@@ -33,6 +35,8 @@ const BPS_DENOMINATOR = 10_000n;
 
 export interface ValidateBackrunParams {
   client: AnyPublicClient;
+  /** Chain config — usado pra selecionar a fonte de flashloan mais barata (Morpho/Balancer 0%). */
+  chainConfig: ChainConfig;
   opp: BackrunOpportunity;
   executorAddress: Address;
   callerAddress: Address;
@@ -91,6 +95,7 @@ export async function validateBackrunProfit(
 ): Promise<ValidateBackrunResult> {
   const {
     client,
+    chainConfig,
     opp,
     executorAddress,
     callerAddress,
@@ -105,6 +110,10 @@ export async function validateBackrunProfit(
   const flashloanAsset = opp.whale.tokenIn;
   const flashloanAmount = opp.amountIn;
 
+  // Seletor de fonte de flashloan: Morpho/Balancer 0% > Aave 0,05% (antes forçava Aave).
+  // Fail-safe pro Aave em qualquer erro de RPC.
+  const flashSel = await selectFlashSource(client, chainConfig, flashloanAsset, flashloanAmount);
+
   // 1. Encoda calldata. Com bribe → executeFlashloanBackrun (v7). Sem → fallback v6.
   const calldata = bribe
     ? buildBackrunCalldata({
@@ -115,6 +124,7 @@ export async function validateBackrunProfit(
         flashloanAsset,
         flashloanAmount,
         bribe,
+        flashSource: flashSel.flashSource,
       })
     : buildFlashloanCalldata({
         opp: backrunToCrossDex(opp),
@@ -123,6 +133,7 @@ export async function validateBackrunProfit(
         minProfitMarginBps,
         flashloanAsset,
         flashloanAmount,
+        flashSource: flashSel.flashSource,
       });
 
   // 2. Simula via eth_call

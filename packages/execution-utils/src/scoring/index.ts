@@ -56,5 +56,13 @@ export {
   buildDimensionStatsSql,
   SUCCESS_CATEGORIES,
   FAILED_CATEGORIES,
+  OBSERVATION_VALUE_CATEGORIES,
   type DimensionStatsQueryOpts,
 } from './dimensionStatsQuery';
+
+// ─── OIE Etapa C — thresholds adaptativos (auto-ajuste) ───
+export {
+  computeAdaptiveThresholds,
+  type AdaptiveThresholds,
+  type AdaptiveThresholdsDeps,
+} from './adaptiveThresholds';

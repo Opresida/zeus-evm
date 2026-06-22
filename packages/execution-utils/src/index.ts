@@ -87,7 +87,7 @@ export {
 } from './eventDecoder';
 
 // ─── Price Utils ───
-export { formatWei, estimateUsd, gasCostUsd } from './priceUtils';
+export { formatWei, estimateUsd, gasCostUsd, realizedPriorityFeeWei } from './priceUtils';
 
 // ─── Slippage Cache ───
 export {
@@ -120,6 +120,7 @@ export {
   generateEventId,
   resolveIntelligenceDbPath,
   buildObservationEvent,
+  ingestSnapshot,
   queryTopOpportunityPairs,
   attachAndRankPairs,
   type ObservationInput,
@@ -208,12 +209,16 @@ export {
   MetricRegistry,
   STANDARD_METRICS,
   registerStandardMetrics,
+  DimensionMetricsExporter,
+  defineDimensionMetrics,
+  DIMENSION_METRICS,
   type TracerOpts,
   type SpanData,
   type SpanStatus,
   type StructuredLoggerOpts,
   type MetricDefinition,
   type MetricType,
+  type DimensionMetricsExporterOpts,
 } from './observability';
 
 // ─── PnL Reconciliation (Item 10 P1+P2+P3+P4+P5+P6+P7+P8) ───
@@ -270,6 +275,7 @@ export {
   type CompetitorRegistryStats,
   type SenderRegistryOpts,
   type SenderObserveInput,
+  type MarketBribeStats,
   type BlockHistoryScannerOpts,
   type ScannerTargets,
   type ScannerStats,
@@ -306,6 +312,7 @@ export {
   checkArbPair,
   checkArbRoute,
   MarketInefficiencyScanner,
+  findTriangularCycles,
   type ArbAllowlist,
   type PoolDex,
   type PoolRef,
@@ -313,6 +320,9 @@ export {
   type InefficiencyObservation,
   type InefficiencyRanking,
   type MISOpts,
+  type ArbEdge,
+  type TriangularCycle,
+  type FindTriangularOpts,
 } from './arb';
 
 // ─── Alerting Sinks ───
@@ -392,7 +402,12 @@ export {
   buildDimensionStatsSql,
   SUCCESS_CATEGORIES,
   FAILED_CATEGORIES,
+  OBSERVATION_VALUE_CATEGORIES,
   type DimensionStatsQueryOpts,
+  // Etapa C — thresholds adaptativos
+  computeAdaptiveThresholds,
+  type AdaptiveThresholds,
+  type AdaptiveThresholdsDeps,
 } from './scoring';
 
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───

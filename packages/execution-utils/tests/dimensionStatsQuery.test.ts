@@ -18,6 +18,7 @@ import {
   buildDimensionStatsSql,
   queryDimensionStats,
   rankDimension,
+  OBSERVATION_VALUE_CATEGORIES,
 } from '../src/scoring';
 
 describe('dimensionStatsQuery — SQL builder', () => {
@@ -164,5 +165,27 @@ describe('dimensionStatsQuery — roundtrip DuckDB', () => {
     });
     const aave = baseStats.find((s) => s.key === 'aave-v3')!;
     expect(aave.total_ops).toBe(1);
+  });
+
+  it('valueCategories de observação: arb_observed conta lucro/successful (fix auditoria)', async () => {
+    for (let i = 0; i < 4; i++) {
+      ingestEvent({ category: 'arb_observed', protocol: 'arb', pair: 'AERO/USDC', profit_usd: 10, gas_usd: 1 });
+    }
+    await store.flush();
+
+    // Default (execução) → observação NÃO conta: net_profit/successful = 0
+    const exec = (await queryDimensionStats(store, 'protocol', { windowMs: 24 * 3600 * 1000 }))
+      .find((s) => s.key === 'arb')!;
+    expect(exec.total_ops).toBe(4);
+    expect(exec.successful_ops).toBe(0);
+    expect(exec.net_profit_usd).toBe(0);
+
+    // Com valueCategories de observação → conta: net = 4×(10-1) = 36, successful = 4
+    const obs = (await queryDimensionStats(store, 'protocol', {
+      windowMs: 24 * 3600 * 1000,
+      valueCategories: OBSERVATION_VALUE_CATEGORIES,
+    })).find((s) => s.key === 'arb')!;
+    expect(obs.successful_ops).toBe(4);
+    expect(obs.net_profit_usd).toBeCloseTo(36, 5);
   });
 });

@@ -65,6 +65,13 @@ const envSchema = z.object({
 
   // Logs
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // Observabilidade (OIE Etapa D) — health server + /metrics pra Grafana ler o DRY_RUN
+  HEALTH_SERVER_ENABLED: z.coerce.boolean().default(true),
+  HEALTH_SERVER_PORT: z.coerce.number().int().min(1024).max(65535).default(7882),
+  HEALTH_SERVER_HOST: z.string().default('127.0.0.1'),
+  /** Janela (dias) do bridge de métricas de observação. */
+  METRICS_WINDOW_DAYS: z.coerce.number().positive().default(7),
 });
 
 export type Env = z.infer<typeof envSchema>;

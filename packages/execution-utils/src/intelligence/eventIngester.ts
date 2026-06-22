@@ -165,7 +165,7 @@ export class EventIngester {
           block_number: BigInt(event.blockNumber),
           profit_usd: event.profitUsd ?? undefined,
           gas_usd: event.gasCostUsd,
-          profit_delta_bps: event.profitDeltaBps,
+          profit_delta_bps: Math.round(event.profitDeltaBps), // coluna INTEGER (INT32) — blinda fracionário
           payload: {
             netProfitUsd: event.netProfitUsd,
           },
@@ -288,7 +288,7 @@ export class EventIngester {
           tx_hash: event.pendingTxHash,
           pair: event.pairId,
           profit_usd: event.expectedProfitUsd,
-          slippage_bps: event.estimatedSlippageBps,
+          slippage_bps: Math.round(event.estimatedSlippageBps), // coluna INTEGER (INT32) — blinda fracionário
           payload: {
             buyVenue: event.buyVenue,
             sellVenue: event.sellVenue,
@@ -312,6 +312,37 @@ export class EventIngester {
           category: 'opportunity_rejected',
           protocol: 'backrun',
           payload: { ...event } as Record<string, unknown>,
+        };
+
+      case 'failure.recorded':
+        return {
+          ...base,
+          category: 'failure_recorded',
+          protocol: event.protocol,
+          tx_hash: event.txHash,
+          gas_usd: event.gasUsdLost,
+          payload: {
+            failureCategory: event.failureCategory,
+            reason: event.reason,
+          },
+        };
+
+      case 'pnl.reconciled':
+        return {
+          ...base,
+          category: 'pnl_reconciled',
+          protocol: event.protocol,
+          tx_hash: event.txHash,
+          block_number: BigInt(event.blockNumber),
+          // profit_usd = net realizado; gas_usd = gás pago; profit_delta_bps = drift.
+          profit_usd: event.realizedNetUsd,
+          gas_usd: event.gasUsd,
+          profit_delta_bps: Math.round(event.profitDeltaBps),
+          payload: {
+            expectedNetUsd: event.expectedNetUsd,
+            realizedNetUsd: event.realizedNetUsd,
+            attributionCause: event.attributionCause,
+          },
         };
 
       default: {

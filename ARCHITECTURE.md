@@ -4,20 +4,24 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 
 ---
 
-> ## 🔄 ESTADO ATUAL (2026-05-29) — o que mudou desde o snapshot abaixo
+> ## 🔄 ESTADO ATUAL (2026-06-17) — o que mudou desde o snapshot abaixo
 >
 > Este doc descreve fluxos que **continuam válidos conceitualmente**, mas a implementação evoluiu.
 > Mapeamento do que está desatualizado no texto antigo:
 >
 > | No texto antigo | Estado atual |
 > |---|---|
-> | `ZeusExecutor v6` (1 contrato monolítico) | **4 contratos v8 (split por EIP-170):** BribeManager + ZeusLiquidator (Aave/Compound/Morpho) + ZeusArbExecutor (arb/backrun) + ZeusMoonwellLiquidator |
-> | 3 protocolos (Aave/Compound/Morpho) | **5:** + Seamless (fork Aave) + Moonwell (fork Compound V2) |
-> | Cross-DEX "radar passivo / dead-end" | **Motor 2 = radar MIS** (`apps/mis-scanner`): pricing local + multicall + derivação on-chain + flash sizing + gate de profundidade. Ranqueia por persistência |
-> | Backrun "planejado" | **`apps/backrun-engine` construído** (planner + bribe + bundling); falta mempool premium |
+> | `ZeusExecutor v6` (1 contrato monolítico, 5 `execute*`) | **4 contratos v8 (split por EIP-170):** ZeusArbExecutor (arb/flashloan/backrun) + ZeusLiquidator (Aave/Compound/Morpho) + ZeusMoonwellLiquidator + BribeManager (bribe/coinbase) |
+> | 3 protocolos (Aave/Compound/Morpho) | **5:** + Seamless (fork Aave) + Moonwell (fork Compound V2, contrato próprio) |
+> | Flashloan só Aave V3 (0,05%) | **3 fontes via `FlashSource` enum:** Aave (0,05%) · Morpho (0%) · Balancer (0%) |
+> | Cross-DEX "radar passivo / dead-end" | **Motor 2 = radar MIS** (`apps/mis-scanner` + `MarketInefficiencyScanner`): pricing local + multicall + derivação on-chain + flash sizing + gate de profundidade. Ranqueia por persistência |
+> | Backrun "planejado" | **`apps/backrun-engine` construído** (planner + bribe + bundling, `executeFlashloanBackrun`); falta mempool premium |
+> | 4 trackers no `apps/liquidator` | **package `@zeus-evm/execution-utils`** compartilhado: trackers + gasOracle + eventBus + intelligence (OIE) + pnl + scoring + observability + health |
+> | Sem ledger / persistência no MVP | **Ledger OIE em DuckDB** (`logs/intelligence.duckdb`, `INTELLIGENCE_DB_PATH`): observação + execução gravam eventos; scoring/ranking de pares (ver Fluxo 4) |
+> | 4 apps (detector/backtest/monitor/liquidator) | **7 apps:** + `mis-scanner` (motor 2) + `backrun-engine` (motor 3) + `discovery-scraper` (auto-targets) |
 > | Chains: Base/Arb/OP (+Avax planejado) | **Code-ready: Base/Arb/OP/Polygon/Avalanche** |
 > | DEXs: UniV3 · Aerodrome | + Velodrome (OP) + **Trader Joe LB** (Avalanche, AMM por bins) |
-> | Fork tests | **34/34 verdes** via Alchemy, incl. prova de LUCRO dos 3 motores (`test/fork/MotorsProfit.fork.t.sol`) |
+> | 53 Foundry tests | **115 funções Foundry em 9 arquivos** (4 unit + 5 fork), incl. prova de LUCRO dos 3 motores (`test/fork/MotorsProfit.fork.t.sol`) |
 >
 > Os fluxos 1/2/3 abaixo (executeArbitrage / executeFlashloanArbitrage / liquidation) continuam corretos —
 > só estão hoje distribuídos entre ZeusArbExecutor e ZeusLiquidator em vez de um único ZeusExecutor.
@@ -32,39 +36,43 @@ ZEUS EVM é um **monorepo pnpm** com 3 camadas:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                    ZEUS EVM (monorepo) — snapshot 2026-05-25       │
+│                    ZEUS EVM (monorepo) — snapshot 2026-06-17       │
 └────────────────────────────────────────────────────────────────────┘
         │                       │                       │
         ▼                       ▼                       ▼
 ┌─────────────────┐  ┌────────────────────┐  ┌──────────────────────┐
 │   contracts/    │  │       apps/        │  │    packages/         │
-│   (Solidity)    │  │    (TypeScript)    │  │   (shared TS)        │
+│   (Solidity v8) │  │    (TypeScript)    │  │   (shared TS)        │
 │                 │  │                    │  │                      │
-│ ZeusExecutor v6 │  │ detector (radar)   │  │ chain-config         │
-│  + 5 execute*   │  │ backtest           │  │ dex-adapters         │
-│    funcs:       │  │ monitor (DRY_RUN)  │  │ strategy             │
-│  - Arbitrage    │  │ liquidator (3      │  │ aave-discovery NOVO  │
-│  - Flashloan    │  │   modos: dryrun /  │  │ shared-types         │
-│  - LiqAave      │  │   testnet /        │  │                      │
-│  - LiqCompound  │  │   mainnet)         │  │                      │
-│  - LiqMorpho    │  │                    │  │                      │
+│ ZeusArbExecutor │  │ detector (motor 1) │  │ chain-config         │
+│ ZeusLiquidator  │  │ mis-scanner (m2)   │  │ dex-adapters         │
+│ ZeusMoonwell    │  │ backrun-engine(m3) │  │ strategy             │
+│   Liquidator    │  │ liquidator (3 modos│  │ aave-discovery       │
+│ BribeManager    │  │   dryrun/testnet/  │  │ execution-utils ★    │
+│                 │  │   mainnet)         │  │ shared-types         │
+│ libs: UniV3 ·   │  │ monitor (DRY_RUN)  │  │                      │
+│   Aerodrome     │  │ backtest · discovery│  │ ★ = trackers + OIE  │
+│                 │  │   -scraper         │  │   + scoring + pnl    │
 └─────────────────┘  └────────────────────┘  └──────────────────────┘
         │                       │                       │
         └────────── interagem via viem + ABI ───────────┘
-                            │
-                            ▼
-              ┌──────────────────────────────┐
-              │  Mainnet chains (após Fase7) │
-              │                              │
-              │  Base (Coinbase L2)          │
-              │  Arbitrum One                │
-              │  Optimism                    │
-              │  Avalanche (planejado)       │
-              │                              │
-              │  Protocolos:                 │
-              │   Aave V3 · Compound III ·   │
-              │   Morpho Blue                │
-              │  DEXs: UniV3 · Aerodrome     │
+                            │              │
+                            ▼              ▼
+              ┌──────────────────────────────┐  ┌─────────────────────┐
+              │  Chains (code-ready)         │  │  Ledger OIE (DuckDB)│
+              │                              │  │  logs/intelligence  │
+              │  Base (Coinbase L2)          │  │    .duckdb          │
+              │  Arbitrum One · Optimism     │  │  observação +       │
+              │  Polygon · Avalanche         │  │  execução → eventos │
+              │                              │  │  → scoring/ranking  │
+              │  Protocolos (liq):           │  │  (single-writer,    │
+              │   Aave V3 · Seamless ·       │  │   unifica via ATTACH│
+              │   Compound III · Morpho ·    │  └─────────────────────┘
+              │   Moonwell                   │
+              │  DEXs: UniV3 · Aerodrome ·   │
+              │   Velodrome · Trader Joe LB  │
+              │  Flashloan: Aave · Morpho ·  │
+              │   Balancer                   │
               └──────────────────────────────┘
 ```
 
@@ -120,16 +128,20 @@ ZEUS EVM é um **monorepo pnpm** com 3 camadas:
                   └──────────────────────────┘
 ```
 
-**6 trackers internos rodando em paralelo:**
-- PnL Tracker (rolling 24h + auto kill on-chain)
-- Failure Tracker (cooldown após N falhas)
-- Position Dedup (TTL por chave composta)
-- Gas Reserve (balance monitor + alertas)
-- Gas Oracle (EIP-1559 cache por bloco)
-- EventBus (emit pra Discord/Generic/futuro WebSocket)
+**6 trackers internos rodando em paralelo** (hoje vivem em `@zeus-evm/execution-utils`, compartilhados entre liquidator/backrun):
+- PnL Tracker (rolling 24h + auto kill on-chain) — `pnlTracker.ts`
+- Failure Tracker (cooldown após N falhas) — `failureTracker.ts`
+- Position Dedup (TTL por chave composta) — `positionDedup.ts`
+- Gas Reserve (balance monitor + alertas) — `gasReserveTracker.ts`
+- Gas Oracle (EIP-1559 cache por bloco) — `gasOracle.ts`
+- EventBus (emit pra Discord/Generic/futuro WebSocket) — `eventBus.ts` + `events.ts`
+
+**EV gate ciente de OEV (2026-06-15):** antes do dispatch, o liquidator consulta os scores do ledger OIE
+(`opportunityScorer` + `chainProfitabilityScorer`) e **prioriza Morpho** (OEV / sem premium de flashloan).
+O backrun usa um EV gate **competitor-aware** (gas war). Ver Fluxo 4.
 
 **3 modos operacionais:**
-- `dryrun`: pipeline completo SEM submit (alimenta cache + LOGA decisions teóricas)
+- `dryrun`: pipeline completo SEM submit (alimenta cache + LOGA decisions teóricas + grava no ledger OIE)
 - `testnet`: submit em chains Sepolia
 - `mainnet`: submit em chains mainnet (requer checklist obrigatório)
 
@@ -153,37 +165,45 @@ zeus-evm/
 ├── 📄 .gitignore
 ├── 📄 .env.example
 │
-├── contracts/                  # ═══ FOUNDRY PROJECT ═══
-│   ├── foundry.toml            # solc 0.8.27 + via_ir + 1M runs + yul + 4 chains aliases
+├── contracts/                  # ═══ FOUNDRY PROJECT (v8 — split EIP-170) ═══
+│   ├── foundry.toml            # solc 0.8.27 + via_ir + 1M runs + yul + chains aliases
 │   ├── remappings.txt
 │   ├── src/
-│   │   ├── ZeusExecutor.sol            # Hot path principal (~590 LOCs) — 5 funções execute*:
-│   │   │                               #   executeArbitrage, executeFlashloanArbitrage,
-│   │   │                               #   executeLiquidation (Aave V3),
-│   │   │                               #   executeCompoundLiquidation (Comet),
-│   │   │                               #   executeMorphoLiquidation (Morpho Blue)
+│   │   ├── ZeusArbExecutor.sol         # Motores 1+3 — 3 funções execute*:
+│   │   │                               #   executeArbitrage (wallet, capital próprio),
+│   │   │                               #   executeFlashloanArbitrage,
+│   │   │                               #   executeFlashloanBackrun (com bribe)
+│   │   │                               #   SwapStep[] multi-hop N steps (→ triangular)
+│   │   │                               #   FlashSource enum: Aave/Morpho/Balancer
+│   │   ├── ZeusLiquidator.sol          # Liquidações Aave/Compound/Morpho (+ variantes WithBribe)
+│   │   ├── ZeusMoonwellLiquidator.sol  # Moonwell (fork Compound V2) — contrato próprio
+│   │   ├── BribeManager.sol            # pay() bribe ao block.coinbase + slippage floor (H-01 Pass 4)
 │   │   ├── libraries/
-│   │   │   ├── UniswapV3Lib.sol        # inline adapter SwapRouter02
-│   │   │   └── AerodromeLib.sol        # inline adapter Aerodrome Router
+│   │   │   ├── UniswapV3Lib.sol        # inline adapter SwapRouter02 (on-chain)
+│   │   │   └── AerodromeLib.sol        # inline adapter Aerodrome Router (on-chain)
 │   │   └── interfaces/
-│   │       ├── IZeusExecutor.sol       # SwapStep, ArbitrageParams, LiquidationParams,
-│   │       │                           # CompoundLiquidationParams, MorphoLiquidationParams,
-│   │       │                           # OperationType enum, errors customizados
+│   │       ├── IZeusExecutor.sol       # SwapStep, ArbitrageParams, DexType enum,
+│   │       │                           #   FlashSource enum, errors customizados
+│   │       ├── IZeusArbExecutor.sol · IZeusLiquidator.sol
+│   │       ├── IZeusMoonwellLiquidator.sol · IBribeManager.sol
 │   │       ├── aave/                   # IPool, IFlashLoanSimpleReceiver
+│   │       ├── balancer/IBalancerVault.sol  # flashLoan (0% fee)
 │   │       ├── compound/IComet.sol     # absorb, buyCollateral, isLiquidatable, quoteCollateral
-│   │       └── morpho/IMorpho.sol      # liquidate, position, idToMarketParams, MarketParams
-│   ├── test/
-│   │   ├── ZeusExecutor.t.sol            # 18 unit tests (constructor, kill switch, access)
-│   │   ├── ZeusExecutor.fixes.t.sol      # 11 testes adversariais (Audit Pass 2 fixes)
-│   │   └── fork/                         # fork tests Base mainnet (24 tests)
-│   │       ├── ZeusExecutor.fork.t.sol           # cross-DEX swaps reais
-│   │       ├── ZeusExecutor.flashloan.t.sol      # Aave V3 flashloan
-│   │       ├── ZeusExecutor.profitArb.t.sol      # arb LUCRATIVO com gap artificial
-│   │       ├── ZeusExecutor.liquidation.t.sol    # Aave V3 liquidation ($8.643 profit)
-│   │       ├── ZeusExecutor.compoundLiquidation.t.sol  # Compound III liquidation
-│   │       └── ZeusExecutor.morphoLiquidation.t.sol    # Morpho Blue liquidation
+│   │       ├── moonwell/IMoonwell.sol  # liquidateBorrow (fork Compound V2)
+│   │       └── morpho/IMorpho.sol      # liquidate, flashLoan, position, idToMarketParams
+│   ├── test/                           # 115 funções em 9 arquivos
+│   │   ├── BribeManager.t.sol               # 11 unit
+│   │   ├── ZeusArbExecutor.t.sol            # 19 unit (kill switch, access, multi-hop)
+│   │   ├── ZeusLiquidator.t.sol             # 29 unit
+│   │   ├── ZeusMoonwellLiquidator.t.sol     # 20 unit
+│   │   └── fork/                            # fork tests via Alchemy
+│   │       ├── ZeusArbExecutor.fork.t.sol        # 9 — arb + flashloan (3 fontes)
+│   │       ├── ZeusLiquidator.fork.t.sol         # 9 — liquidações reais
+│   │       ├── BribeManager.fork.t.sol           # 9
+│   │       ├── BribeManagerB6B7.fork.t.sol       # 6
+│   │       └── MotorsProfit.fork.t.sol           # 3 — prova de LUCRO dos 3 motores
 │   ├── script/
-│   │   └── Deploy.s.sol                # chainId-based: 6 chains suportadas (Base/Arb/OP × mainnet+sepolia)
+│   │   └── Deploy.s.sol                # chainId-based: Base/Arb/OP/Polygon/Avax × mainnet+sepolia
 │   └── lib/                            # forge install deps (gitignored)
 │
 ├── apps/
@@ -214,31 +234,34 @@ zeus-evm/
 │   │           ├── compoundV3.ts          # event scan chunked (free tier safe)
 │   │           └── morpho.ts              # subgraph Messari-format (schema-fixed 2026-05-25)
 │   │
-│   └── liquidator/             # ═══ LIQUIDATOR (Sprint 1 + 2 + Backend completo) ═══
-│       ├── package.json        # @zeus-evm/liquidator
-│       └── src/
-│           ├── index.ts                  # boot + discoveryTick + processOpportunity
-│           ├── config.ts                  # 3 modos + thresholds + 6 trackers config
-│           ├── chainContext.ts            # client + wallet opcional
-│           ├── pipeline.ts                # runAavePipeline + runCompoundPipeline (6 gates)
-│           ├── dispatcher.ts              # EIP-1559 + waitForReceipt + event emit
-│           ├── pnlTracker.ts              # gap #1: rolling 24h + auto kill switch
-│           ├── failureTracker.ts          # gap #2: cooldown após N falhas seguidas
-│           ├── positionDedup.ts           # gap #3: pending/confirmed/failed por position
-│           ├── gasReserveTracker.ts       # gap #4: balance monitor + 2 thresholds
-│           ├── gasOracle.ts               # gap #5: EIP-1559 maxFee/priority + cache
-│           ├── eventBus.ts                # gap #7: emit/subscribe interno
-│           ├── events.ts                  # gap #7: 11 tipos canônicos ZEUS-typed
-│           ├── staleCheck.ts              # gap #8: re-check HF on-chain pre-submit
-│           ├── eventDecoder.ts            # decode 5 eventos *Executed + delta
-│           ├── priceUtils.ts              # wei→"$12.45" humano + USD estimate
-│           ├── slippageCache.ts           # cache TTL 60s pra UniV3 quotes
-│           ├── alerting/
-│           │   ├── discordSink.ts         # gap #7: formata embeds Discord
-│           │   └── genericWebhookSink.ts  # gap #7: POST JSON raw pra qualquer URL
-│           └── protocols/
-│               ├── aave/                  # calculator (binary search) + simulator + builder
-│               └── compound/              # ABI + cometCache + discovery + calc + sim + builder
+│   ├── liquidator/             # ═══ LIQUIDATOR (Aave/Compound/Morpho + OEV-aware) ═══
+│   │   ├── package.json        # @zeus-evm/liquidator
+│   │   └── src/
+│   │       ├── index.ts                  # boot + discoveryTick + processOpportunity
+│   │       ├── config.ts                  # 3 modos + thresholds + trackers config
+│   │       ├── chainContext.ts            # client + wallet opcional
+│   │       ├── pipeline.ts                # runAavePipeline + runCompoundPipeline (gates)
+│   │       ├── dispatcher.ts              # EIP-1559 + waitForReceipt + event emit
+│   │       ├── staleCheck.ts              # re-check HF on-chain pre-submit
+│   │       ├── eventDecoder.ts            # decode eventos *Executed + delta
+│   │       └── protocols/
+│   │           ├── aave/                  # calculator (binary search) + simulator + builder
+│   │           └── compound/              # ABI + cometCache + discovery + calc + sim + builder
+│   │       # trackers/gasOracle/eventBus/intelligence vêm de @zeus-evm/execution-utils
+│   │
+│   ├── mis-scanner/            # ═══ MOTOR 2 — radar Market Inefficiency Scanner ═══
+│   │   ├── package.json        # @zeus-evm/mis-scanner
+│   │   └── src/                # pricing local + multicall + derivação on-chain +
+│   │                           #   flash sizing + gate de profundidade; grava no ledger OIE
+│   │
+│   ├── backrun-engine/         # ═══ MOTOR 3 — backrun de dislocação ═══
+│   │   ├── package.json        # @zeus-evm/backrun-engine
+│   │   └── src/                # planner + bribe + bundling (executeFlashloanBackrun);
+│   │                           #   EV gate competitor-aware (gas war); falta mempool premium
+│   │
+│   └── discovery-scraper/      # ═══ AUTO-TARGETS (amplia cobertura do detector) ═══
+│       ├── package.json        # @zeus-evm/discovery-scraper
+│       └── src/                # descobre pares; gera auto-targets consumidos por getTargetPairsForChain
 │
 ├── packages/
 │   │
@@ -273,7 +296,7 @@ zeus-evm/
 │   │       │   └── abi.ts                  # ABI completa ZeusExecutor (Aave + Compound + Morpho)
 │   │       └── index.ts                    # re-exports
 │   │
-│   ├── aave-discovery/         # ═══ SHARED DISCOVERY PACKAGE (NOVO 2026-05-25) ═══
+│   ├── aave-discovery/         # ═══ SHARED DISCOVERY PACKAGE ═══
 │   │   ├── package.json        # @zeus-evm/aave-discovery
 │   │   └── src/
 │   │       ├── abi.ts                      # ABIs Pool/PoolDataProvider/AddressesProvider
@@ -283,10 +306,28 @@ zeus-evm/
 │   │       ├── discovery.ts                # pipeline subgraph→Multicall3→par dominante
 │   │       └── index.ts                    # re-exports
 │   │
+│   ├── execution-utils/        # ═══ PACOTE GRANDE COMPARTILHADO (trackers + OIE) ═══
+│   │   ├── package.json        # @zeus-evm/execution-utils
+│   │   └── src/
+│   │       ├── pnlTracker.ts · failureTracker.ts · positionDedup.ts · gasReserveTracker.ts
+│   │       ├── gasOracle.ts (EIP-1559) · eventBus.ts · events.ts · slippageCache.ts
+│   │       ├── eventDecoder.ts · priceUtils.ts · bribeSlippageFloor.ts
+│   │       ├── intelligence/                # OIE: TimeseriesStore (DuckDB) + EventIngester
+│   │       │                                #   + observation + intelligenceSchema
+│   │       ├── pnl/                          # pnlReconciler + attributionAnalyzer + aggregator
+│   │       ├── scoring/                      # chainProfitabilityScorer + opportunityScorer
+│   │       │                                #   + dimensionScorer + dimensionStatsQuery
+│   │       ├── analytics/                    # failureCollector + reporter + competitorResolver
+│   │       ├── competitors/                  # senderRegistry + classifiers + builder attribution
+│   │       ├── arc/MarketInefficiencyScanner # motor 2 core + tokenSafety
+│   │       ├── observability/                # prometheusExporter + structuredLogger + tracer
+│   │       ├── health/ · finality/ · oracle/ · mempool/ · protocols/
+│   │       └── index.ts
+│   │
 │   └── shared-types/           # ═══ TIPOS COMPARTILHADOS ═══
 │       ├── package.json        # @zeus-evm/shared-types
 │       └── src/
-│           ├── swap.ts                 # SwapStep, ArbitrageParams (mirror Solidity)
+│           ├── swap.ts                 # SwapStep, ArbitrageParams, DexType, FlashSource (mirror Solidity)
 │           └── index.ts
 │
 └── docs/refs/                  # ═══ MATERIAL EXTERNO PRA IA ═══
@@ -357,24 +398,28 @@ zeus-evm/
 [apps/detector] recebe receipt, atualiza métricas
 ```
 
-### Fluxo 2 — Flashloan arb (Modalidade Flashloan)
+### Fluxo 2 — Flashloan arb (Modalidade Flashloan, multi-fonte)
+
+> Hoje mora em `ZeusArbExecutor`. A fonte do flashloan é escolhida off-chain via `FlashSource` enum:
+> **Aave** (0,05% premium) · **Morpho** (0%, repago via singleton) · **Balancer** (0%, repago via Vault).
+> O callback e o estilo de repago variam por fonte; o exemplo abaixo usa Aave.
 
 ```
-[apps/detector]
+[apps/detector / backrun-engine]
   │
-  │ (1) Detector identifica oportunidade que precisa size > capital próprio
-  │ (2) Chama executor.executeFlashloanArbitrage(asset, amount, params)
+  │ (1) Motor identifica oportunidade que precisa size > capital próprio
+  │ (2) Chama executeFlashloanArbitrage(src, asset, amount, params)  (src = FlashSource)
   │
-[ZeusExecutor.sol :: executeFlashloanArbitrage]
+[ZeusArbExecutor.sol :: executeFlashloanArbitrage]
   │
-  │ (a) IPool(aaveV3).flashLoanSimple(this, asset, amount, params, 0)
+  │ (a) IPool(aaveV3).flashLoanSimple(this, asset, amount, params, 0)   (caso Aave)
   │
   ▼
 [Aave V3 Pool]
   │ (b) Transfere `amount` de `asset` → ZeusExecutor
-  │ (c) Chama ZeusExecutor.executeOperation(asset, amount, premium, initiator, params)
+  │ (c) Chama ZeusArbExecutor.executeOperation(asset, amount, premium, initiator, params)
   │
-[ZeusExecutor.sol :: executeOperation (callback Aave)]
+[ZeusArbExecutor.sol :: executeOperation (callback Aave)]
   │
   │ (d) Decode params → ArbitrageParams
   │ (e) for each SwapStep: execute swap
@@ -407,16 +452,53 @@ zeus-evm/
   │       (6) Se profit líquido > MIN_PROFIT_USD:
   │
   ▼
-[ZeusExecutor.sol :: liquidatePosition]
+[ZeusLiquidator.sol :: executeLiquidation / executeCompoundLiquidation / executeMorphoLiquidation]
+  │   (Moonwell → ZeusMoonwellLiquidator.executeMoonwellLiquidation)
+  │   (variantes *WithBribe chamam BribeManager.pay() ao block.coinbase)
   │
-  │ (a) flashloan(debtAsset, debtAmount)
+  │ (a) flashloan(debtAsset, debtAmount)   (FlashSource: Aave/Morpho/Balancer)
   │ (b) callback executeOperation:
-  │       i)   aaveV3.liquidationCall(user, collateralAsset, debtAsset, debtAmount, false)
+  │       i)   protocol.liquidationCall(user, collateralAsset, debtAsset, debtAmount, false)
   │       ii)  recebe collateral + bonus
   │       iii) swap collateral → debtAsset (pra repagar flashloan)
-  │       iv)  approve aave pra repay
+  │       iv)  approve/transfer pra repay (estilo varia por fonte)
   │       v)   profit residual → profitReceiver
 ```
+
+### Fluxo 4 — OIE: ledger DuckDB → scoring/ranking (DRY_RUN, 2026-06-15)
+
+```
+  OBSERVAÇÃO                               EXECUÇÃO
+┌──────────────────┐                  ┌─────────────────────┐
+│ detector (arb)   │                  │ liquidator          │
+│ mis-scanner (MIS)│                  │ backrun-engine      │
+└────────┬─────────┘                  └──────────┬──────────┘
+         │ buildObservationEvent                 │ eventos de execução
+         │ (arb_observed / mis_observed)         │ (dispatch / fill / pnl)
+         ▼                                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Ledger DuckDB — logs/intelligence.duckdb                     │
+│  (path via INTELLIGENCE_DB_PATH; volume persistente no Fly.io)│
+│  DuckDB é SINGLE-WRITER → cada motor escreve SEU arquivo;      │
+│  unificação só na CONSULTA via ATTACH (attachAndRankPairs)    │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ queryTopOpportunityPairs
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Scoring (execution-utils/scoring)                            │
+│  Scores: Opportunity · Protocol · Pool · Token                │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ alimenta EV gates pré-dispatch
+                               ▼
+   ┌────────────────────────┐      ┌────────────────────────────┐
+   │ Backrun: EV gate       │      │ Liquidator: EV gate         │
+   │ competitor-aware       │      │ ciente de OEV               │
+   │ (gas war)              │      │ (prioriza Morpho)           │
+   └────────────────────────┘      └────────────────────────────┘
+```
+
+Deploy: `Dockerfile` (raiz) + `deploy/fly/*.toml` com volume persistente obrigatório
+pro ledger DuckDB. Guia: `docs/refs/fly-deploy.md`. Status detalhado: `docs/OIE_PROGRESS.md`.
 
 ---
 
@@ -509,9 +591,12 @@ zeus-evm/
 
 ## 🗄️ Persistência
 
-### MVP (Fases 0-5)
-- **Sem banco.** Tudo em logs estruturados pino → arquivo + stdout
-- Estado em memória do detector
+### Atual — Ledger OIE (DuckDB)
+- **DuckDB embarcado** (`logs/intelligence.duckdb`, `INTELLIGENCE_DB_PATH`) — ledger de eventos OIE
+- Single-writer: cada motor grava seu arquivo; unificação na consulta via `ATTACH`
+- `TimeseriesStore` + `EventIngester` + `intelligenceSchema` em `execution-utils/intelligence`
+- PnL persistido (JSONL + reconciler) · logs estruturados pino → arquivo + stdout
+- Volume persistente no Fly.io obrigatório (ver `deploy/fly/*.toml`)
 
 ### Pós-mainnet (Fase 7+)
 - **Neon Postgres** (padrão MAZARI)

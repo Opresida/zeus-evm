@@ -84,6 +84,9 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.19)
 
   apps/backtest:
     dependencies:
@@ -256,6 +259,9 @@ importers:
       '@zeus-evm/execution-utils':
         specifier: workspace:*
         version: link:../../packages/execution-utils
+      '@zeus-evm/strategy':
+        specifier: workspace:*
+        version: link:../../packages/strategy
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -391,6 +397,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.19
+      tsx:
+        specifier: 'catalog:'
+        version: 4.22.3
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
@@ -429,6 +438,9 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@22.19.19)
 
 packages:
 

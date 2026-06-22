@@ -14,6 +14,13 @@ export {
 } from './tokenSafety';
 
 export {
+  findTriangularCycles,
+  type ArbEdge,
+  type TriangularCycle,
+  type FindTriangularOpts,
+} from './triangular';
+
+export {
   MarketInefficiencyScanner,
   type PoolDex,
   type PoolRef,

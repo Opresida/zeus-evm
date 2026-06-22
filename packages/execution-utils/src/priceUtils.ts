@@ -105,3 +105,17 @@ export function gasCostUsd(
   const gasCostEth = Number(gasCostWei) / 1e18;
   return gasCostEth * ethUsdPrice;
 }
+
+/**
+ * Priority fee REAL por gas (wei) = effectiveGasPrice − baseFeePerGas (clampado em ≥ 0).
+ * Antes passávamos o `effectiveGasPrice` cheio como "priority fee", o que superestimava o custo de
+ * inclusão numa L2 onde a baseFee domina. Retorna `undefined` quando falta algum dado (o reconciler
+ * então simplesmente não calcula o sub-métrico de inclusão).
+ */
+export function realizedPriorityFeeWei(
+  effectiveGasPrice: bigint | null | undefined,
+  baseFeePerGas: bigint | null | undefined,
+): bigint | undefined {
+  if (effectiveGasPrice == null || baseFeePerGas == null) return undefined;
+  return effectiveGasPrice > baseFeePerGas ? effectiveGasPrice - baseFeePerGas : 0n;
+}

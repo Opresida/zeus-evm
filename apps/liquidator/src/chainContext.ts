@@ -8,6 +8,7 @@ import {
   createPublicClient,
   createWalletClient,
   http,
+  fallback,
   type Address,
   type PublicClient,
   type WalletClient,
@@ -50,6 +51,8 @@ export interface LiquidatorChainContext {
 interface ChainBlueprint {
   cfg: ChainConfig;
   rpc: string | undefined;
+  /** Fallback de RPC opcional — failover automático do viem se o primário falhar. */
+  rpcFallback?: string | undefined;
   subgraphId: string;
   viemChain: any;
   executorAddr: string | undefined;
@@ -65,9 +68,15 @@ export function getChainContext(env: LiquidatorEnv): LiquidatorChainContext {
     );
   }
 
+  // RPC fallback (H2): se BASE_RPC_HTTP_FALLBACK estiver setado (ex: Alchemy), o viem faz
+  // failover automático quando o primário (dRPC) limita/cai. Sem fallback, usa só o primário.
+  const transport = bp.rpcFallback
+    ? fallback([http(bp.rpc), http(bp.rpcFallback)], { retryCount: 1 })
+    : http(bp.rpc);
+
   const client = createPublicClient({
     chain: bp.viemChain,
-    transport: http(bp.rpc),
+    transport,
   });
 
   let wallet: AnyWalletClient | undefined;
@@ -88,7 +97,7 @@ export function getChainContext(env: LiquidatorEnv): LiquidatorChainContext {
     wallet = createWalletClient({
       account: acct,
       chain: bp.viemChain,
-      transport: http(bp.rpc),
+      transport,
     });
   }
 
@@ -110,6 +119,7 @@ function resolveBlueprint(env: LiquidatorEnv, chainId: number): ChainBlueprint {
       return {
         cfg: BASE_MAINNET,
         rpc: env.BASE_RPC_HTTP,
+        rpcFallback: env.BASE_RPC_HTTP_FALLBACK,
         subgraphId: env.AAVE_V3_BASE_SUBGRAPH_ID,
         viemChain: base,
         executorAddr: env.LIQUIDATOR_ADDRESS_BASE ?? env.LIQUIDATOR_ADDRESS ?? env.EXECUTOR_CONTRACT_ADDRESS_BASE,

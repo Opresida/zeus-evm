@@ -16,6 +16,8 @@
 
 import type { Address, PublicClient } from 'viem';
 
+import type { ArbEdge } from './triangular';
+
 import {
   readUniV3PoolState,
   readAeroPoolState,
@@ -117,6 +119,8 @@ export class MarketInefficiencyScanner {
   private readonly onSample: ((obs: InefficiencyObservation) => void) | undefined;
 
   private readonly groups = new Map<string, PoolGroup>();
+  /** Spots do último scan (groupLabel → [{label, spot tokenB-por-tokenA 1e18}]) — pro grafo triangular. */
+  private lastSpotsByGroup = new Map<string, Array<{ label: string; spot: bigint }>>();
   private readonly samples = new Map<string, InefficiencyObservation[]>();
   /** Grupos marcados como "rasos" (pool não suporta o notional) — excluídos do ranking. */
   private readonly thinGroups = new Set<string>();
@@ -203,6 +207,27 @@ export class MarketInefficiencyScanner {
       }
     }
     return out;
+  }
+
+  /**
+   * Monta os edges do GRAFO de tokens a partir dos spots do último scan (sem RPC extra).
+   * Cada pool vira 2 edges direcionados (A→B e B→A), com a taxa já descontada de fee (`feeBps`).
+   * Alimenta `findTriangularCycles` pra ver oportunidades "na profundidade".
+   */
+  collectArbEdges(feeBps = 30): ArbEdge[] {
+    const haircut = 1 - feeBps / 10_000;
+    const edges: ArbEdge[] = [];
+    for (const [label, spots] of this.lastSpotsByGroup.entries()) {
+      const group = this.groups.get(label);
+      if (!group) continue;
+      for (const s of spots) {
+        const spotF = Number(s.spot) / 1e18; // tokenB por 1 tokenA
+        if (!(spotF > 0) || !Number.isFinite(spotF)) continue;
+        edges.push({ from: group.tokenA, to: group.tokenB, rate: spotF * haircut, poolLabel: s.label, dex: label });
+        edges.push({ from: group.tokenB, to: group.tokenA, rate: (1 / spotF) * haircut, poolLabel: s.label, dex: label });
+      }
+    }
+    return edges;
   }
 
   /**
@@ -340,6 +365,9 @@ export class MarketInefficiencyScanner {
       list.push({ label: ref.label, spot });
       spotsByGroup.set(group.label, list);
     }
+
+    // Cacheia os spots deste scan pra montar o grafo triangular (sem RPC extra).
+    this.lastSpotsByGroup = spotsByGroup;
 
     const out: InefficiencyObservation[] = [];
     for (const [label, spots] of spotsByGroup.entries()) {

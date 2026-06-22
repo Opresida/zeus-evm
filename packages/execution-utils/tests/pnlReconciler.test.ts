@@ -178,6 +178,18 @@ describe('PnlReconciler — Item 10 P1', () => {
     expect(stats.realizedTotalUsd).toBeCloseTo(37);
     expect(stats.netDeltaUsd).toBeCloseTo(-3);
   });
+
+  it('cumulativeGasUsdPaid acumula gás de todas as reconciliações (Fase 3)', () => {
+    expect(reconciler.cumulativeGasUsdPaid()).toBe(0);
+    const base = {
+      chain: 'Base', protocol: 'aave-v3' as const, tx_hash: '0xg', block_number: 1n,
+      expected_profit_wei: 1n, expected_profit_usd: 1, realized_profit_wei: 1n, realized_profit_usd: 1,
+      realized_gas_units_used: 100n,
+    };
+    reconciler.reconcile({ ...base, realized_gas_usd: 0.5 });
+    reconciler.reconcile({ ...base, realized_gas_usd: 1.25 });
+    expect(reconciler.cumulativeGasUsdPaid()).toBeCloseTo(1.75, 5);
+  });
 });
 
 describe('attributionAnalyzer (standalone)', () => {

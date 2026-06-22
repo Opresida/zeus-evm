@@ -274,9 +274,17 @@ export const STANDARD_METRICS: MetricDefinition[] = [
   { name: 'zeus_auto_pause_active', help: 'Auto-pause active (1) or not (0)', type: 'gauge', labels: ['service'] },
   { name: 'zeus_auto_pause_reasons', help: 'Number of active pause reasons', type: 'gauge', labels: ['service'] },
 
+  // Falhas categorizadas (Fase 4)
+  { name: 'zeus_failures_total', help: 'Falhas por categoria (lost_race/reverted_on_chain/...)', type: 'counter', labels: ['chain', 'category', 'protocol'] },
+
+  // Calibração de PnL (Fase 5a)
+  { name: 'zeus_drift_sustained_alerts', help: 'Alertas de drift sustentado (real vs esperado) abaixo do threshold', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_pnl_avg_drift_bps_all', help: 'Drift médio (bps) de todas as ops na janela', type: 'gauge', labels: ['chain'] },
+
   // Queue/dedup
   { name: 'zeus_dedup_pending', help: 'Positions in dedup pending state', type: 'gauge', labels: ['chain'] },
   { name: 'zeus_dedup_confirmed', help: 'Positions in dedup confirmed state', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_dedup_suppressed_total', help: 'Quase-duplicados suprimidos pelo dedup, por status (Fase 6)', type: 'counter', labels: ['chain', 'status'] },
 
   // Latency (histograms)
   { name: 'zeus_dispatch_duration_seconds', help: 'Dispatch duration from submit to confirm', type: 'histogram', labels: ['chain', 'protocol'] },
@@ -284,7 +292,17 @@ export const STANDARD_METRICS: MetricDefinition[] = [
 
   // Competitor scanner
   { name: 'zeus_competitor_profiles_total', help: 'Total competitor profiles tracked', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_competitor_category_total', help: 'Competitor profiles por categoria (liquidator/mev_searcher/...)', type: 'gauge', labels: ['chain', 'category'] },
   { name: 'zeus_scanner_blocks_processed_total', help: 'Total blocks scanned by competitor scanner', type: 'counter', labels: ['chain'] },
+
+  // Market-bribe (Fase 1) — quanto o mercado paga de priority fee pra ganhar inclusão
+  { name: 'zeus_market_bribe_priority_fee_gwei', help: 'Market priority fee (gwei) pago por competidores, por percentil', type: 'gauge', labels: ['chain', 'percentile'] },
+  { name: 'zeus_market_bribe_competitors_active', help: 'Competidores ativos no agregado de market-bribe', type: 'gauge', labels: ['chain'] },
+
+  // Sybil + builder attribution (Fase 5)
+  { name: 'zeus_sybil_clusters_total', help: 'Clusters sybil detectados (co-ocorrência)', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_sybil_strong_links', help: 'Links fortes (jaccard alto) entre senders', type: 'gauge', labels: ['chain'] },
+  { name: 'zeus_builders_tracked', help: 'Builders/miners distintos observados', type: 'gauge', labels: ['chain'] },
 ];
 
 /**

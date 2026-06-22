@@ -70,6 +70,12 @@ export interface BackrunPipelineDeps {
   pnlReconciler?: import('@zeus-evm/execution-utils').PnlReconciler;
   /** Failure Collector (Item 4) — schema rico em JSONL. */
   failureCollector?: import('@zeus-evm/execution-utils').FailureCollector;
+  /** MetricRegistry (Fase 7b) — cronometra planBackrun + dispatch (histogramas Prometheus). */
+  metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
+  /** Post-mortem (Fase D2) — quem nos ganhou + posição no bloco. */
+  competitorResolver?: import('@zeus-evm/execution-utils').CompetitorResolver;
+  blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
+  botSender?: Address;
 }
 
 export interface BackrunPipelineResult {
@@ -164,8 +170,9 @@ export async function processWhaleSwap(
     );
   }
 
-  // Plan
+  // Plan (= "calculator" do motor 3) — cronometrado pro histograma (Fase 7b).
   const blockNumber = await chainCtx.client.getBlockNumber();
+  const calcStart = Date.now();
   const opp = await planBackrun({
     client: chainCtx.client,
     whale,
@@ -177,6 +184,10 @@ export async function processWhaleSwap(
     maxTradeWei,
     blockNumber,
     sampleSize: env.BACKRUN_SAMPLE_SIZE,
+  });
+  deps.metricRegistry?.observe('zeus_calculator_duration_seconds', (Date.now() - calcStart) / 1000, {
+    chain: chainCtx.chainName,
+    protocol: 'backrun',
   });
 
   if (!opp) {
@@ -302,6 +313,7 @@ export async function processWhaleSwap(
   // Validate + simulate (com bribe quando configurado)
   const validation = await validateBackrunProfit({
     client: chainCtx.client,
+    chainConfig: chainCtx.chainConfig,
     opp,
     executorAddress: chainCtx.executorAddress,
     callerAddress,
@@ -341,6 +353,10 @@ export async function processWhaleSwap(
     relayRouter,
     pnlReconciler: deps.pnlReconciler,
     failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
   });
 
   logger.info(

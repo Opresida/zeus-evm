@@ -80,6 +80,32 @@ export function buildObservationEvent(input: ObservationInput): HistoricalEvent 
   };
 }
 
+/**
+ * Grava um snapshot/observação no ledger de forma "fire-and-forget":
+ *  - monta o HistoricalEvent via `buildObservationEvent`
+ *  - chama `store.ingest()` dentro de try/catch
+ *
+ * Filosofia (igual ao EventIngester): erro de inteligência NUNCA pode derrubar o bot.
+ * Por isso engolimos qualquer exceção aqui e (opcionalmente) só logamos um warn.
+ *
+ * É o utilitário padrão pra trazer os sinais "órfãos" (market-bribe, competidores,
+ * reconciliação de PnL, falhas, clusters, dedup) pro ledger central DuckDB.
+ */
+export function ingestSnapshot(
+  store: Pick<TimeseriesStore, 'ingest'>,
+  input: ObservationInput,
+  logger?: { warn: (obj: unknown, msg?: string) => void },
+): void {
+  try {
+    store.ingest(buildObservationEvent(input));
+  } catch (err) {
+    logger?.warn(
+      { err: err instanceof Error ? err.message : err, category: input.category },
+      'ingestSnapshot: falha gravando snapshot no ledger (ignorado)',
+    );
+  }
+}
+
 export interface TopPairRow {
   pair: string;
   protocol: string | null;

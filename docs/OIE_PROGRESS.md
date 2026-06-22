@@ -6,6 +6,29 @@
 
 ---
 
+## Inteligência completa: lida → gravada → Grafana (2026-06-18)
+
+Auditoria + fechamento de TODOS os sinais "órfãos" (antes só em JSON/RAM, fora do ledger central
+e da Grafana). Agora toda a inteligência cai no DuckDB (categorias novas) **e** tem métrica/painel:
+
+| Sinal | Categoria no ledger | Métrica Prometheus | Painel |
+|---|---|---|---|
+| Market-bribe (lance dos competidores) | `market_bribe` | `zeus_market_bribe_*` | Performance |
+| Perfis de competidores | `competitor` | `zeus_competitor_category_total` | Performance |
+| Reconciliação de PnL (esperado vs real) | `pnl_reconciled` | `zeus_pnl_expected/drift/gas_*` (antes mortas) | Operations |
+| Falhas categorizadas | `failure_recorded` | `zeus_failures_total` | Operations |
+| Sybil + builder attribution | `cluster` | `zeus_sybil_*` / `zeus_builders_tracked` | Performance |
+| Supressões de dedup | `dedup`* | `zeus_dedup_suppressed_total` | Operations |
+| Latência dispatch/calculator | — | `zeus_*_duration_seconds` (antes mortas) | Performance |
+
+\* dedup hoje exposto via métrica; categoria reservada pra evento futuro.
+
+Extras: **backrun passou a expor `/metrics`** (motor 3 era invisível) + ganhou scanner de competidores
+(market-bribe vale no motor 3) + market-bribe **alimenta o BribeCalculator** (piso de mercado).
+O `report:observation` abre com "Inteligência capturada (por categoria)". Detalhes: `docs/grafana/README.md`.
+
+---
+
 ## Mapa do plano (Etapas A→D)
 
 | Etapa | Escopo | Status |

@@ -188,7 +188,7 @@ export function formatFailureMarkdown(data: FailureDigestData): string {
     lines.push('');
   } else {
     lines.push('### 🏆 Competidores');
-    lines.push('_CompetitorResolver não populou dados ainda (precisa wire pós-failure)._');
+    lines.push('_Sem competidores identificados na janela (enriquecimento só roda com tx real on-chain)._');
     lines.push('');
   }
 

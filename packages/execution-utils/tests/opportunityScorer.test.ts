@@ -146,6 +146,11 @@ describe('scoreLiquidationOpportunity — OEV-aware (prioriza Morpho)', () => {
     expect(oevRecaptureFor('seamless')).toBe(0);
     // desconhecido → 0 (não penaliza)
     expect(oevRecaptureFor('qualquer-coisa')).toBe(0);
+    // variantes de Aave (startsWith) → aave
+    expect(oevRecaptureFor('aave-v3-mainstream')).toBe(OEV_RECAPTURE_PRIORS.aave);
+    // matching exato-primeiro: um fork que CONTÉM 'compound' mas não é compound-v3
+    // NÃO deve herdar o haircut do compound (antes o includes() pegava errado → 0.85).
+    expect(oevRecaptureFor('compound-fork-open')).toBe(0);
   });
 
   it('mesma liquidação: Morpho domina Aave/Compound/Moonwell pós-OEV', () => {

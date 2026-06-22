@@ -8,14 +8,15 @@
 **Chain inicial:** Base (Coinbase L2) · **Code-ready:** Arbitrum · Optimism · Polygon · Avalanche
 **Time:** Humberto (product/strategy) + Claude (engineering)
 
-**Status (snapshot 2026-05-29):**
-- **4 contratos (v8 split):** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator
+**Status (snapshot 2026-06-15):**
+- **4 contratos (v8 split, EIP-170):** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator
+- **Flashloan 3 fontes** (Aave V3 / Morpho Blue / Balancer V2) — Morpho e Balancer com **0% fee** (multi-fonte) + multi-hop N steps
 - **5 protocolos de lending** (Motor 1): Aave V3 · Compound III · Morpho Blue · Seamless · Moonwell
-- **Motor 2 (radar MIS) construído** — varre ineficiência cross-DEX por persistência + sizing de flashloan
-- **Motor 3 (backrun) construído** — esperando feed de mempool premium
-- **Fork tests: 34/34 verdes** contra Base mainnet (inclui 3 de LUCRO ponta-a-ponta dos motores, via Alchemy)
-- **Testes:** 67 unit + 34 fork (Foundry) · execution-utils 256 · liquidator 22 · mis-scanner 6 · typecheck 13/13
-- Contratos v8 (3 de 4) deployados em Base Sepolia; ZeusMoonwellLiquidator entra no próximo deploy
+- **Motor 2 (radar MIS) construído** — varre ineficiência cross-DEX por persistência + sizing de flashloan + persiste no ledger
+- **Motor 3 (backrun) construído** — EV gate competitor-aware + bribe; esperando feed de mempool premium
+- **Camada OIE construída (2026-06-15)** — scoring (Opportunity/Protocol/Pool/Token) + ledger DuckDB; gates EV cientes de OEV/competidor
+- **Testes:** 115 funções Foundry (9 arquivos, unit + fork contra Base mainnet via Alchemy) · 43 testes TS · typecheck 13/13
+- Contratos deployados em **Sepolia (testnet), NÃO mainnet**
 
 > ⚠️ **Lucro real até agora: US$ 0.** A lógica dos 3 motores está provada (fork tests com lucro), mas o bot
 > ainda NÃO está em produção. Os lucros dos fork tests são prova de LÓGICA em cenário fabricado — não dinheiro
@@ -48,12 +49,19 @@ dataset (os colaterais sub-servidos) e a mesma infra on-chain.
 LSDs (cbETH, wstETH, sAVAX), stables fragmentadas, e protocolos de nicho (Morpho, Moonwell, Seamless) onde
 há poucos competidores.
 
+**Achado estratégico (2026-06-15):** liquidação na Base está se fechando por **OEV capture** — Aave V3 ~85%
+(Chainlink SVR), Moonwell ~99% (MEV tax). **Morpho Blue continua ABERTO (0% recapture) = nosso único edge real
+em liquidação.** A estratégia decantou em: **núcleo = liquidação Morpho** (lumpy, paga muito no crash) +
+**baseline = arb cross-DEX** (pequeno, contínuo, paga a infra). Nota competitiva honesta: **~7,5/10 como software,
+~4,5/10 como competidor que ganha dinheiro hoje** (falta fosso de orderflow/latência). Detalhes em
+[`docs/refs/`](./docs/refs) (competitive-landscape · engine-strategy · morpho-profit-projection).
+
 O **Motor 2 (MIS)** ranqueia ineficiências por **PERSISTÊNCIA** (magnitude × duração), não por pico — porque
 ineficiência de 1 bloco é guerra de latência (perdemos) e ineficiência persistente é o nosso edge. E usa o
 quoter on-chain pra calcular o **tamanho ótimo do flashloan** + descartar pool raso (slippage disfarçado).
 
 **Lucro real só aparece com:** (1) deploy em mainnet; (2) oportunidade real (acontece em movimento de mercado);
-(3) ganhar a corrida contra concorrentes; (4) dias de coleta do MIS pra revelar onde mora a ineficiência.
+(3) ganhar a corrida contra concorrentes; (4) dias de coleta do MIS/ledger pra revelar onde mora a ineficiência.
 
 ---
 
@@ -73,21 +81,24 @@ forge install foundry-rs/forge-std --no-commit
 forge install OpenZeppelin/openzeppelin-contracts --no-commit
 cd ..
 
-pnpm contracts:build         # build contratos (4 contratos v8)
+pnpm contracts:build         # build contratos (4 contratos v8 split)
 pnpm typecheck               # 13/13 workspaces
 pnpm contracts:test          # unit tests Foundry (sem fork)
 
 # Fork tests contra Base mainnet (usa Alchemy automático via ALCHEMY_API_KEY do .env)
 pnpm contracts:test:fork
-# → 34/34, inclui a prova de LUCRO dos 3 motores
+# → 115 funções Foundry no total (9 arquivos, unit + fork), inclui a prova de LUCRO dos 3 motores
 
-# MIS — radar do Motor 2 (observação pura, não submete tx)
+# MIS — radar do Motor 2 (observação pura, não submete tx; grava no ledger DuckDB)
 MIS_CHAIN=base pnpm --filter @zeus-evm/mis-scanner start       # ou MIS_CHAIN=avalanche
+
+# Discovery scraper — varredura GeckoTerminal → auto-targets pro detector
+pnpm --filter @zeus-evm/discovery-scraper start
 
 # Confirmação on-chain read-only (endereços/ABIs/premium flashloan nas 3 chains)
 pnpm --filter @zeus-evm/mis-scanner exec tsx scripts/confirmOnchain.ts
 
-# Liquidator DRY_RUN (discovery read-only, sem submeter)
+# Liquidator DRY_RUN (discovery read-only, sem submeter; OIE prioriza Morpho via OEV)
 CHAIN_ID=8453 LIQUIDATOR_MODE=dryrun pnpm --filter @zeus-evm/liquidator start
 ```
 
@@ -118,28 +129,33 @@ CHAIN_ID=8453 LIQUIDATOR_MODE=dryrun pnpm --filter @zeus-evm/liquidator start
 
 ```
 zeus-evm/
-├── contracts/                       # Foundry — 4 contratos v8
+├── contracts/                       # Foundry — 4 contratos v8 split (EIP-170)
 │   ├── src/
 │   │   ├── BribeManager.sol            # gorjeta MEV ao block.coinbase (compartilhado)
 │   │   ├── ZeusLiquidator.sol          # liquidation Aave + Compound + Morpho (Morpho = função)
-│   │   ├── ZeusArbExecutor.sol         # arb cross-DEX + flashloan arb + backrun (Motor 2/3)
+│   │   ├── ZeusArbExecutor.sol         # arb cross-DEX + flashloan 3 fontes (Aave/Morpho/Balancer) + backrun
 │   │   ├── ZeusMoonwellLiquidator.sol  # liquidation Moonwell (fork Compound V2, contrato à parte)
 │   │   ├── libraries/                  # UniswapV3Lib + AerodromeLib (inline)
-│   │   └── interfaces/                 # Aave / Compound / Morpho / Moonwell
-│   ├── test/ + test/fork/              # 67 unit + 34 fork (inclui MotorsProfit.fork.t.sol)
+│   │   └── interfaces/                 # Aave / Compound / Morpho / Moonwell / Balancer
+│   ├── test/ + test/fork/              # 115 funções (9 arquivos: 4 unit + 5 fork, inclui MotorsProfit.fork.t.sol)
 │   ├── script/Deploy.s.sol             # deploy multi-chain dos 4 contratos
 │   └── fork-test.sh                    # roda fork tests via Alchemy
-├── apps/
-│   ├── liquidator/                  # Motor 1 — pipeline calc→sim→build→dispatch (5 protocolos, multi-chain)
-│   ├── backrun-engine/              # Motor 3 — planner + bribe + bundling (Flashbots/Atlas/Blocknative)
-│   ├── mis-scanner/                 # Motor 2 — radar MIS + flash estimator/sizing + confirmOnchain.ts
-│   ├── monitor/ + detector/ + backtest/
-├── packages/
+├── apps/                            # 7 apps
+│   ├── liquidator/                  # Motor 1 — pipeline calc→sim→build→dispatch (5 protocolos; OIE prioriza Morpho via OEV)
+│   ├── mis-scanner/                 # Motor 2 — radar MIS + flash estimator/sizing + derivação colaterais + ledger
+│   ├── backrun-engine/             # Motor 3 — EV gate competitor-aware + bribe + bundling (Flashbots/Atlas/Blocknative)
+│   ├── discovery-scraper/          # varredura GeckoTerminal → auto-targets pro detector
+│   ├── detector/                    # arb radar — consome varredura + grava no ledger DuckDB
+│   ├── monitor/ + backtest/
+├── packages/                        # 6 packages
 │   ├── chain-config/                # Base + Arb + OP + Polygon + Avalanche (+ Sepolia)
 │   ├── dex-adapters/                # quotes + pricing local (UniV3 tick, Aero, Trader Joe LB)
-│   ├── execution-utils/             # arb/MIS + tokenSafety + gates + caixa-preta (intelligence)
+│   ├── execution-utils/             # arb/MIS + gates + intelligence DuckDB + scoring OIE + pnlReconciler + senderRegistry + prometheus/health
+│   ├── strategy/                    # opportunities + executor (txBuilder/simulator)
 │   ├── aave-discovery/              # ABIs + reserves cache + discovery on-chain + BorrowerCache
 │   └── shared-types/
+├── docs/                            # OIE_PROGRESS.md + refs/ (competitive-landscape, engine-strategy, morpho-profit-projection, infra-costs, cross-dex-arb-status, fly-deploy)
+├── deploy/fly/                      # Dockerfile + *.toml (Fly.io, volume persistente pro ledger)
 └── scripts/generate_status_report.py   # relatório executivo (PDF)
 ```
 
@@ -154,10 +170,13 @@ zeus-evm/
 | Multi-chain code-ready (Base/Arb/OP/Polygon/Avalanche) | ✅ |
 | Motor 2: radar MIS (multicall + derivação on-chain + flash sizing + gate de profundidade) | ✅ |
 | Motor 2: adapter Trader Joe LB (Avalanche) | ✅ |
-| Motor 3: backrun engine (planner + bribe + bundling) | ✅ código |
-| Fork tests de lucro dos 3 motores (Base mainnet, Alchemy) | ✅ 34/34 |
-| Deploy mainnet (4 contratos) + capital + multisig | ❌ |
-| 2 semanas DRY_RUN + dias de coleta MIS | ❌ |
+| Motor 3: backrun engine (EV gate competitor-aware + bribe + bundling) | ✅ código |
+| Flashloan 3 fontes (Aave/Morpho/Balancer, 0% multi-fonte) + multi-hop N steps | ✅ |
+| Camada OIE: scoring + ledger DuckDB + gates cientes de OEV/competidor | ✅ |
+| Deploy Fly.io (Dockerfile + deploy/fly/*.toml, volume persistente) | ✅ |
+| Fork tests de lucro dos 3 motores (Base mainnet, Alchemy) | ✅ 115 funções Foundry |
+| Deploy mainnet (4 contratos) + capital + multisig | ❌ (testnet only) |
+| 2 semanas DRY_RUN + dias de coleta MIS/ledger | 🟡 próximo |
 | Motor 3 ao vivo (mempool premium Alchemy ~$199/mês) | ❌ pós-receita |
 | Audit externo (capital > $50k) | ❌ |
 
@@ -169,7 +188,7 @@ zeus-evm/
 2. **Self-custody com cap por tx** — `MAX_TRADE` no contrato; kill switch para tudo em <1 bloco.
 3. **Min profit on-chain** — tx reverte se lucro < threshold.
 4. **Flashloan-first** — sem capital próprio em risco até o primeiro lucro.
-5. **Sem reuso de chave** entre projetos · **validar antes de escalar** (testnet → DRY_RUN mainnet → capital pequeno → audit).
+5. **Sem reuso de chave** entre projetos · **validar antes de escalar** (testnet/fork → DRY_RUN mainnet → capital pequeno → audit). Hoje: contratos em **Sepolia**, lucro real **US$ 0**.
 
 ---
 

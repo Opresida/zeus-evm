@@ -23,6 +23,7 @@ import {
   gasCostUsd,
   decodeLastSwap,
   decodeBribeEvent,
+  realizedPriorityFeeWei,
   type PnlTracker,
   type PnlEvent,
   type FailureTracker,
@@ -31,6 +32,10 @@ import {
   type GasOracle,
   type PnlReconciler,
   type FailureCollector,
+  type FailureEvent,
+  type CompetitorResolver,
+  type BlockPositionTracker,
+  type MetricRegistry,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -94,6 +99,14 @@ export interface DispatchInput {
   opportunityId?: string;
   /** Venue/market label (ex: 'seamless') pra distinguir forks Aave no reconciler. */
   venue?: string;
+  /** MetricRegistry opcional — pra cronometrar dispatch (histograma zeus_dispatch_duration_seconds). */
+  metricRegistry?: MetricRegistry;
+  /** Fase 5b — post-mortem: descobre QUEM nos ganhou numa falha (só com tx real). */
+  competitorResolver?: CompetitorResolver;
+  /** Fase 5b — post-mortem: posição da nossa tx no bloco (perdemos corrida/sandwich?). */
+  blockPositionTracker?: BlockPositionTracker;
+  /** Endereço do nosso bot (pra o resolver ignorar nossas próprias txs). */
+  botSender?: Address;
 }
 
 /**
@@ -127,6 +140,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     borrower,
     chain,
     gasOracle,
+    metricRegistry,
   } = input;
 
   const chainName = chain ?? (typeof summary.chain === 'string' ? summary.chain : 'unknown');
@@ -193,6 +207,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     }
 
     logger.info({ ...summary, mode }, `🚀 SUBMETENDO tx (${mode})...`);
+    const dispatchStart = Date.now(); // Fase 7b — cronômetro do dispatch (submit→confirm)
     const txHash = await wallet.sendTransaction(txParams as any);
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
@@ -204,6 +219,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    // Histograma de latência dispatch (antes morto) — segundos do submit até 1 conf.
+    metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+      chain: chainName,
+      protocol: protocol ?? 'unknown',
+    });
 
     if (receipt.status === 'reverted') {
       // Gas perdido em tx revertida = LOSS pra PnL tracker (em USD)
@@ -217,7 +237,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
       // FailureCollector: schema rico pra análise post-mortem
       if (input.failureCollector && protocol) {
-        input.failureCollector.record({
+        const failureEvent: FailureEvent = {
           id: generateFailureId(Date.now()),
           timestamp: Date.now(),
           chain: chainName ?? 'Base',
@@ -235,6 +255,45 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
             ? estimateUsd(profitAssetSymbol, input.expectedProfitWei, profitAssetDecimals, ethUsdPrice)
             : undefined,
           payload: { revert_reason: 'on-chain revert', block_hash: receipt.blockHash },
+        };
+
+        // Fase 5b — enriquecimento post-mortem (só roda com tx real, dormente em DRY_RUN):
+        //  - posição no bloco (perdemos corrida? sandwich?) + total de txs
+        //  - QUEM nos ganhou (sender + gás), pro digest de falhas + calibração de bribe
+        try {
+          if (input.blockPositionTracker) {
+            const pos = await input.blockPositionTracker.resolve(txHash, receipt.blockNumber);
+            if (pos) {
+              failureEvent.block_total_txs = pos.block_total_txs;
+              (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
+              (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+            }
+          }
+          if (input.competitorResolver && input.botSender) {
+            const winner = await input.competitorResolver.resolve(failureEvent, input.botSender);
+            if (winner) {
+              failureEvent.competitor_winner_sender = winner.winner_sender;
+              failureEvent.competitor_winner_alias = winner.winner_alias;
+              failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+            }
+          }
+        } catch (err) {
+          logger.warn({ err: err instanceof Error ? err.message : err, txHash }, 'enriquecimento post-mortem falhou (segue)');
+        }
+
+        input.failureCollector.record(failureEvent);
+        // Fase 4 — leva a falha pro ledger central + counter (via EventBus).
+        eventBus?.emit({
+          type: 'failure.recorded',
+          timestamp: nowIso(),
+          chain: chainName ?? 'Base',
+          mode,
+          severity: 'warn',
+          protocol,
+          failureCategory: 'reverted_on_chain',
+          txHash,
+          gasUsdLost: revertGasUsd,
+          reason: 'on-chain revert',
         });
       }
 
@@ -356,8 +415,10 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         const realBribeUsd = decodedBribe
           ? (Number(decodedBribe.bribe_native_wei) / 1e18) * ethUsdPrice
           : undefined;
+        // Priority fee REAL = effectiveGasPrice − baseFee do bloco (não o gas price cheio).
+        const reconBlock = await client.getBlock({ blockNumber: receipt.blockNumber }).catch(() => null);
 
-        input.pnlReconciler.reconcile({
+        const recon = input.pnlReconciler.reconcile({
           chain: chainName ?? 'Base',
           protocol,
           tx_hash: txHash,
@@ -372,7 +433,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           realized_profit_usd: profitUsd ?? 0,
           realized_gas_units_used: receipt.gasUsed,
           realized_gas_usd: gasUsdCost,
-          realized_priority_fee_wei: receipt.effectiveGasPrice ?? undefined,
+          realized_priority_fee_wei: realizedPriorityFeeWei(receipt.effectiveGasPrice, reconBlock?.baseFeePerGas),
           realized_swap_output_wei: decodedSwap?.amount_out,
           realized_bribe_wei_paid: decodedBribe?.bribe_native_wei,
           realized_bribe_usd_paid: realBribeUsd,
@@ -381,6 +442,25 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           venue: input.venue,
           finality_status: 'soft', // 1 conf — pode promover pra 'finalized' depois via FinalityTracker
         });
+
+        // Fase 3 — joga a reconciliação no ledger central via EventBus (EventIngester mapeia).
+        if (eventBus) {
+          eventBus.emit({
+            type: 'pnl.reconciled',
+            timestamp: nowIso(),
+            chain: chainName ?? 'Base',
+            mode,
+            severity: 'info',
+            protocol,
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
+            expectedNetUsd: recon.expected.net_profit_usd_estimated,
+            realizedNetUsd: recon.realized.net_profit_usd,
+            profitDeltaBps: recon.deltas.profit_delta_bps,
+            gasUsd: recon.realized.gas_usd_actual,
+            attributionCause: recon.attribution.primary_cause,
+          });
+        }
       } catch (err) {
         // Reconciliation não pode derrubar o bot
         logger.warn(

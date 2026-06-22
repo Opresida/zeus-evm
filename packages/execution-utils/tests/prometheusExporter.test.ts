@@ -96,6 +96,28 @@ describe('MetricRegistry — Item 16B OB2', () => {
     expect(output).toContain('zeus_dispatch_duration_seconds_count');
   });
 
+  it('métricas órfãs novas estão registradas e rendem (Fases 1-7)', () => {
+    const r = new MetricRegistry();
+    registerStandardMetrics(r);
+    const names = STANDARD_METRICS.map((m) => m.name);
+    for (const n of [
+      'zeus_market_bribe_priority_fee_gwei',
+      'zeus_market_bribe_competitors_active',
+      'zeus_competitor_category_total',
+      'zeus_failures_total',
+      'zeus_dedup_suppressed_total',
+      'zeus_sybil_clusters_total',
+      'zeus_builders_tracked',
+    ]) {
+      expect(names).toContain(n);
+    }
+    r.set('zeus_market_bribe_priority_fee_gwei', 3.2, { chain: 'Base', percentile: 'p75' });
+    r.inc('zeus_failures_total', { chain: 'Base', category: 'lost_race', protocol: 'backrun' });
+    const output = r.render();
+    expect(output).toContain('zeus_market_bribe_priority_fee_gwei{chain="Base",percentile="p75"} 3.2');
+    expect(output).toContain('zeus_failures_total{category="lost_race",chain="Base",protocol="backrun"} 1');
+  });
+
   it('reset limpa todos valores mas mantém definitions', () => {
     const r = new MetricRegistry();
     r.define({ name: 'foo', help: 'F', type: 'counter' });

@@ -127,8 +127,12 @@ async function fetchMorphoTokens(client: AnyPublicClient, morpho: Address, block
     const start = current > BigInt(blockLookback) ? current - BigInt(blockLookback) : 0n;
     const step = BigInt(FREE_TIER_BLOCK_RANGE);
     const out = new Set<string>();
+    let totalChunks = 0;
+    let failedChunks = 0;
+    let firstErr = '';
     for (let from = start; from <= current; from += step + 1n) {
       const to = from + step > current ? current : from + step;
+      totalChunks++;
       try {
         const logs = await client.getLogs({ address: morpho, event: MORPHO_CREATE_MARKET_EVENT, fromBlock: from, toBlock: to });
         for (const log of logs) {
@@ -136,9 +140,22 @@ async function fetchMorphoTokens(client: AnyPublicClient, morpho: Address, block
           if (mp?.loanToken) out.add(mp.loanToken.toLowerCase());
           if (mp?.collateralToken) out.add(mp.collateralToken.toLowerCase());
         }
-      } catch {
-        // chunk falhou — mantém o que já temos
+      } catch (err) {
+        // chunk falhou — mantém o que já temos, mas NÃO silenciosamente (visibilidade do gap)
+        failedChunks++;
+        if (!firstErr) firstErr = err instanceof Error ? err.message.slice(0, 120) : String(err);
       }
+    }
+    // Sem isto, um RPC com limite de range apertado (ex.: Alchemy free tier = 10 blocos vs o scan
+    // usa FREE_TIER_BLOCK_RANGE) faria TODOS os chunks falharem e a derivação voltaria 0 tokens
+    // SEM nenhum aviso — mascarando a perda de cobertura do Morpho (nosso edge principal).
+    if (failedChunks > 0) {
+      logger?.warn?.(
+        { morpho, failedChunks, totalChunks, tokensFound: out.size, chunkRange: FREE_TIER_BLOCK_RANGE, firstErr },
+        `🦋⚠️  Morpho: ${failedChunks}/${totalChunks} chunks de getLogs falharam — derivação INCOMPLETA ` +
+          `(${out.size} tokens). Provável limite de range do RPC: o scan usa ${FREE_TIER_BLOCK_RANGE} blocos/chunk ` +
+          `(Alchemy free tier aceita só 10). Use um RPC que aceite esse range (dRPC ok) ou reduza o chunk.`,
+      );
     }
     return Array.from(out) as Address[];
   } catch (err) {

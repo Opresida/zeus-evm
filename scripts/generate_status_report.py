@@ -254,10 +254,10 @@ def build_story(styles):
     S.append(Spacer(1, 1.5 * cm))
     summary_rows = [
         ["Status geral", "Pronto pra Phase 7 (mainnet com capital pequeno) após setup + 2 semanas DRY_RUN"],
-        ["Testes automatizados", "114 contratos (unit + fork Base mainnet) · execution-utils 295/295 · 0 falhas (Windows e Linux)"],
+        ["Testes automatizados", "Contratos 78/79 (unit) + fork verde · ~404 testes TS (execution-utils 336/336) · 0 falhas · typecheck 13/13"],
         ["Workspaces validados", "13/13 typecheck verde"],
-        ["Última atualização", "15/06: OIE (scoring + EV gate ciente de OEV → foca Morpho) + ledger DRY_RUN (detector/MIS gravam) + deploy Fly.io · 09/06: flashloan 0%"],
-        ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN observando o ledger (edge JÁ decidido: Morpho)"],
+        ["Última atualização", "22/06: OIE completa (toda inteligência → ledger+Grafana) + auditoria de fios soltos + Motor 2 vira executor (cross-DEX+triangular) · 15/06: OIE+ledger · 09/06: flashloan 0%"],
+        ["Pendência crítica", "Capital inicial + deploy mainnet + 2 semanas DRY_RUN observando o ledger (execução do arb e EV gates são opt-in, default off)"],
     ]
     S.append(table_2col(summary_rows, header=False, col1_w=4.5 * cm, col2_w=12 * cm))
 
@@ -974,6 +974,98 @@ def build_story(styles):
         "como porteira. Esta entrega é a INFRA que faz esse DRY_RUN medir de verdade (rodando 24/7 na "
         "Fly.io, gravando no volume) — em vez de observar e esquecer. Validação: ledger 6/6 testes verdes "
         "(Windows e Linux), suíte execution-utils 295/295, typecheck 13/13.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.10 OIE COMPLETA ─────
+    S.append(Paragraph("5.10 OIE completa — toda a inteligência: lida → gravada → Grafana (2026-06-22)", styles["h2"]))
+    S.append(Paragraph(
+        "A camada de inteligência foi FECHADA: todos os sinais que antes viviam soltos (em RAM ou "
+        "JSON, fora do banco central) agora caem no ledger DuckDB E aparecem numa métrica/painel "
+        "Grafana. O bot deixou de 'ver e esquecer' — passou a registrar e enxergar tudo num lugar só.",
+        styles["body"]
+    ))
+    oie_rows = [
+        ["Sinal capturado", "O que é"],
+        ["Market-bribe", "Quanto os competidores estão pagando de gorjeta — e isso vira o piso do nosso próprio bribe (não pagar de menos e perder, nem de mais e queimar lucro)."],
+        ["Perfis de competidor + sybil", "Quem disputa contra nós, hábitos de gás, e quando várias carteiras são o mesmo dono (sybil)."],
+        ["Reconciliação de PnL", "Lucro esperado vs. real, com a diferença decomposta — pra calibrar."],
+        ["Falhas categorizadas + post-mortem", "Por que perdemos e quem ganhou a corrida (com posição no bloco)."],
+        ["Thresholds adaptativos (Etapa C)", "O bot recalcula sozinho os limites de EV a partir do histórico — opt-in (default off)."],
+    ]
+    S.append(table_2col(oie_rows, col1_w=5.5 * cm, col2_w=11 * cm))
+    S.append(simple_box(
+        "Imagina um detetive que antes anotava pistas em guardanapos espalhados e perdia metade. "
+        "Agora ele tem UM caderno central + um quadro na parede (Grafana) onde tudo aparece organizado: "
+        "quem são os concorrentes, quanto pagam, onde perdemos, quanto lucramos de verdade. Em semanas "
+        "isso vira calibração com número, não achismo. O motor 3 (backrun), que era invisível, também "
+        "passou a publicar suas métricas.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.11 FIOS SOLTOS ─────
+    S.append(Paragraph("5.11 Fios soltos — auditoria honesta + remediação (2026-06-22)", styles["h2"]))
+    S.append(Paragraph(
+        "Uma auditoria global sem dourar a pílula: na prática, a tese dos '3 motores' se reduzia a 1 "
+        "motor parcialmente estrangulado. O documento mapeou cada ponta solta por severidade e a maioria "
+        "foi corrigida em fases (cada uma com teste verde). Honestidade > otimismo.",
+        styles["body"]
+    ))
+    fios_rows = [
+        ["Fio solto", "Correção"],
+        ["Liquidator sem fallback de RPC", "dRPC → Alchemy com failover automático do viem (no-op se só há 1 RPC)."],
+        ["Aave/Seamless travados na chave do TheGraph", "Discovery on-chain SEMPRE; TheGraph vira só acelerador opcional."],
+        ["Seletor flashloan 0% não ligado no arb", "Portado pro motor de arb (Morpho/Balancer 0% > Aave 0,05%)."],
+        ["Qualidade de dado contaminando o dataset", "Gás nunca mais vira $0 (lucro inflado); config validada (sem loop travado); priority fee real; endereço Moonwell checado no boot."],
+        ["Classes de inteligência 'órfãs'", "PnlAggregator, drift, post-mortem ligados no liquidator — dormentes em DRY_RUN, prontas pra MAIN."],
+    ]
+    S.append(table_2col(fios_rows, col1_w=6 * cm, col2_w=10.5 * cm))
+    S.append(simple_box(
+        "É como passar um pente-fino no carro antes da viagem: nenhum parafuso solto. Cada item era "
+        "uma falha silenciosa que só apareceria na pior hora (RPC caindo, gás calculado errado, "
+        "endereço com typo). Agora estão apertados. Duas pontas ficaram deferidas de PROPÓSITO porque "
+        "dependem de infra paga, não de código: o feed de mempool do motor 3 e um volume de deploy.",
+        styles
+    ))
+
+    S.append(PageBreak())
+
+    # ───── 5.12 MOTOR DE ARB ─────
+    S.append(Paragraph("5.12 Motor de Arb — o Motor 2 ganha mãos + visão triangular (2026-06-22)", styles["h2"]))
+    S.append(Paragraph(
+        "O Motor 2 (varredura de ineficiências) era só um RADAR: via oportunidades mas não fazia nada. "
+        "Agora ele virou um MOTOR DE EXECUÇÃO cross-DEX, ganhou toda a camada de inteligência dos outros "
+        "motores, e aprendeu a enxergar arbitragem TRIANGULAR (A→B→C→A, não só par a par). O Motor 3 "
+        "fechou as 2 últimas pontas. Os 3 motores ficam no mesmo nível de software.",
+        styles["body"]
+    ))
+    S.append(Paragraph("As travas de segurança do novo executor (todas presentes)", styles["h3"]))
+    arb_rows = [
+        ["Trava", "Estado"],
+        ["Execução DESLIGADA por default", "Sem env deliberada, o Motor 2 continua só observando (radar). O merge NÃO liga execução."],
+        ["Circuit breakers", "MAX_TRADE_ETH + lucro mínimo + slippage máx, validados no boot."],
+        ["Chave exclusiva", "EXECUTOR_PRIVATE_KEY própria do motor — regra inviolável, sem reuso."],
+        ["Simula + EV gate antes de disparar", "eth_call obrigatório + filtro de EV antes de qualquer gasto; re-cota fresco no instante do disparo."],
+        ["Flashloan-only / atômico", "Falha = só gás, nunca capital próprio."],
+    ]
+    S.append(table_2col(arb_rows, col1_w=5.5 * cm, col2_w=11 * cm))
+    S.append(simple_box(
+        "O Motor 2 tinha olhos mas não tinha mãos. Agora ganhou mãos — mas com TODAS as travas: só "
+        "trabalha se você ligar de propósito, nunca arrisca dinheiro próprio (empréstimo-relâmpago), "
+        "e confere tudo num ensaio antes de agir. E ficou mais esperto: além de comparar 2 feiras, vê "
+        "ciclos de 3 (compra manga, troca por banana, troca por dinheiro — e sobra). A detecção "
+        "triangular já funciona; a execução dela é o próximo passo.",
+        styles
+    ))
+    S.append(simple_box(
+        "RESSALVA HONESTA (vale pros 3 blocos): NADA disso liga trade com capital sozinho. A execução do "
+        "Motor 2 e os filtros de EV vêm DESLIGADOS por padrão — só logam. O caminho pra mainnet continua "
+        "o mesmo: rodar em DRY_RUN, encher o ledger, calibrar com dado real, e só então capital pequeno. "
+        "Validação deste merge: typecheck 13/13, ~404 testes TS verdes, contratos intactos (78/79).",
         styles
     ))
 

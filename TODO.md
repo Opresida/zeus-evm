@@ -3,25 +3,30 @@
 > ## 🔧 REMEDIAÇÃO DE FIOS SOLTOS (auditoria 2026-06-18) — ver [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)
 >
 > **Realidade honesta:** dos 3 motores, só o **Motor 1 (liquidator)** fatura hoje — e estrangulado.
-> Motor 2 = observação (não dispara). Motor 3 = **morto em prod** (feed de mempool é placeholder).
+> Motor 2 = **motor de execução cross-DEX com execução DESLIGADA por default** (`ARB_EXECUTION_ENABLED=false`
+> / `ARB_MODE=dryrun` → observa em `mis_observed` até ligar). Motor 3 = **morto em prod** (feed de mempool é placeholder).
 >
-> **A corrigir (faseado, com testes):**
-> - [ ] **H2 — fallback de RPC no liquidator.** Vamos usar **Alchemy como fallback do dRPC**. Hoje o
->   liquidator usa `http(rpc)` puro (sem `fallback([...])`); o `.env.example` anuncia `BASE_RPC_FALLBACK`
->   mas nenhum código lê. Espelhar o backrun (`chainContext.ts` com `fallback()`).
-> - [ ] **H3 — discovery Aave/Seamless resiliente.** Rodar on-chain SEMPRE; TheGraph só como acelerador
->   (hoje todo o loop é pulado se `THEGRAPH_API_KEY` ausente, mesmo o Seamless que é on-chain).
-> - [ ] **Seletor flashloan 0% no arb/backrun** (`txBuilder.ts` força Aave 0,05%; liquidator já está ok).
-> - [ ] **Qualidade de dado/config:** guard `fetchEthUsd<=0` (MIS), schema zod no mis-scanner,
->   priority fee real na reconciliação, `MOONWELL_LIQUIDATOR_ADDRESS` → `optionalAddress`, `Math.round` bps.
-> - [ ] **(opcional) ligar classes órfãs de ALTA:** `PnlAggregator`, `CalibrationDriftTracker`,
+> **Remediado (merge 2026-06-22, com testes):**
+> - [x] **H2 — fallback de RPC no liquidator.** Alchemy como fallback do dRPC via `fallback([...])`
+>   (espelha o backrun); `BASE_RPC_FALLBACK` agora é lido.
+> - [x] **H3 — discovery Aave/Seamless resiliente.** Roda on-chain SEMPRE; TheGraph só como acelerador
+>   (Seamless on-chain não é mais pulado quando `THEGRAPH_API_KEY` ausente).
+> - [x] **Seletor flashloan 0% no arb (Motor 2)** — ligado (liquidator já estava ok). _Backrun ainda
+>   força Aave 0,05% (pendente, sem impacto hoje — Motor 3 bloqueado)._
+> - [x] **Qualidade de dado/config:** guard `fetchEthUsd<=0` (gás nunca $0), schema zod no mis-scanner,
+>   priority fee real na reconciliação, `MOONWELL_LIQUIDATOR_ADDRESS` → `optionalAddress`, `Math.round` bps (INT32).
+> - [x] **classes órfãs de ALTA ligadas:** `PnlAggregator`, `CalibrationDriftTracker`,
 >   `CompetitorResolver`/`BlockPositionTracker` (leverage de calibração; não bloqueia trade).
+> - [x] **Motor 2 execução** — **FEITO**: virou motor de execução cross-DEX (`arbDispatcher`/`arbOpportunity`
+>   + config zod), **OFF por default** (`ARB_EXECUTION_ENABLED=false`). Travas: circuit breakers
+>   (MAX_TRADE_ETH/MIN_ARB_PROFIT_USD/slippage) zod; `EXECUTOR_PRIVATE_KEY` exclusiva; simula+EV gate antes
+>   de disparar; re-cota fresco; flashloan-only/atômico. Pendente: **execução triangular** (`findTriangularCycles`
+>   já detecta read-only) + calibrar/ligar em mainnet (depende de DRY_RUN + decisão).
 >
 > **Deferido (decisão/recurso):**
 > - [ ] **Motor 3 mempool** — Alchemy Growth+ / Flashblocks WS (aguardando infra). Sem isso, Motor 3 não dispara.
 > - [ ] **Fly.io `deploy/fly/backrun-engine.toml` + volume persistente** — aguardando recurso (Humberto avisa ao subir).
-> - [ ] **Motor 2 execução** — virar de observação→motor que fatura: contrato executor MIS + builder +
->   dispatcher + decoder (~8-11 dias).
+> - [ ] **Seletor flashloan 0% no backrun** (`txBuilder.ts` força Aave 0,05%; sem impacto hoje — Motor 3 bloqueado).
 > - [ ] **`approvedDexAdapters`** — regra do CLAUDE.md sem enforcement on-chain: decidir whitelist vs ajustar doc.
 > - [ ] **`OrphanRecoveryManager`** — re-submissão de tx órfã pós-reorg; só faz sentido no modo LIVE.
 
@@ -29,14 +34,15 @@
 >
 > **Pronto (código):** 4 contratos v8 SPLIT — EIP-170 (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator;
 > não é mais o `ZeusExecutor` monolítico v6) · Motor 1 com 5 protocolos (Aave/Compound/Morpho/Seamless/Moonwell) ·
-> multi-chain code-ready (Base/Arb/OP/Polygon/Avalanche) · Motor 2 radar MIS (multicall + derivação on-chain + flash sizing +
-> gate de profundidade + Trader Joe LB) · Motor 3 backrun engine · **flashloan multi-fonte 0%** (Morpho + Balancer primário,
+> multi-chain code-ready (Base/Arb/OP/Polygon/Avalanche) · Motor 2 = motor de execução cross-DEX MIS (multicall + derivação
+> on-chain + flash sizing + gate de profundidade + Trader Joe LB + detecção triangular; **execução OFF por default**) ·
+> Motor 3 backrun engine · **flashloan multi-fonte 0%** (Morpho + Balancer primário,
 > Aave 0.05% fallback) · **Sprint 3 completo** (Compound III + Morpho Blue + Moonwell pipelines TS) ·
 > **camada OIE FEITA** (Etapa A scoring + ledger DuckDB; Etapa B EV gate competitor-aware no backrun + EV gate ciente de OEV
 > no liquidator priorizando Morpho; DRY_RUN detector+MIS gravando no ledger; Fly.io deploy configs com volume persistente) ·
-> **115 funções de teste Foundry (9 arquivos) + 43 testes TS** (inclui prova de lucro dos 3 motores via Alchemy).
+> **115 funções de teste Foundry (9 arquivos; unit 78/79 + fork verde) + ~404 testes TS (execution-utils 336/336)** · typecheck 13/13 · 0 falhas (inclui prova de lucro dos 3 motores via Alchemy).
 >
-> **7 apps:** detector · backtest · monitor · liquidator (Motor 1) · backrun-engine (Motor 3) · discovery-scraper · mis-scanner (Motor 2).
+> **7 apps:** detector · backtest · monitor · liquidator (Motor 1) · backrun-engine (Motor 3) · discovery-scraper · mis-scanner (Motor 2 — motor de execução cross-DEX, execução OFF default).
 > **6 packages:** chain-config · dex-adapters · strategy · aave-discovery · execution-utils (utils compartilhados + OIE) · shared-types.
 >
 > **Falta pra produção:** deploy mainnet dos 4 contratos (hoje só Sepolia) · capital + multisig · 2 semanas DRY_RUN observação
@@ -48,6 +54,13 @@
 > **Achado OEV (CRÍTICO pra estratégia):** liquidação na Base está se fechando por OEV capture (Aave SVR ~85%, Compound ~85%,
 > Moonwell MEV tax ~99%). **Morpho Blue = único edge real (recapture 0%)** — o liquidator agora prioriza Morpho via gate EV pós-OEV.
 > Detalhes em [`docs/refs/competitive-landscape.md`](./docs/refs/competitive-landscape.md) e [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
+>
+> **Marco 2026-06-22 — merge dos 3 blocos no `main`:** (1) inteligência OIE completa (incl. Etapa C thresholds adaptativos
+> opt-in + Etapa D parcial: exporter + 3 dashboards Grafana); (2) fios soltos remediados (RPC fallback, discovery on-chain
+> sempre, flashloan 0% no arb, qualidade de dado/config, classes órfãs ligadas); (3) **Motor 2 virou motor de execução
+> cross-DEX** (`arbDispatcher`/`arbOpportunity` + config zod) com **execução OFF por default** + detecção triangular
+> (read-only). Status INALTERADO: Sepolia (NÃO mainnet) · lucro real US$ 0 · edge = Morpho · execução opt-in / DRY_RUN-first.
+> Pendente: execução triangular ao vivo · Motor 3 mempool (bloqueado) · calibrar/ligar arb em mainnet.
 >
 > O histórico abaixo (fases/sprints) é mantido como registro; o checklist pré-mainnet a seguir continua válido.
 >
@@ -62,7 +75,7 @@
 > - **Avalanche/Polygon chain-config** → ✅ `chain-config/{avalanche,polygon}.ts` existem (code-ready; deploy mainnet pendente).
 > - **Subgraph Aave discovery** → ✅ no liquidator + `aave-discovery`.
 >
-> **Genuinamente pendente:** deploy mainnet dos contratos · capital/multisig/audit (decisões) · DRY_RUN 2 semanas · Etapas C/D OIE · mempool premium (Motor 3/JIT ao vivo) · itens do checklist pré-mainnet.
+> **Genuinamente pendente** (atualizado pós-merge 2026-06-22): deploy mainnet dos contratos · capital/multisig/audit (decisões) · DRY_RUN 2 semanas · OIE Etapa D (parcial — 3 de 8 dashboards) + Etapa B detector (baixa prio) · execução triangular ao vivo + calibrar/ligar arb (Motor 2) · mempool premium (Motor 3/JIT ao vivo) · itens do checklist pré-mainnet. _(Etapa C OIE e Motor 2 executor já FEITOS.)_
 
 ---
 
@@ -106,12 +119,14 @@ Compound III (~85% SVR/Atlas), Moonwell (~99% MEV tax on-chain). **Morpho Blue (
 liquidator agora prioriza Morpho via gate EV pós-OEV. Ver [`docs/refs/competitive-landscape.md`](./docs/refs/competitive-landscape.md)
 e [`docs/refs/morpho-profit-projection.md`](./docs/refs/morpho-profit-projection.md).
 
-### Falta (Etapas C/D — pós-DRY_RUN)
-- [ ] **Etapa C** — auto-prioritization + thresholds adaptativos (loop de feedback via `pnlReconciler`/`failureCollector`).
-- [ ] **Etapa D** — 8 dashboards Grafana (`prometheusExporter` já existe).
+### Etapas C/D — pós-DRY_RUN
+- [x] **Etapa C** — auto-prioritization + thresholds adaptativos (loop de feedback via `pnlReconciler`/`failureCollector`)
+      — **FEITO opt-in** (`ADAPTIVE_THRESHOLDS_ENABLED=false` default).
+- [~] **Etapa D** — dashboards Grafana — **parcial**: `DimensionMetricsExporter` (bridge DuckDB→Prometheus) + **3 dashboards**
+      (operations/performance/rankings) prontos; meta original era 8 (`prometheusExporter` já existia).
 
-**Verificação:** `pnpm typecheck` **13/13 workspaces** verdes · `execution-utils` 288/289 testes (a única falha,
-`failureCollector.test.ts`, é pré-existente e sem relação).
+**Verificação (pós-merge 2026-06-22):** `pnpm typecheck` **13/13 workspaces** verdes · contratos **78/79 unit Foundry** (1 skip)
++ fork verde · **~404 testes TS** (vitest; `execution-utils` **336/336**).
 
 ---
 

@@ -12,10 +12,10 @@
 - **4 contratos (v8 split, EIP-170):** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator
 - **Flashloan 3 fontes** (Aave V3 / Morpho Blue / Balancer V2) — Morpho e Balancer com **0% fee** (multi-fonte) + multi-hop N steps
 - **5 protocolos de lending** (Motor 1): Aave V3 · Compound III · Morpho Blue · Seamless · Moonwell
-- **Motor 2 (radar MIS) construído** — varre ineficiência cross-DEX por persistência + sizing de flashloan + persiste no ledger
-- **Motor 3 (backrun) construído** — EV gate competitor-aware + bribe; esperando feed de mempool premium
-- **Camada OIE construída (2026-06-15)** — scoring (Opportunity/Protocol/Pool/Token) + ledger DuckDB; gates EV cientes de OEV/competidor
-- **Testes:** 115 funções Foundry (9 arquivos, unit + fork contra Base mainnet via Alchemy) · 43 testes TS · typecheck 13/13
+- **Motor 2 (MIS) virou motor de execução cross-DEX** — varre ineficiência por persistência + sizing de flashloan + **detecção triangular** + inteligência espelhada; **execução OFF por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun` → só observa e grava no ledger)
+- **Motor 3 (backrun) construído** — EV gate competitor-aware + bribe + `/metrics`; **continua bloqueado** esperando feed de mempool premium
+- **Camada OIE construída (2026-06-15)** — scoring (Opportunity/Protocol/Pool/Token) + ledger DuckDB; gates EV cientes de OEV/competidor; thresholds adaptativos (Etapa C, opt-in) + exporter Prometheus + 3 dashboards Grafana (Etapa D parcial)
+- **Testes:** 78/79 unit Foundry (1 skip) + fork verde contra Base mainnet via Alchemy · ~404 testes TS (execution-utils 336/336) · typecheck 13/13
 - Contratos deployados em **Sepolia (testnet), NÃO mainnet**
 
 > ⚠️ **Lucro real até agora: US$ 0.** A lógica dos 3 motores está provada (fork tests com lucro), mas o bot
@@ -34,7 +34,7 @@ Se o lucro não cobrir o custo, a tx inteira reverte (nunca trava capital no mei
 | Motor | O que faz | Ganha quando | Estado |
 |---|---|---|---|
 | **1 — Liquidations** | Liquida posições underwater em protocolos de lending, embolsa o bônus (5-10%) | Crash / queda | Código pronto (5 protocolos) |
-| **2 — Cross-DEX Arb** | Compra barato num DEX, vende caro em outro (mesmo instante) | Volume alto | Radar (MIS) pronto |
+| **2 — Cross-DEX Arb** | Compra barato num DEX, vende caro em outro (mesmo instante) | Volume alto | Motor de execução pronto (OFF default) + triangular |
 | **3 — Backrun** | Opera logo atrás de um swap-baleia pra capturar a dislocação | Volatilidade | Máquina pronta (falta mempool) |
 
 A tese: **em qualquer cenário de mercado, pelo menos um motor está trabalhando.** Os três compartilham o mesmo
@@ -56,9 +56,14 @@ em liquidação.** A estratégia decantou em: **núcleo = liquidação Morpho** 
 ~4,5/10 como competidor que ganha dinheiro hoje** (falta fosso de orderflow/latência). Detalhes em
 [`docs/refs/`](./docs/refs) (competitive-landscape · engine-strategy · morpho-profit-projection).
 
-O **Motor 2 (MIS)** ranqueia ineficiências por **PERSISTÊNCIA** (magnitude × duração), não por pico — porque
-ineficiência de 1 bloco é guerra de latência (perdemos) e ineficiência persistente é o nosso edge. E usa o
-quoter on-chain pra calcular o **tamanho ótimo do flashloan** + descartar pool raso (slippage disfarçado).
+O **Motor 2 (MIS)** virou **motor de execução cross-DEX** (`arbDispatcher` + `arbOpportunity`), mas a **execução
+fica DESLIGADA por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun` → sem env deliberada continua só
+observando e gravando no ledger). Ranqueia ineficiências por **PERSISTÊNCIA** (magnitude × duração), não por pico
+— porque ineficiência de 1 bloco é guerra de latência (perdemos) e ineficiência persistente é o nosso edge. Usa o
+quoter on-chain pra calcular o **tamanho ótimo do flashloan** + descartar pool raso (slippage disfarçado), e já
+**detecta arbitragem triangular** (grafo de tokens + `findTriangularCycles`; execução triangular é o próximo passo).
+Travas antes de qualquer disparo: simula (eth_call) + EV gate, re-cota fresco no dispatch, flashloan-only/atômico
+(falha = só gás), circuit breakers validados na config zod e `EXECUTOR_PRIVATE_KEY` exclusiva.
 
 **Lucro real só aparece com:** (1) deploy em mainnet; (2) oportunidade real (acontece em movimento de mercado);
 (3) ganhar a corrida contra concorrentes; (4) dias de coleta do MIS/ledger pra revelar onde mora a ineficiência.
@@ -87,9 +92,9 @@ pnpm contracts:test          # unit tests Foundry (sem fork)
 
 # Fork tests contra Base mainnet (usa Alchemy automático via ALCHEMY_API_KEY do .env)
 pnpm contracts:test:fork
-# → 115 funções Foundry no total (9 arquivos, unit + fork), inclui a prova de LUCRO dos 3 motores
+# → 78/79 unit (1 skip) + suíte fork verde, inclui a prova de LUCRO dos 3 motores
 
-# MIS — radar do Motor 2 (observação pura, não submete tx; grava no ledger DuckDB)
+# MIS — Motor 2 (execução OFF por default: ARB_EXECUTION_ENABLED=false / ARB_MODE=dryrun → só observa e grava no ledger DuckDB)
 MIS_CHAIN=base pnpm --filter @zeus-evm/mis-scanner start       # ou MIS_CHAIN=avalanche
 
 # Discovery scraper — varredura GeckoTerminal → auto-targets pro detector
@@ -142,7 +147,7 @@ zeus-evm/
 │   └── fork-test.sh                    # roda fork tests via Alchemy
 ├── apps/                            # 7 apps
 │   ├── liquidator/                  # Motor 1 — pipeline calc→sim→build→dispatch (5 protocolos; OIE prioriza Morpho via OEV)
-│   ├── mis-scanner/                 # Motor 2 — radar MIS + flash estimator/sizing + derivação colaterais + ledger
+│   ├── mis-scanner/                 # Motor 2 — execução cross-DEX OFF default (arbDispatcher) + triangular + flash sizing + derivação colaterais + inteligência espelhada + ledger
 │   ├── backrun-engine/             # Motor 3 — EV gate competitor-aware + bribe + bundling (Flashbots/Atlas/Blocknative)
 │   ├── discovery-scraper/          # varredura GeckoTerminal → auto-targets pro detector
 │   ├── detector/                    # arb radar — consome varredura + grava no ledger DuckDB
@@ -168,13 +173,16 @@ zeus-evm/
 | Contratos v8 (4) + audit interno (B-1 a B-7) | ✅ |
 | Motor 1: 5 protocolos (Aave/Compound/Morpho/Seamless/Moonwell) | ✅ código |
 | Multi-chain code-ready (Base/Arb/OP/Polygon/Avalanche) | ✅ |
-| Motor 2: radar MIS (multicall + derivação on-chain + flash sizing + gate de profundidade) | ✅ |
+| Motor 2: MIS (multicall + derivação on-chain + flash sizing + gate de profundidade) | ✅ |
+| Motor 2: motor de execução cross-DEX (arbDispatcher, OFF default) + detecção triangular | ✅ código |
 | Motor 2: adapter Trader Joe LB (Avalanche) | ✅ |
 | Motor 3: backrun engine (EV gate competitor-aware + bribe + bundling) | ✅ código |
 | Flashloan 3 fontes (Aave/Morpho/Balancer, 0% multi-fonte) + multi-hop N steps | ✅ |
 | Camada OIE: scoring + ledger DuckDB + gates cientes de OEV/competidor | ✅ |
+| OIE Etapa C: thresholds adaptativos (opt-in, `ADAPTIVE_THRESHOLDS_ENABLED=false`) | ✅ |
+| OIE Etapa D: exporter Prometheus + 3 dashboards Grafana (meta era 8) | 🟡 parcial |
 | Deploy Fly.io (Dockerfile + deploy/fly/*.toml, volume persistente) | ✅ |
-| Fork tests de lucro dos 3 motores (Base mainnet, Alchemy) | ✅ 115 funções Foundry |
+| Fork tests de lucro dos 3 motores (Base mainnet, Alchemy) | ✅ 78/79 unit + fork verde |
 | Deploy mainnet (4 contratos) + capital + multisig | ❌ (testnet only) |
 | 2 semanas DRY_RUN + dias de coleta MIS/ledger | 🟡 próximo |
 | Motor 3 ao vivo (mempool premium Alchemy ~$199/mês) | ❌ pós-receita |

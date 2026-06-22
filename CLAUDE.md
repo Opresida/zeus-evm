@@ -24,7 +24,7 @@ Bot de arbitragem on-chain em EVM. **Duas modalidades:**
 
 **Três motores descorrelacionados:**
 - **Motor 1 — Liquidations** (Aave V3 + Compound III + Morpho Blue + Seamless + Moonwell)
-- **Motor 2 — MIS scanner** (varredura de ineficiências de mercado, ranqueada por persistência)
+- **Motor 2 — MIS scanner → motor de execução cross-DEX** (varredura de ineficiências ranqueada por persistência + execução cross-DEX/triangular; **execução DESLIGADA por default** — `ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun`)
 - **Motor 3 — Backrun** (backrun pós-whale, competitor-aware com bribe + relays)
 
 **Estratégias de arb (motor de execução compartilhado):**
@@ -148,9 +148,11 @@ zeus-evm/
 │   │   ├── src/alerting/   # discordSink + genericWebhookSink (subscribers do eventBus)
 │   │   ├── src/pipeline.ts # runners Aave/Compound/Morpho/Moonwell + gates pre-dispatch + score pós-OEV
 │   │   └── src/dispatcher.ts  # 3 modos: dryrun | testnet | mainnet + EIP-1559
-│   ├── mis-scanner/        # MOTOR 2 — varredura de ineficiências (multicall + derivação de colaterais
-│   │                       #           até 60 pares + flash sizing + Trader Joe LB); ranqueia por
-│   │                       #           persistência; grava no ledger (mis_observed)
+│   ├── mis-scanner/        # MOTOR 2 — motor de execução cross-DEX (varredura multicall + derivação de
+│   │                       #           colaterais até 60 pares + flash sizing + Trader Joe LB + detecção
+│   │                       #           triangular findTriangularCycles); ranqueia por persistência;
+│   │                       #           arbDispatcher/arbOpportunity (execução OFF default → só grava
+│   │                       #           mis_observed) + inteligência espelhada (EventBus/PnL/competitor)
 │   ├── backrun-engine/     # MOTOR 3 — backrun pós-whale; EV gate competitor-aware (gas war) + bribe +
 │   │                       #           relays; grava no ledger
 │   ├── discovery-scraper/  # TS — varredura dinâmica GeckoTerminal → auto-targets.json + token safety GoPlus
@@ -184,7 +186,7 @@ zeus-evm/
   `ZeusLiquidator` (Aave/Compound/Morpho + variantes WithBribe) + `ZeusMoonwellLiquidator` + `BribeManager`
 - Security Audit Pass 1+2 + fixes (H-01, H-02, M-01, M-02)
 - Deployado e verified em 3 chains **testnet** Sepolia (Base/Arb/OP). **Ainda NÃO em mainnet.**
-- **115 funções de teste Foundry** (9 arquivos: 4 unit + 5 fork; inclui `MotorsProfit.fork.t.sol`)
+- **78/79 testes unit Foundry** (1 skip) + suíte fork verde (inclui `MotorsProfit.fork.t.sol`)
 
 **Camada off-chain (3 motores + intelligence):**
 
@@ -193,8 +195,14 @@ Cobertura **Aave V3 + Compound III + Morpho Blue + Seamless (fork Aave) + Moonwe
 Inclui os 6 gaps críticos (pnlTracker/failureTracker/positionDedup/gasReserveTracker/gasOracle/eventBus +
 staleCheck) — hoje consolidados em `@zeus-evm/execution-utils`.
 
-*MIS scanner (Motor 2):* varredura de ineficiências (multicall + derivação de colaterais até 60 pares +
-flash sizing + Trader Joe LB), ranqueia por persistência, snapshot; grava observações no ledger (`mis_observed`).
+*MIS scanner (Motor 2):* virou **motor de execução cross-DEX** (`arbDispatcher` + `arbOpportunity` + config zod).
+Varredura de ineficiências (multicall + derivação de colaterais até 60 pares + flash sizing + Trader Joe LB),
+ranqueia por persistência + **detecção triangular** (grafo de tokens + `findTriangularCycles`, read-only por ora).
+**Execução DESLIGADA por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun` → só grava `mis_observed`).
+Travas: circuit breakers (MAX_TRADE_ETH / MIN_ARB_PROFIT_USD / slippage) validados na config zod; `EXECUTOR_PRIVATE_KEY`
+exclusiva; **simula (eth_call) + EV gate ANTES de disparar**; re-cota fresco no dispatch; **flashloan-only / atômico**
+(falha = só gás). Espelha toda a camada de inteligência (EventBus, PnlReconciler, CompetitorResolver, market-bribe,
+auto-calibração).
 
 *Backrun engine (Motor 3):* backrun pós-whale; EV gate competitor-aware (via nível de gas war) + bribe +
 relays; grava no ledger.
@@ -211,6 +219,10 @@ O detector consome via `getTargetPairsForChain`.
   (fix: `timestamp` BIGINT, antes estourava como INT32)
 - **Etapa B — EV gates nos motores:** backrun competitor-aware (gas war) + liquidator **ciente de OEV**
   (aplica "OEV haircut" por protocolo e **prioriza Morpho**)
+- **Etapa C — thresholds adaptativos:** FEITO, **opt-in** (`ADAPTIVE_THRESHOLDS_ENABLED=false` default → só loga o que faria)
+- **Etapa D — Grafana:** parcial/quase — `DimensionMetricsExporter` (DuckDB→Prometheus) + 3 dashboards prontos (meta era 8)
+- **OIE completa:** todos os sinais (market-bribe, perfis de competidor, reconciliação de PnL, falhas
+  categorizadas, sybil, dedup, latência) caem no ledger DuckDB + Prometheus + painéis Grafana; market-bribe alimenta o BribeCalculator
 - **DRY_RUN ledger:** detector + MIS gravam observações no DuckDB (`arb_observed` / `mis_observed`)
 - Helpers: `resolveIntelligenceDbPath` / `buildObservationEvent` / `queryTopOpportunityPairs` /
   `attachAndRankPairs` (unificação cross-motor via ATTACH — DuckDB single-writer)
@@ -220,28 +232,39 @@ O detector consome via `getTargetPairsForChain`.
 Moonwell MEV tax ~99%). **Morpho Blue ABERTO = único edge real** → liquidator prioriza Morpho.
 Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 
-- **Total**: **115 funções de teste Foundry** (9 arquivos) · **43 arquivos de teste TS** (vitest) · 7 apps · 6 packages
+- **Total**: contratos **78/79 unit Foundry** (1 skip) + fork verde · **~404 testes TS** (vitest; execution-utils
+  **336/336**) · **typecheck 13/13** · 7 apps · 6 packages
 
 ### 🟡 Em andamento (próxima sessão)
 - **2 semanas DRY_RUN mainnet** — observação + calibração (ledger DuckDB coletando, lucro real US$ 0)
-- **OIE Etapa C** — auto-prioritization + thresholds adaptativos (loop de feedback)
-- **OIE Etapa D** — 8 dashboards Grafana
+- **OIE Etapa D** — parcial/quase: `DimensionMetricsExporter` (bridge DuckDB→Prometheus) + 3 dashboards
+  (operations/performance/rankings) prontos; meta original era 8 dashboards
 - **Detector ranking na descoberta** (radar passivo, baixa prioridade)
 
 **Detalhes da adoção OIE em [docs/OIE_PROGRESS.md](./docs/OIE_PROGRESS.md).**
 
 ### ✅ Concluído recente (era "em andamento")
 - **Sprint 3 Morpho pipeline TS** — FEITO (discovery + calculator + builder + simulator)
-- **Motor 2 (MIS)** — FEITO como **radar de observação** (grava `mis_observed`); **NÃO tem caminho de
-  execução** (sem contrato/builder/dispatcher) → não fatura hoje (~8-11d pra virar motor de execução)
-- **Motor 3 (Backrun)** — tubulação FEITA, mas **BLOQUEADO em prod** (feed de mempool é placeholder; ver acima)
-- _Seletor de flashloan 0% (Morpho/Balancer) ligado só no liquidator; arb/backrun ainda forçam Aave
-  0,05% (a corrigir). Regra `approvedDexAdapters` documentada não tem enforcement on-chain. Ver_
-  [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)._
-- **Health endpoint HTTP** — FEITO (`execution-utils/health`) + Prometheus exporter
+- **Motor 2 (MIS)** — virou **motor de execução cross-DEX** (`arbDispatcher`/`arbOpportunity`/config zod),
+  **execução OFF por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun` → continua gravando `mis_observed`);
+  + **detecção triangular** (`findTriangularCycles`, read-only por ora) + inteligência espelhada (EventBus/PnL/competitor/market-bribe)
+- **Motor 3 (Backrun)** — fechou as 2 últimas pontas (PnlAggregator + CalibrationDriftTracker + post-mortem
+  CompetitorResolver/BlockPositionTracker); **continua BLOQUEADO em prod** (feed de mempool é placeholder; ver acima)
+- **OIE Etapa C (thresholds adaptativos)** — FEITO, **opt-in** (`ADAPTIVE_THRESHOLDS_ENABLED=false` default → só loga o que faria)
+- **Fios soltos remediados (auditoria):** RPC fallback (dRPC→Alchemy via viem), discovery Aave/Seamless on-chain
+  SEMPRE (TheGraph só acelerador), qualidade de dado (gás nunca mais $0, mis-scanner com zod, priority fee real,
+  Moonwell `optionalAddress`, INT32 round), classes "órfãs" ligadas (dormentes em DRY_RUN). Deferidos (infra):
+  mempool do Motor 3 + `deploy/fly/backrun-engine.toml`
+- _Seletor de flashloan 0% (Morpho/Balancer) agora ligado no **liquidator + arb (Motor 2)**; o backrun ainda
+  força Aave 0,05% (semi-ligado, sem impacto hoje porque Motor 3 está morto). Regra `approvedDexAdapters`
+  documentada não tem enforcement on-chain. Ver_ [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)._
+- **Bribe Compound/Morpho** — variantes WithBribe voltaram no contrato v8 (split); ABI off-chain + builders
+  ligados (opt-in `BRIBE_ENABLED=false` default)
+- **Health endpoint HTTP** — FEITO (`execution-utils/health`) + Prometheus exporter; backrun passou a expor `/metrics`
 
 ### 📅 Roadmap
-- **Decisão arb-engine** — calibrar/ligar o motor de execução de arb com edge real
+- **Arb-engine (Motor 2)** — motor de execução JÁ existe (OFF por default); calibrar no DRY_RUN e ligar quando edge provado
+- **Execução triangular** — detecção já roda read-only; próximo passo é o caminho de execução
 - **Fase 7**: Deploy contratos em Base mainnet + 4 semanas observação capital pequeno
 - **Avalanche expansion**: Aave V3 only, +500-800 borrowers
 - **Audit externo**: Trail of Bits / Spearbit quando capital > $50k
@@ -259,7 +282,7 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
     `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`. Endereços v8 (split) atualizar ao redeploy._
 
 ### ⏸️ Aguardando decisão do Humberto
-- **Decisão arb-engine / estratégia com edge** ← bloqueador principal
+- **Ligar execução do arb (Motor 2)** — motor pronto e OFF por default; aguarda edge provado no DRY_RUN/ledger
 - Multisig provider — antes de Fase 7
 - Capital inicial concreto — antes de Fase 7
 - Audit provider — antes de audit externo

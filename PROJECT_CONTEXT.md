@@ -6,7 +6,7 @@ Visão consolidada do projeto. Atualizado a cada fase aprovada.
 
 ## 🎯 O que é
 
-**ZEUS EVM** é um bot de MEV on-chain em EVM, **flashloan-first** (Aave V3), com **3 motores descorrelacionados** coexistindo no mesmo codebase: **Liquidations** (Motor 1), **Cross-DEX Arb** (Motor 2, via radar MIS) e **Backrun** (Motor 3).
+**ZEUS EVM** é um bot de MEV on-chain em EVM, **flashloan-first** (Aave V3), com **3 motores descorrelacionados** coexistindo no mesmo codebase: **Liquidations** (Motor 1), **Cross-DEX Arb** (Motor 2 — MIS scanner virou motor de execução cross-DEX/triangular, **execução OFF por default**) e **Backrun** (Motor 3).
 
 **Chain inicial:** Base (Coinbase L2). Por quê?
 - Gas barato (~$0.01/tx) viabiliza testes massivos
@@ -92,17 +92,17 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 **Multi-chain code-ready (Motor 1):** Base · Arbitrum · Optimism · **Polygon** · **Avalanche** — endereços verificados na fonte (aave-address-book, Uniswap sdk-core, LFJ docs).
 
-**Motor 2 — Cross-DEX Arb (radar MIS):** `apps/mis-scanner` — pricing local (UniV3 tick / Aero / Trader Joe LB), varredura em multicall, derivação on-chain de colaterais dos protocolos, flash estimator via quoter, **sizing ótimo do empréstimo** + gate de profundidade (descarta pool raso) + **persistência no ledger**. Ranqueia por PERSISTÊNCIA. Observação pura (não submete tx).
+**Motor 2 — Cross-DEX Arb (MIS scanner → motor de execução):** `apps/mis-scanner` — pricing local (UniV3 tick / Aero / Trader Joe LB), varredura em multicall, derivação on-chain de colaterais dos protocolos, flash estimator via quoter, **sizing ótimo do empréstimo** + gate de profundidade (descarta pool raso) + **persistência no ledger**. Ranqueia por PERSISTÊNCIA. **Virou motor de EXECUÇÃO cross-DEX** (`arbDispatcher` + `arbOpportunity` + config de execução zod) + **detecção de arbitragem TRIANGULAR** (grafo + ciclos `findTriangularCycles`, read-only por enquanto). **Execução DESLIGADA por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun`) — sem env deliberada continua só observando (`mis_observed`). Travas de segurança: circuit breakers na config zod (`MAX_TRADE_ETH` / `MIN_ARB_PROFIT_USD` / slippage), `EXECUTOR_PRIVATE_KEY` EXCLUSIVA, simula (`eth_call`) + EV gate ANTES de disparar, re-cota fresco, flashloan-only/atômico. Espelha toda a inteligência (EventBus, PnlReconciler, CompetitorResolver, market-bribe, auto-calibração).
 
-**Motor 3 — Backrun:** `apps/backrun-engine` — planner + bribe + bundling (Flashbots/Atlas/Blocknative) + **EV gate competitor-aware** (gas war priors) + trackers. Esperando feed de mempool premium (placeholder).
+**Motor 3 — Backrun:** `apps/backrun-engine` — planner + bribe + bundling (Flashbots/Atlas/Blocknative) + **EV gate competitor-aware** (gas war priors) + trackers + **PnlAggregator/Drift + post-mortem** (últimas pontas fechadas). Expõe `/metrics`. **BLOQUEADO em prod:** feed de mempool (`subscribeWhaleSwaps`) é placeholder — precisa Flashblocks WS / Alchemy Growth+. Backrun ainda força Aave 0,05% (seletor flashloan semi-ligado, sem impacto hoje).
 
 **Discovery + detector:** `apps/discovery-scraper` (varredura GeckoTerminal → auto-targets) alimenta `apps/detector` (arb radar, consome varredura dinâmica + grava no ledger DuckDB).
 
-**Camada OIE (2026-06-15) — Opportunity Intelligence Engine:** scoring puro (Opportunity / Protocol / Pool / Token) + ledger DuckDB (`packages/execution-utils/src/scoring/`). Gates EV plugados: **backrun competitor-aware** (gas war) + **liquidator ciente de OEV** (prioriza Morpho). Detector + MIS gravam observações no ledger em DRY_RUN. Deploy Fly.io (Dockerfile + `deploy/fly/*.toml`, volume persistente). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
+**Camada OIE (2026-06-15) — Opportunity Intelligence Engine:** scoring puro (Opportunity / Protocol / Pool / Token) + ledger DuckDB (`packages/execution-utils/src/scoring/`). Gates EV plugados: **backrun competitor-aware** (gas war) + **liquidator ciente de OEV** (prioriza Morpho). Detector + MIS gravam observações no ledger em DRY_RUN. **OIE completa:** todos os sinais (market-bribe, competidores, reconciliação PnL, falhas, sybil, dedup, latência) → ledger DuckDB + **Prometheus + Grafana**; market-bribe alimenta o BribeCalculator. **Etapa C (thresholds adaptativos): ✅ FEITO, opt-in** (`ADAPTIVE_THRESHOLDS_ENABLED=false` default). **Etapa D (Grafana): parcial** — `DimensionMetricsExporter` (DuckDB→Prometheus) + 3 dashboards (operations/performance/rankings; meta original era 8). Deploy Fly.io (Dockerfile + `deploy/fly/*.toml`, volume persistente). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
 
 **Validação contra mainnet (fork via Alchemy):** fork tests verdes incluindo prova de LUCRO ponta-a-ponta dos 3 motores (`MotorsProfit.fork.t.sol`; Motor 1 liquidação realista, Motor 2/3 com gap inflado de propósito pra provar a mecânica). Endereços/ABIs/premium flashloan confirmados nas chains via eth_call.
 
-- **Total**: **115 funções Foundry** (9 arquivos: 4 unit + 5 fork) · **43 testes TS** · **13/13 typecheck**
+- **Total**: contratos **78/79 unit + fork verde** · **~404 testes TS** (execution-utils 336/336) · **13/13 typecheck**. Zero falha.
 
 ### 🔍 Aprendizados consolidados (Doutrina de Edge)
 
@@ -115,7 +115,7 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 - **Deploy mainnet** dos 4 contratos (técnico) + capital + multisig.
 - **2 semanas DRY_RUN** mainnet + dias de coleta do MIS/ledger pra persistência emergir.
-- **OIE Etapa B (detector)** + **Etapa C** (thresholds adaptativos) + **Etapa D** (dashboards Grafana). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
+- **OIE Etapa C** (thresholds adaptativos) ✅ feito (opt-in) + **Etapa D** (dashboards Grafana) parcial (3 de 8). Ver [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).
 - **RPC pago + Fly.io** pra rodar MIS/discovery 24/7 (dRPC free serve reads; fork test usa Alchemy).
 
 ### 📅 Roadmap futuro
@@ -126,14 +126,15 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 |---|---|
 | 4 contratos + 5 protocolos + multi-chain code-ready | ✅ |
 | Flashloan 3 fontes (Aave/Morpho/Balancer, 0% multi-fonte) + multi-hop N steps | ✅ |
-| Motor 2 radar MIS + Trader Joe LB (Avalanche) + persistência no ledger | ✅ |
+| Motor 2 MIS → motor de execução cross-DEX/triangular (execução OFF default) + Trader Joe LB (Avalanche) + persistência no ledger | ✅ |
 | Motor 3 backrun engine (EV gate competitor-aware + bribe) | ✅ código |
 | Discovery scraper (GeckoTerminal → auto-targets) + detector no ledger | ✅ |
 | Camada OIE: scoring + ledger DuckDB + gates OEV/competidor + deploy Fly.io | ✅ |
-| Fork tests de lucro dos 3 motores (Alchemy) | ✅ 115 funções Foundry |
+| Fork tests de lucro dos 3 motores (Alchemy) | ✅ contratos 78/79 unit + fork verde |
 | Deploy mainnet (4 contratos) + capital + multisig | ❌ (testnet only) |
 | 2 semanas DRY_RUN + coleta MIS/ledger | 🟡 próximo |
-| OIE Etapa C (thresholds adaptativos) + Etapa D (Grafana) | 🟡 |
+| OIE Etapa C (thresholds adaptativos, opt-in) | ✅ |
+| OIE Etapa D (Grafana) | 🟡 parcial (3 de 8 dashboards) |
 | Motor 3 ao vivo (mempool premium ~$199/mês) | ❌ pós-receita |
 | Audit externo (capital > $50k) | ❌ |
 

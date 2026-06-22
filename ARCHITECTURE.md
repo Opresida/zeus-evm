@@ -14,14 +14,14 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 > | `ZeusExecutor v6` (1 contrato monolítico, 5 `execute*`) | **4 contratos v8 (split por EIP-170):** ZeusArbExecutor (arb/flashloan/backrun) + ZeusLiquidator (Aave/Compound/Morpho) + ZeusMoonwellLiquidator + BribeManager (bribe/coinbase) |
 > | 3 protocolos (Aave/Compound/Morpho) | **5:** + Seamless (fork Aave) + Moonwell (fork Compound V2, contrato próprio) |
 > | Flashloan só Aave V3 (0,05%) | **3 fontes via `FlashSource` enum:** Aave (0,05%) · Morpho (0%) · Balancer (0%) |
-> | Cross-DEX "radar passivo / dead-end" | **Motor 2 = radar MIS** (`apps/mis-scanner` + `MarketInefficiencyScanner`): pricing local + multicall + derivação on-chain + flash sizing + gate de profundidade. Ranqueia por persistência |
+> | Cross-DEX "radar passivo / dead-end" | **Motor 2 = MIS scanner → motor de EXECUÇÃO cross-DEX/triangular** (`apps/mis-scanner` + `MarketInefficiencyScanner`): pricing local + multicall + derivação on-chain + flash sizing + gate de profundidade + ranking por persistência; ganhou `arbDispatcher` + `arbOpportunity` + detecção triangular (`findTriangularCycles`). **Execução OFF por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun`) → sem env continua só observando (`mis_observed`) |
 > | Backrun "planejado" | **`apps/backrun-engine` construído** (planner + bribe + bundling, `executeFlashloanBackrun`); falta mempool premium |
 > | 4 trackers no `apps/liquidator` | **package `@zeus-evm/execution-utils`** compartilhado: trackers + gasOracle + eventBus + intelligence (OIE) + pnl + scoring + observability + health |
 > | Sem ledger / persistência no MVP | **Ledger OIE em DuckDB** (`logs/intelligence.duckdb`, `INTELLIGENCE_DB_PATH`): observação + execução gravam eventos; scoring/ranking de pares (ver Fluxo 4) |
 > | 4 apps (detector/backtest/monitor/liquidator) | **7 apps:** + `mis-scanner` (motor 2) + `backrun-engine` (motor 3) + `discovery-scraper` (auto-targets) |
 > | Chains: Base/Arb/OP (+Avax planejado) | **Code-ready: Base/Arb/OP/Polygon/Avalanche** |
 > | DEXs: UniV3 · Aerodrome | + Velodrome (OP) + **Trader Joe LB** (Avalanche, AMM por bins) |
-> | 53 Foundry tests | **115 funções Foundry em 9 arquivos** (4 unit + 5 fork), incl. prova de LUCRO dos 3 motores (`test/fork/MotorsProfit.fork.t.sol`) |
+> | 53 Foundry tests | **contratos 78/79 unit + fork verde** (incl. prova de LUCRO dos 3 motores em `test/fork/MotorsProfit.fork.t.sol`) · **~404 testes TS** (execution-utils 336/336) · 13/13 typecheck |
 >
 > Os fluxos 1/2/3 abaixo (executeArbitrage / executeFlashloanArbitrage / liquidation) continuam corretos —
 > só estão hoje distribuídos entre ZeusArbExecutor e ZeusLiquidator em vez de um único ZeusExecutor.
@@ -138,7 +138,8 @@ ZEUS EVM é um **monorepo pnpm** com 3 camadas:
 
 **EV gate ciente de OEV (2026-06-15):** antes do dispatch, o liquidator consulta os scores do ledger OIE
 (`opportunityScorer` + `chainProfitabilityScorer`) e **prioriza Morpho** (OEV / sem premium de flashloan).
-O backrun usa um EV gate **competitor-aware** (gas war). Ver Fluxo 4.
+O backrun usa um EV gate **competitor-aware** (gas war). O Motor 2 (mis-scanner), quando a execução está
+ligada (off por default), também passa por simulação `eth_call` + EV gate antes de qualquer dispatch. Ver Fluxo 4.
 
 **3 modos operacionais:**
 - `dryrun`: pipeline completo SEM submit (alimenta cache + LOGA decisions teóricas + grava no ledger OIE)
@@ -191,7 +192,7 @@ zeus-evm/
 │   │       ├── compound/IComet.sol     # absorb, buyCollateral, isLiquidatable, quoteCollateral
 │   │       ├── moonwell/IMoonwell.sol  # liquidateBorrow (fork Compound V2)
 │   │       └── morpho/IMorpho.sol      # liquidate, flashLoan, position, idToMarketParams
-│   ├── test/                           # 115 funções em 9 arquivos
+│   ├── test/                           # 9 arquivos (4 unit + 5 fork) — 78/79 unit + fork verde
 │   │   ├── BribeManager.t.sol               # 11 unit
 │   │   ├── ZeusArbExecutor.t.sol            # 19 unit (kill switch, access, multi-hop)
 │   │   ├── ZeusLiquidator.t.sol             # 29 unit
@@ -249,15 +250,22 @@ zeus-evm/
 │   │           └── compound/              # ABI + cometCache + discovery + calc + sim + builder
 │   │       # trackers/gasOracle/eventBus/intelligence vêm de @zeus-evm/execution-utils
 │   │
-│   ├── mis-scanner/            # ═══ MOTOR 2 — radar Market Inefficiency Scanner ═══
+│   ├── mis-scanner/            # ═══ MOTOR 2 — MIS scanner → motor de EXECUÇÃO cross-DEX/triangular ═══
 │   │   ├── package.json        # @zeus-evm/mis-scanner
-│   │   └── src/                # pricing local + multicall + derivação on-chain +
-│   │                           #   flash sizing + gate de profundidade; grava no ledger OIE
+│   │   └── src/                # pricing local + multicall + derivação on-chain + flash sizing +
+│   │                           #   gate de profundidade; ranqueia por persistência; grava no ledger OIE.
+│   │                           #   execution/ (arbDispatcher) + arb/ (arbOpportunity + triangular
+│   │                           #   findTriangularCycles, read-only); config de execução zod (circuit
+│   │                           #   breakers); inteligência espelhada (EventBus/PnL/competitor).
+│   │                           #   EXECUÇÃO OFF default (ARB_EXECUTION_ENABLED=false/ARB_MODE=dryrun)
+│   │                           #   → sem env só grava mis_observed
 │   │
 │   ├── backrun-engine/         # ═══ MOTOR 3 — backrun de dislocação ═══
 │   │   ├── package.json        # @zeus-evm/backrun-engine
 │   │   └── src/                # planner + bribe + bundling (executeFlashloanBackrun);
-│   │                           #   EV gate competitor-aware (gas war); falta mempool premium
+│   │                           #   EV gate competitor-aware (gas war) + PnlAggregator/Drift + post-mortem;
+│   │                           #   expõe /metrics. BLOQUEADO em prod: feed de mempool
+│   │                           #   (subscribeWhaleSwaps) é placeholder → precisa Flashblocks WS/Alchemy Growth+
 │   │
 │   └── discovery-scraper/      # ═══ AUTO-TARGETS (amplia cobertura do detector) ═══
 │       ├── package.json        # @zeus-evm/discovery-scraper
@@ -319,7 +327,7 @@ zeus-evm/
 │   │       │                                #   + dimensionScorer + dimensionStatsQuery
 │   │       ├── analytics/                    # failureCollector + reporter + competitorResolver
 │   │       ├── competitors/                  # senderRegistry + classifiers + builder attribution
-│   │       ├── arc/MarketInefficiencyScanner # motor 2 core + tokenSafety
+│   │       ├── arc/MarketInefficiencyScanner # motor 2 core + tokenSafety + triangular (findTriangularCycles)
 │   │       ├── observability/                # prometheusExporter + structuredLogger + tracer
 │   │       ├── health/ · finality/ · oracle/ · mempool/ · protocols/
 │   │       └── index.ts
@@ -496,6 +504,13 @@ zeus-evm/
    │ (gas war)              │      │ (prioriza Morpho)           │
    └────────────────────────┘      └────────────────────────────┘
 ```
+
+**Caminho de execução do Motor 2 (mis-scanner, OFF por default):** quando `ARB_EXECUTION_ENABLED=true`
+(deliberado), o scanner não para na observação — um adaptador converte observação → `arbOpportunity`,
+**re-cota fresco** → **simula (`eth_call`)** → passa pelo **EV gate** → só então `arbDispatcher` dispara
+(flashloan-only/atômico, circuit breakers da config zod, `EXECUTOR_PRIVATE_KEY` exclusiva). A detecção
+**triangular** (`findTriangularCycles`) hoje é read-only. Sem a env, o caminho de execução fica inerte e o
+scanner só grava `mis_observed`.
 
 Deploy: `Dockerfile` (raiz) + `deploy/fly/*.toml` com volume persistente obrigatório
 pro ledger DuckDB. Guia: `docs/refs/fly-deploy.md`. Status detalhado: `docs/OIE_PROGRESS.md`.

@@ -1,0 +1,50 @@
+/* ===== ZEUS Command — tema global (portado do design ZEUS Command.dc.html) ===== */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: #07090f; }
+
+:root, [data-theme="navy"] {
+  --bg:#080b14; --bg2:#0b1020; --panel:#101728; --panel2:#15203a;
+  --border:#1d2942; --border2:#2a3a5c; --text:#e7ecf6; --text2:#b9c4da;
+  --muted:#7c89a6; --gold:#d6b25e; --goldsoft:#3a3220; --green:#4cc08a;
+  --red:#e36a62; --cyan:#5cb9d4; --greensoft:#10271f; --redsoft:#2a1715;
+}
+[data-theme="black"] {
+  --bg:#08080a; --bg2:#0d0d10; --panel:#141417; --panel2:#1b1b20;
+  --border:#26262d; --border2:#34343d; --text:#ededee; --text2:#bcbcc2;
+  --muted:#82828c; --gold:#d6b25e; --goldsoft:#322b18; --green:#4cc08a;
+  --red:#e36a62; --cyan:#5cb9d4; --greensoft:#13231c; --redsoft:#241413;
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes zpulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes zfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+input::placeholder { color: var(--muted); }
+a { color: inherit; }
+
+/* fade-in para troca de telas */
+.zscreen { animation: zfade .22s ease both; }
+
+/* ===== responsivo: vira layout mobile abaixo de 900px ===== */
+@media (max-width: 900px) {
+  .z-sidebar { position: fixed !important; left: 0; bottom: 0; top: auto !important;
+    width: 100% !important; height: auto !important; flex-direction: row !important;
+    overflow-x: auto; z-index: 40; border-right: none !important;
+    border-top: 1px solid var(--border); padding: 8px !important; gap: 4px !important; }
+  .z-sidebar .z-navlabel { display: none; }
+  .z-sidebar .z-navfoot { display: none; }
+  .z-sidebar button { flex: 1; justify-content: center !important; padding: 12px 8px !important; }
+  .z-main { padding: 16px 14px 96px !important; }
+  .z-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .z-grid-3 { grid-template-columns: 1fr !important; }
+  .z-grid-2 { grid-template-columns: 1fr !important; }
+  .z-grid-row2 { grid-template-columns: 1fr !important; }
+  .z-grid-6 { grid-template-columns: repeat(2, 1fr) !important; }
+  .z-topmeta { display: none; }
+  .z-txtable { overflow-x: auto; }
+  .z-txtable .z-txgrid { min-width: 760px; }
+}

@@ -169,6 +169,11 @@ zeus-evm/
 │   └── shared-types/
 ├── docs/                   # OIE_PROGRESS + FIRST_FLIGHT + INFRA_EVOLUTION + MOTOR3_REFIT + NO_EDGE_TOKENS + grafana/
 │   └── refs/               # MDs externos pra expandir conhecimento da IA
+├── frontend/               # ZEUS Command — painel Next.js (Vercel) que espelha o backend.
+│                           # App STANDALONE (package.json próprio, FORA do pnpm workspace;
+│                           # instalar com `pnpm install --ignore-workspace`). Ponte de dados:
+│                           # bot genericWebhookSink → /api/ingest → Supabase Realtime → painel
+│                           # + Web Push/Email. LER frontend/HANDOFF.md ANTES de mexer.
 └── deploy/fly/             # Dockerfile raiz + detector/liquidator/mis-scanner.toml (volume persistente)
 ```
 
@@ -339,6 +344,7 @@ Eu, Claude, tenho limites em áreas como:
 | `TODO.md` | O que falta por fase |
 | `CONTRACTS.md` | Spec dos smart contracts + audit pipeline + limites IA |
 | `CLAUDE.md` | Este arquivo — contexto portátil |
+| `frontend/HANDOFF.md` | **ZEUS Command (frontend Next.js/Vercel)** — intenção, ponte de dados, o que falta, e contexto pro Claude no Antigravity continuar |
 
 **docs/ (status + planos):**
 

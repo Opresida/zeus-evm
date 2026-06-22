@@ -132,7 +132,7 @@ export function Home({ vm }: ScreenProps) {
             {insights.map((ins, i) => (
               <div key={i} style={css("display:flex; gap:11px; align-items:flex-start;")}>
                 <span style={{ ...css("width:6px; height:6px; border-radius:50%; margin-top:6px; flex:none;"), background: ins.color }} />
-                <span style={css("font:400 13px/1.45 'IBM Plex Sans'; color:var(--text2);")}>{ins.text}</span>
+                <span style={css("font:400 13px/1.45 'IBM Plex Sans'; color:var(--text2); min-width:0; overflow-wrap:anywhere;")}>{ins.text}</span>
               </div>
             ))}
           </div>
@@ -147,7 +147,7 @@ export function Home({ vm }: ScreenProps) {
               <div key={i} style={css("display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);")}>
                 <span style={css("font:500 10px/1 'IBM Plex Mono'; color:var(--muted); width:42px; flex:none;")}>{e.time}</span>
                 <span style={{ ...css("width:6px; height:6px; border-radius:50%; flex:none;"), background: e.color }} />
-                <span style={css("font:500 12px/1.3 'IBM Plex Mono'; color:var(--text2); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")}>{e.text}</span>
+                <span style={css("font:500 12px/1.3 'IBM Plex Mono'; color:var(--text2); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")}>{e.text}</span>
               </div>
             ))}
           </div>

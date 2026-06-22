@@ -51,6 +51,8 @@ a { color: inherit; }
   .z-grid-2 { grid-template-columns: 1fr !important; }
   .z-grid-row2 { grid-template-columns: 1fr !important; }
   .z-grid-6 { grid-template-columns: repeat(2, 1fr) !important; }
+  /* impede que um filho com texto largo estoure a coluna e seja cortado */
+  .z-grid-2 > *, .z-grid-3 > *, .z-grid-4 > *, .z-grid-6 > *, .z-grid-row2 > * { min-width: 0; }
   .z-topmeta { display: none !important; }
   .z-search { width: 100% !important; }
   .z-txtable { overflow-x: auto; }

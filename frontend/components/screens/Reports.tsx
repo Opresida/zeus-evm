@@ -70,7 +70,7 @@ export function Reports({ vm, ui, actions }: ScreenProps) {
         </Hover>
       </div>
 
-      <div style={css("background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:30px 34px; max-width:780px;")}>
+      <div className="z-report-card" style={css("background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:30px 34px; max-width:780px;")}>
         <div style={css("display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:22px; border-bottom:1px solid var(--border);")}>
           <div>
             <div style={css("font:700 18px/1.1 'IBM Plex Sans'; color:var(--text);")}>Relatório {reportPeriodLabel}</div>

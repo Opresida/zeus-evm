@@ -26,7 +26,7 @@ export function Health({ vm }: ScreenProps) {
               </div>
             )}
             {kp.isVal && (
-              <div style={{ ...css("font:600 20px/1 'IBM Plex Mono'; margin-top:13px;"), color: kp.color }}>
+              <div className="z-kpi-num" style={{ ...css("font:600 20px/1 'IBM Plex Mono'; margin-top:13px;"), color: kp.color }}>
                 {kp.big}
                 <span style={css("font-size:12px; color:var(--muted);")}>{kp.unit}</span>
               </div>
@@ -106,13 +106,13 @@ export function Health({ vm }: ScreenProps) {
         <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>Registro de eventos do sistema</span>
         <div style={css("display:flex; flex-direction:column; margin-top:14px;")}>
           {eventLog.map((el, i) => (
-            <div key={i} style={css("display:flex; align-items:center; gap:14px; padding:11px 0; border-bottom:1px solid var(--border);")}>
+            <div key={i} className="z-evrow" style={css("display:flex; align-items:center; gap:14px; padding:11px 0; border-bottom:1px solid var(--border);")}>
               <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted); width:46px; flex:none;")}>{el.time}</span>
               <span style={{ ...css("width:7px; height:7px; border-radius:50%; flex:none;"), background: el.color }} />
-              <span style={css("font:600 10.5px/1 'IBM Plex Mono'; color:var(--text2); width:170px; flex:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")}>
+              <span className="z-evtype" style={css("font:600 10.5px/1 'IBM Plex Mono'; color:var(--text2); width:170px; flex:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")}>
                 {el.type}
               </span>
-              <span style={css("font:400 12.5px/1.3 'IBM Plex Sans'; color:var(--text2); flex:1;")}>{el.text}</span>
+              <span className="z-evtext" style={css("font:400 12.5px/1.3 'IBM Plex Sans'; color:var(--text2); flex:1;")}>{el.text}</span>
             </div>
           ))}
         </div>

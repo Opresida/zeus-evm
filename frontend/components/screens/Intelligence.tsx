@@ -56,7 +56,7 @@ export function Intelligence({ vm }: ScreenProps) {
         <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>Competidores ativos</span>
         <div className="z-txtable">
           <div className="z-txgrid">
-            <div style={css(COMPGRID + "padding:12px 0 10px; border-bottom:1px solid var(--border); margin-top:8px;")}>
+            <div className="z-card-hide" style={css(COMPGRID + "padding:12px 0 10px; border-bottom:1px solid var(--border); margin-top:8px;")}>
               {["Builder / searcher", "Ganhou", "Perdeu", "Bribe médio", "Tipo"].map((h, i) => (
                 <span key={i} style={css("font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>
                   {h}
@@ -64,12 +64,12 @@ export function Intelligence({ vm }: ScreenProps) {
               ))}
             </div>
             {competitors.map((c, i) => (
-              <div key={i} style={css(COMPGRID + "padding:12px 0; border-bottom:1px solid var(--border); align-items:center;")}>
-                <span style={css("font:500 12.5px/1 'IBM Plex Mono'; color:var(--text);")}>{c.name}</span>
-                <span style={css("font:600 12px/1 'IBM Plex Mono'; color:var(--red);")}>{c.won}</span>
-                <span style={css("font:600 12px/1 'IBM Plex Mono'; color:var(--green);")}>{c.lost}</span>
-                <span style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--text2);")}>{c.bribe}</span>
-                <span style={css("font:500 10.5px/1 'IBM Plex Mono'; color:var(--muted); text-transform:uppercase;")}>{c.kind}</span>
+              <div key={i} className="z-card-row" style={css(COMPGRID + "padding:12px 0; border-bottom:1px solid var(--border); align-items:center;")}>
+                <span data-label="Builder" style={css("font:500 12.5px/1 'IBM Plex Mono'; color:var(--text);")}>{c.name}</span>
+                <span data-label="Ganhou" style={css("font:600 12px/1 'IBM Plex Mono'; color:var(--red);")}>{c.won}</span>
+                <span data-label="Perdeu" style={css("font:600 12px/1 'IBM Plex Mono'; color:var(--green);")}>{c.lost}</span>
+                <span data-label="Bribe" style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--text2);")}>{c.bribe}</span>
+                <span data-label="Tipo" style={css("font:500 10.5px/1 'IBM Plex Mono'; color:var(--muted); text-transform:uppercase;")}>{c.kind}</span>
               </div>
             ))}
           </div>

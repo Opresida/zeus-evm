@@ -27,22 +27,22 @@ export function Home({ vm }: ScreenProps) {
       <div className="z-grid-4" style={css("display:grid; grid-template-columns:repeat(4,1fr); gap:14px;")}>
         <div style={css(card)}>
           <span style={css(kicker)}>Net PnL · Hoje</span>
-          <div style={css(big + "color:var(--green);")}>{k.today}</div>
+          <div className="z-kpi-num" style={css(big + "color:var(--green);")}>{k.today}</div>
           <div style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted); margin-top:9px;")}>realizado · {k.todayTx} ops</div>
         </div>
         <div style={css(card)}>
           <span style={css(kicker)}>Net PnL · 7d</span>
-          <div style={css(big + "color:var(--green);")}>{k.w7}</div>
+          <div className="z-kpi-num" style={css(big + "color:var(--green);")}>{k.w7}</div>
           <div style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--green); margin-top:9px;")}>▲ {k.w7delta} vs sem. ant.</div>
         </div>
         <div style={css(card)}>
           <span style={css(kicker)}>Net PnL · 30d</span>
-          <div style={css(big + "color:var(--green);")}>{k.m30}</div>
+          <div className="z-kpi-num" style={css(big + "color:var(--green);")}>{k.m30}</div>
           <div style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted); margin-top:9px;")}>projeção mês · {k.proj}</div>
         </div>
         <div style={css(card)}>
           <span style={css(kicker)}>Win rate · Hoje</span>
-          <div style={css(big + "color:var(--text);")}>{k.winRate}</div>
+          <div className="z-kpi-num" style={css(big + "color:var(--text);")}>{k.winRate}</div>
           <div style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted); margin-top:9px;")}>
             <span style={{ color: "var(--green)" }}>{k.ok} ok</span> · <span style={{ color: "var(--red)" }}>{k.fail} falhas</span>
           </div>
@@ -56,7 +56,7 @@ export function Home({ vm }: ScreenProps) {
             <span style={css(kicker)}>Net PnL · últimos 14 dias</span>
             <span style={css("font:600 12px/1 'IBM Plex Mono'; color:var(--green);")}>{k.w14sum}</span>
           </div>
-          <div style={css("display:flex; align-items:flex-end; gap:5px; height:118px; margin-top:18px;")}>
+          <div className="z-chart" style={css("display:flex; align-items:flex-end; gap:5px; height:118px; margin-top:18px;")}>
             {pnl14.map((b, i) => (
               <div
                 key={i}

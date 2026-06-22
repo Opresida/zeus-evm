@@ -27,7 +27,7 @@ export function Transactions({ vm, ui, actions }: ScreenProps) {
           </Hover>
         ))}
         <div style={{ flex: 1 }} />
-        <div style={css("display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:var(--panel); width:240px;")}>
+        <div className="z-search" style={css("display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:var(--panel); width:240px;")}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4-4" />
@@ -42,7 +42,7 @@ export function Transactions({ vm, ui, actions }: ScreenProps) {
       </div>
 
       <div className="z-txtable" style={css("background:var(--panel); border:1px solid var(--border); border-radius:11px; overflow:hidden;")}>
-        <div className="z-txgrid" style={css(TXGRID + "padding:13px 20px; border-bottom:1px solid var(--border); background:var(--bg2);")}>
+        <div className="z-txgrid z-card-hide" style={css(TXGRID + "padding:13px 20px; border-bottom:1px solid var(--border); background:var(--bg2);")}>
           {txHeads.map((h, i) => (
             <span key={i} style={css("font:600 9.5px/1.2 'IBM Plex Mono'; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);")}>
               {h}
@@ -59,28 +59,30 @@ export function Transactions({ vm, ui, actions }: ScreenProps) {
             key={i}
             base={TXGRID + "padding:14px 20px; border-bottom:1px solid var(--border); align-items:center;"}
             hover="background:var(--bg2);"
-            className="z-txgrid"
+            className="z-txgrid z-card-row"
           >
-            <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted);")}>{t.time}</span>
-            <span style={{ ...css("display:inline-flex; align-items:center; gap:6px; font:600 10.5px/1 'IBM Plex Mono';"), color: t.statusColor }}>
+            <span data-label="Hora" style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted);")}>{t.time}</span>
+            <span data-label="Status" style={{ ...css("display:inline-flex; align-items:center; gap:6px; font:600 10.5px/1 'IBM Plex Mono';"), color: t.statusColor }}>
               <span style={{ ...css("width:6px;height:6px;border-radius:50%;"), background: t.statusColor }} />
               {t.statusLabel}
             </span>
-            <span style={css("font:500 12.5px/1 'IBM Plex Sans'; color:var(--text);")}>{t.protocol}</span>
-            <span style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--text2);")}>{t.pair}</span>
-            <span style={{ ...css("font:600 12.5px/1 'IBM Plex Mono';"), color: t.netColor }}>{t.net}</span>
-            <span style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted);")}>{t.gas}</span>
-            <span style={{ ...css("font:500 11.5px/1 'IBM Plex Mono';"), color: t.driftColor }}>{t.drift}</span>
-            <Hover
-              as="a"
-              href={t.url}
-              target="_blank"
-              base="font:500 11.5px/1 'IBM Plex Mono'; color:var(--cyan); text-decoration:none;"
-              hover="text-decoration:underline;"
-            >
-              {t.hashShort} ↗
-            </Hover>
-            <span style={css("font:500 10px/1 'IBM Plex Mono'; color:var(--muted); text-transform:uppercase;")}>{t.mode}</span>
+            <span data-label="Protocolo" style={css("font:500 12.5px/1 'IBM Plex Sans'; color:var(--text);")}>{t.protocol}</span>
+            <span data-label="Par" style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--text2);")}>{t.pair}</span>
+            <span data-label="Net" style={{ ...css("font:600 12.5px/1 'IBM Plex Mono';"), color: t.netColor }}>{t.net}</span>
+            <span data-label="Gás" style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted);")}>{t.gas}</span>
+            <span data-label="Drift" style={{ ...css("font:500 11.5px/1 'IBM Plex Mono';"), color: t.driftColor }}>{t.drift}</span>
+            <span data-label="Hash" style={css("min-width:0;")}>
+              <Hover
+                as="a"
+                href={t.url}
+                target="_blank"
+                base="font:500 11.5px/1 'IBM Plex Mono'; color:var(--cyan); text-decoration:none;"
+                hover="text-decoration:underline;"
+              >
+                {t.hashShort} ↗
+              </Hover>
+            </span>
+            <span data-label="Modo" style={css("font:500 10px/1 'IBM Plex Mono'; color:var(--muted); text-transform:uppercase;")}>{t.mode}</span>
           </Hover>
         ))}
       </div>

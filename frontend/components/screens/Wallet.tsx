@@ -17,7 +17,7 @@ export function Wallet({ vm }: ScreenProps) {
       <div className="z-grid-4" style={css("display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px;")}>
         <div style={css(card + "padding:18px 20px;")}>
           <span style={css(kmono)}>Saldo atual</span>
-          <div style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--text); margin-top:11px;")}>
+          <div className="z-kpi-num" style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--text); margin-top:11px;")}>
             {gas.eth}
             <span style={css("font-size:14px; color:var(--muted);")}> ETH</span>
           </div>
@@ -25,7 +25,7 @@ export function Wallet({ vm }: ScreenProps) {
         </div>
         <div style={css(card + "padding:18px 20px;")}>
           <span style={css(kmono)}>Runway estimado</span>
-          <div style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--gold); margin-top:11px;")}>
+          <div className="z-kpi-num" style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--gold); margin-top:11px;")}>
             {runwayDays}
             <span style={css("font-size:14px; color:var(--muted);")}> dias</span>
           </div>
@@ -33,12 +33,12 @@ export function Wallet({ vm }: ScreenProps) {
         </div>
         <div style={css(card + "padding:18px 20px;")}>
           <span style={css(kmono)}>Gás · 24h</span>
-          <div style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--red); margin-top:11px;")}>{wallet.gas24h}</div>
+          <div className="z-kpi-num" style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--red); margin-top:11px;")}>{wallet.gas24h}</div>
           <div style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--muted); margin-top:8px;")}>{wallet.gas24hEth} ETH</div>
         </div>
         <div style={css(card + "padding:18px 20px;")}>
           <span style={css(kmono)}>Gás acumulado · 30d</span>
-          <div style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--text2); margin-top:11px;")}>{wallet.gas30d}</div>
+          <div className="z-kpi-num" style={css("font:600 26px/1 'IBM Plex Mono'; color:var(--text2); margin-top:11px;")}>{wallet.gas30d}</div>
           <div style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--muted); margin-top:8px;")}>{wallet.gas30dPct} do lucro bruto</div>
         </div>
       </div>
@@ -50,7 +50,7 @@ export function Wallet({ vm }: ScreenProps) {
           </span>
           <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted);")}>2 reabastecimentos no período</span>
         </div>
-        <div style={css("display:flex; align-items:flex-end; gap:4px; height:130px; margin-top:18px;")}>
+        <div className="z-chart" style={css("display:flex; align-items:flex-end; gap:4px; height:130px; margin-top:18px;")}>
           {walletHist.map((w, i) => (
             <div key={i} style={css("flex:1; display:flex; flex-direction:column; justify-content:flex-end; height:100%;")}>
               <div style={{ ...css("border-radius:2px 2px 0 0; min-height:2px;"), height: `${w.pct}%`, background: w.color }} />

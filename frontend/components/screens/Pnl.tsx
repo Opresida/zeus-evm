@@ -32,19 +32,19 @@ export function Pnl({ vm, actions }: ScreenProps) {
       <div className="z-grid-4" style={css("display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px;")}>
         <div style={css(card + "padding:16px 18px;")}>
           <span style={css(kmono)}>Realizado</span>
-          <div style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--green); margin-top:10px;")}>{pnlk.realized}</div>
+          <div className="z-kpi-num" style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--green); margin-top:10px;")}>{pnlk.realized}</div>
         </div>
         <div style={css(card + "padding:16px 18px;")}>
           <span style={css(kmono)}>Esperado</span>
-          <div style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--text); margin-top:10px;")}>{pnlk.expected}</div>
+          <div className="z-kpi-num" style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--text); margin-top:10px;")}>{pnlk.expected}</div>
         </div>
         <div style={css(card + "padding:16px 18px;")}>
           <span style={css(kmono)}>Drift médio</span>
-          <div style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--red); margin-top:10px;")}>{pnlk.drift}</div>
+          <div className="z-kpi-num" style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--red); margin-top:10px;")}>{pnlk.drift}</div>
         </div>
         <div style={css(card + "padding:16px 18px;")}>
           <span style={css(kmono)}>Gás pago</span>
-          <div style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--text2); margin-top:10px;")}>{pnlk.gas}</div>
+          <div className="z-kpi-num" style={css("font:600 24px/1 'IBM Plex Mono'; color:var(--text2); margin-top:10px;")}>{pnlk.gas}</div>
         </div>
       </div>
 

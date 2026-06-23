@@ -282,9 +282,13 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 - Provider RPC: **Alchemy** primário (archive no free) + fallback a definir (dRPC free descartado em 2026-06-23 — não forka archive)
 - Owner = **carteira testnet dedicada** `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
 - Contratos ainda na **SEPOLIA (testnet)** — **NÃO mainnet**. Lucro real **US$ 0** (provado em fork).
+  - **Base Sepolia v8 (redeploy 2026-06-23, com DexType.PancakeV3 + adapters DEX):**
+    BribeManager `0xe0B6A6840d1f011F27Ec63eb3390D0d7E0904795` · ZeusLiquidator `0x8E769a56F0f3fA7e7410fE5955D94E9dE458193D` ·
+    ZeusArbExecutor `0x0156Aa6729891103Cc22b1e14c5E1e5338E6ab4A` · ZeusMoonwellLiquidator `0x3A34EcDD1A9a53d5799fF0f4cB479FF2963F3dA3`.
+    Owner = deployer `0xE060…cBB4`. Liquidator + ArbExecutor já com `revive()` (isKilled=false); falta `setOperator(<bot>)` + revive do Moonwell.
   - _Histórico v6 (pré-split, contrato único): Base Sepolia `0xe38298B4d242d0D1C45696a96c4C588926Cf1139`,
     Arb/OP Sepolia `0xe48473D75805886Ac4162B1304EAB6b8F93C5faa`. Anteriores arquivados: Base v2
-    `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`. Endereços v8 (split) atualizar ao redeploy._
+    `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`._
 
 ### ⏸️ Aguardando decisão do Humberto
 - **Ligar execução do arb (Motor 2)** — motor pronto e OFF por default; aguarda edge provado no DRY_RUN/ledger

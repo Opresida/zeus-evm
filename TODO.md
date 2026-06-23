@@ -30,6 +30,25 @@
 > - [ ] **`approvedDexAdapters`** — regra do CLAUDE.md sem enforcement on-chain: decidir whitelist vs ajustar doc.
 > - [ ] **`OrphanRecoveryManager`** — re-submissão de tx órfã pós-reorg; só faz sentido no modo LIVE.
 
+> ## 🔌 FRONTEND (ZEUS Command) — ENV VARS PENDENTES (Humberto, amanhã)
+>
+> Ponte de eventos fechada no código (branch `claude/frontend-event-coverage`: secret no webhook,
+> Motor 2 → painel, heartbeat + estado real do toggle, drift real). **Falta SETAR as variáveis** —
+> ver [docs/SUPABASE_SCHEMA_REVIEW.md](./docs/SUPABASE_SCHEMA_REVIEW.md) pra a migração do schema.
+>
+> **No bot (Fly.io) — liquidator + backrun + mis-scanner:**
+> - [ ] `GENERIC_WEBHOOK_URL` = `https://<app>.vercel.app/api/ingest`
+> - [ ] `GENERIC_WEBHOOK_SECRET` = (mesmo valor do `ZEUS_WEBHOOK_SECRET` no Vercel)
+> - [ ] mis-scanner (toggle Motor 2): `SUPABASE_URL` + `SUPABASE_KEY` (anon, RLS read em `engine_control`)
+>
+> **No Vercel (ZEUS Command):**
+> - [ ] `ZEUS_WEBHOOK_SECRET` (= `GENERIC_WEBHOOK_SECRET` do bot) — ⚠️ se setar no Vercel sem setar no bot, o ingest barra TUDO (401)
+> - [ ] `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY`
+> - [ ] (opcional) `ZEUS_CONTROL_SECRET` — trava a rota `/api/control` (senão painel é privado-por-URL)
+> - [ ] (notificações) VAPID (`NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` + `VAPID_SUBJECT`), Resend (`RESEND_API_KEY` + `ALERT_EMAIL_TO/FROM`)
+>
+> **No Supabase:** rodar `frontend/supabase/schema.sql` (idempotente) — cria `service_status` (heartbeat) + `engine_control` (toggle).
+
 > ## 📍 ESTADO ATUAL (2026-06-15)
 >
 > **Pronto (código):** 4 contratos v8 SPLIT — EIP-170 (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator;

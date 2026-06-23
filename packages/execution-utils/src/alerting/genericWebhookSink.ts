@@ -19,8 +19,14 @@ export interface GenericWebhookSinkOpts {
   url: string;
   /** Filtro de severidades. Default: todas. Ex: ['warn', 'critical'] pra reduzir spam. */
   severities?: Severity[];
-  /** Filtro de tipos. Default: todos. */
+  /** Filtro de tipos (allowlist). Default: todos. */
   eventTypes?: ZeusEvent['type'][];
+  /**
+   * Tipos a EXCLUIR (denylist). Útil pra eventos de alta frequência cujo snapshot já viaja por
+   * outro caminho — ex: `discovery.tick_completed` (o pulso vai no `zeus.heartbeat`), evitando
+   * inundar o receptor. Aplicado depois da allowlist.
+   */
+  excludeEventTypes?: ZeusEvent['type'][];
   /**
    * Segredo compartilhado. Quando setado, vai no header `x-zeus-secret` de cada POST pra o
    * receptor (ex: /api/ingest do ZEUS Command) autenticar. Sem ele, o endpoint receptor ou
@@ -33,7 +39,7 @@ export interface GenericWebhookSinkOpts {
 }
 
 export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
-  const { url, severities, eventTypes, secret, timeoutMs = 5000, logger } = opts;
+  const { url, severities, eventTypes, excludeEventTypes, secret, timeoutMs = 5000, logger } = opts;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (secret) headers['x-zeus-secret'] = secret;
@@ -41,6 +47,7 @@ export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
   return async (event: ZeusEvent): Promise<void> => {
     if (severities && !severities.includes(event.severity)) return;
     if (eventTypes && !eventTypes.includes(event.type)) return;
+    if (excludeEventTypes && excludeEventTypes.includes(event.type)) return;
 
     try {
       const controller = new AbortController();

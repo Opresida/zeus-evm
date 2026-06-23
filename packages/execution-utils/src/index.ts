@@ -76,6 +76,10 @@ export type {
   BackrunOpportunityFoundEvent,
   BackrunDispatchedEvent,
   BackrunRejectedEvent,
+  ZeusHeartbeatEvent,
+  MotorStat,
+  HeartbeatDiscovery,
+  HeartbeatIntel,
 } from './events';
 
 // ─── Event Decoder ───

@@ -294,6 +294,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           txHash,
           gasUsdLost: revertGasUsd,
           reason: 'on-chain revert',
+          // Post-mortem: quem nos ganhou (quando o CompetitorResolver resolveu acima) → painel mostra.
+          competitorAlias: failureEvent.competitor_winner_alias,
         });
       }
 

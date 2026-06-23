@@ -51,4 +51,17 @@ describe('genericWebhookSink — secret no header', () => {
     expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(0);
     vi.unstubAllGlobals();
   });
+
+  // Item 2 (cobertura M1): o pulso do radar viaja no heartbeat → o sink exclui discovery.tick_completed
+  // pra não inundar o painel. Denylist aplicada depois da allowlist.
+  it('excludeEventTypes barra o tipo sem POST; outros passam', async () => {
+    const f = mockFetch();
+    vi.stubGlobal('fetch', f);
+    const sink = createGenericWebhookSink({ url: 'https://x', excludeEventTypes: ['discovery.tick_completed'] });
+    await sink({ ...evt, type: 'discovery.tick_completed' } as ZeusEvent);
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(0);
+    await sink(evt); // liquidator.boot passa
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBe(1);
+    vi.unstubAllGlobals();
+  });
 });

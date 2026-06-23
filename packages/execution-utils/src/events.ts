@@ -245,6 +245,8 @@ export interface FailureRecordedEvent extends BaseEvent {
   /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
   gasUsdLost?: number;
   reason?: string;
+  /** Post-mortem (Fase 5b): alias do competidor que nos ganhou, quando resolvido. */
+  competitorAlias?: string;
 }
 
 // ─── Heartbeat (estado ao vivo) ─────────────────────────────────────────
@@ -261,6 +263,40 @@ export interface MotorStat {
   netPnl24hUsd: number;
 }
 
+/**
+ * Pulso do "radar" de descoberta (último tick de varredura). Vai no heartbeat (não como evento
+ * próprio) pra não inundar a tabela `events` — `discovery.tick_completed` dispara a cada varredura.
+ * Deixa o painel mostrar "scanner vivo · viu N posições · há Xs".
+ */
+export interface HeartbeatDiscovery {
+  /** Total de posições liquidáveis vistas no último tick (soma dos protocolos). */
+  positions: number;
+  /** Quantas foram despachadas (ou simuladas em dryrun) no último tick. */
+  dispatched: number;
+  /** Quantas foram rejeitadas pelos gates no último tick. */
+  rejected: number;
+  /** ISO do último tick de descoberta. */
+  atIso: string;
+}
+
+/**
+ * Agregados de inteligência que o bot JÁ computa no loop de métricas (market-bribe, competidores,
+ * calibração) — anexados ao heartbeat pra o painel mostrar os valores REAIS em vez de mock.
+ * Esses dados vivem no DuckDB/Prometheus local do bot; o heartbeat é a ponte pro Vercel.
+ */
+export interface HeartbeatIntel {
+  /** Lance de mercado mediano dos competidores (priority fee gwei). */
+  marketBribeP50Gwei?: number;
+  /** Lance de mercado agressivo (p95) — quanto custa ganhar a corrida. */
+  marketBribeP95Gwei?: number;
+  /** Competidores ativos na janela. */
+  competitorsActive?: number;
+  /** Drift médio realizado-vs-esperado (bps) — calibração. */
+  driftBps?: number;
+  /** Alertas de drift sustentado acumulados ("o bot está mentindo pra si mesmo"). */
+  sustainedAlerts?: number;
+}
+
 export interface ZeusHeartbeatEvent extends BaseEvent {
   type: 'zeus.heartbeat';
   severity: 'info';
@@ -275,4 +311,8 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   /** Estado REAL de execução: true = pausado/travado (no Motor 2 = toggle OFF). */
   autoPaused: boolean;
   motorStats?: MotorStat[];
+  /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
+  discovery?: HeartbeatDiscovery;
+  /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */
+  intel?: HeartbeatIntel;
 }

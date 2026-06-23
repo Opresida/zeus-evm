@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { buildHeartbeatPayload, compactIntel, type HeartbeatInput } from './heartbeat';
 import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
@@ -95,7 +96,15 @@ import {
   computeAdaptiveThresholds,
   type Severity,
   type ReadinessReport,
+  type HeartbeatDiscovery,
 } from '@zeus-evm/execution-utils';
+
+/** Holder mutável do pulso do radar — discoveryTick escreve, o heartbeat lê (mesma referência). */
+interface DiscoveryPulse {
+  last?: HeartbeatDiscovery;
+  /** Operações cumulativas (despachadas + simuladas) — alimenta motorStats.ops do heartbeat. */
+  opsTotal: number;
+}
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
 import { writeFileSync } from 'node:fs';
@@ -151,6 +160,8 @@ interface LiquidatorState {
   gasReserveTracker: GasReserveTracker;
   /** Event bus — emite eventos tipados pra webhooks/sinks externos */
   eventBus: EventBus;
+  /** Pulso do radar de descoberta (item 2/4) — escrito por discoveryTick, lido pelo heartbeat. */
+  discoveryPulse: DiscoveryPulse;
   /** Gas oracle EIP-1559 — pricing correto pra Base/Arb/OP */
   gasOracle: GasOracle;
   /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator (core market). */
@@ -541,6 +552,8 @@ export async function boot(): Promise<LiquidatorState> {
 
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
+  // Holder do pulso do radar — discoveryTick escreve, o heartbeat (loop de métricas abaixo) lê.
+  const discoveryPulse: DiscoveryPulse = { opsTotal: 0 };
 
   // Historical Intelligence — Item 15 I1+I2 (DuckDB + EventIngester)
   // Coleta de TODOS eventos pra dataset histórico (alimenta IA futura).
@@ -790,6 +803,8 @@ export async function boot(): Promise<LiquidatorState> {
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
         severities,
+        // O pulso do radar já viaja no zeus.heartbeat (UPSERT em service_status) → não inunda o painel.
+        excludeEventTypes: ['discovery.tick_completed'],
         secret: env.GENERIC_WEBHOOK_SECRET,
         logger,
       }),
@@ -872,14 +887,32 @@ export async function boot(): Promise<LiquidatorState> {
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
 
-      // Heartbeat ~30s pro painel (gás-agora / uptime / estado real) — reusa valores já coletados.
+      // Heartbeat ~30s pro painel (gás-agora / uptime / estado real / radar / inteligência) —
+      // reusa valores JÁ coletados acima (mkt, drift, scannerStats, gasStats, pnlStats, discoveryPulse).
       if (hbTick++ % 6 === 0) {
-        eventBus.emit({
-          type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain, mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
-          severity: 'info', service: 'liquidator', uptimeSec: Math.floor(proc.uptime_sec),
-          gasReserveEth: Number(gasStats.balanceEth ?? 0), gasReserveUsd: gasStats.balanceUsd ?? undefined,
-          autoPaused: pauseStatus.paused, motorStats: [{ tag: 'motor1', ops: 0, netPnl24hUsd: pnlStats.netPnlUsd }],
-        });
+        const hbInput: HeartbeatInput = {
+          service: 'liquidator',
+          chain,
+          mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          timestamp: new Date().toISOString(),
+          uptimeSec: Math.floor(proc.uptime_sec),
+          gasReserveEth: Number(gasStats.balanceEth ?? 0),
+          gasReserveUsd: gasStats.balanceUsd ?? undefined,
+          autoPaused: pauseStatus.paused,
+          motorTag: 'motor1',
+          ops: discoveryPulse.opsTotal,
+          netPnl24hUsd: pnlStats.netPnlUsd,
+          discovery: discoveryPulse.last,
+          // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
+          intel: compactIntel({
+            marketBribeP50Gwei: mkt.p50Gwei,
+            marketBribeP95Gwei: mkt.p95Gwei,
+            competitorsActive: mkt.competitorsActive,
+            driftBps: drift.avg_drift_bps_all,
+            sustainedAlerts: drift.sustained_alerts_count,
+          }),
+        };
+        eventBus.emit(buildHeartbeatPayload(hbInput));
       }
     } catch (err) {
       logger.debug(
@@ -1075,6 +1108,7 @@ export async function boot(): Promise<LiquidatorState> {
     morphoBorrowerCaches,
     moonwellMarketCache,
     moonwellBorrowerCaches,
+    discoveryPulse,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1904,7 +1938,18 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     );
   }
 
-  // Emit tick event pra subscribers (Discord filtra fora por default — só generic webhook recebe)
+  // Pulso do radar (item 2/4): snapshot do último tick + ops cumulativas → viaja no heartbeat
+  // (UPSERT em service_status), NÃO inunda a tabela `events`. O sink filtra discovery.tick_completed.
+  state.discoveryPulse.last = {
+    positions: stats.aave + stats.compound,
+    dispatched: stats.dispatched,
+    rejected: stats.rejected,
+    atIso: new Date().toISOString(),
+  };
+  state.discoveryPulse.opsTotal += stats.dispatched + stats.dryrun;
+
+  // Emit tick event pra subscribers (Discord filtra fora por default; o generic webhook também
+  // filtra — o snapshot vai pelo heartbeat. Mantido pro EventIngester/ledger local.)
   state.eventBus.emit({
     type: 'discovery.tick_completed',
     timestamp: new Date().toISOString(),

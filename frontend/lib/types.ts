@@ -51,6 +51,7 @@ export interface ZeusEvent {
   // failure.recorded
   failureCategory?: string;
   gasUsdLost?: number;
+  competitorAlias?: string;
   // gas.*
   account?: string;
   balanceEth?: number;
@@ -106,6 +107,16 @@ export interface ServiceStatusRow {
   adaptive_min_ev_usd: number | null;
   auto_paused: boolean | null;
   motor_stats: { tag: string; ops: number; netPnl24hUsd: number }[] | null;
+  /** Pulso do radar (item 2) — último tick de descoberta. */
+  discovery: { positions: number; dispatched: number; rejected: number; atIso: string } | null;
+  /** Agregados de inteligência (item 3) — market-bribe, competidores, drift. */
+  intel: {
+    marketBribeP50Gwei?: number;
+    marketBribeP95Gwei?: number;
+    competitorsActive?: number;
+    driftBps?: number;
+    sustainedAlerts?: number;
+  } | null;
   updated_at: string;
 }
 
@@ -142,6 +153,14 @@ export interface LiveSnapshot {
   eventLog?: { time: string; color: string; type: string; text: string }[];
   /** Drift sustentado real (de pnl.reconciled) — alimenta a tela Inteligência. */
   driftAlarms?: { color: string; text: string; bps: string }[];
+  /** Falhas recentes (item 1) — de failure.recorded: categoria + quem nos ganhou. */
+  failures?: { time: string; color: string; protocol: string; category: string; detail: string }[];
+  /** Pulso do radar (item 2) — "scanner vivo · viu N posições · há Xs". */
+  discovery?: { service: string; positions: number; dispatched: number; rejected: number; ago: string };
+  /** Inteligência real (item 3) — market-bribe / competidores / drift (substitui mock quando presente). */
+  intel?: { marketBribeP50Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number };
+  /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
+  motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
 }
 
 export interface TxRow {

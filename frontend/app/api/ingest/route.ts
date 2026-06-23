@@ -64,6 +64,8 @@ export async function POST(req: Request) {
       adaptive_min_ev_usd: e.adaptiveMinEvUsd ?? null,
       auto_paused: e.autoPaused ?? null,
       motor_stats: e.motorStats ?? null,
+      discovery: e.discovery ?? null, // pulso do radar (item 2)
+      intel: e.intel ?? null, // agregados de inteligência (item 3)
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

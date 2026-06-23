@@ -4,6 +4,25 @@ import type { EventRow, LiveSnapshot, ServiceStatusRow, TxRow, ZeusEvent } from 
 
 const TX_TYPES = new Set(["tx.confirmed", "tx.reverted_on_chain", "tx.reverted_pre_dispatch"]);
 
+/** Mapeia o `protocol` de um evento tx.* para o motor (item 4 — mini-cards). */
+const MOTOR_BY_PROTOCOL: Record<string, string> = {
+  "aave-v3": "motor1",
+  "compound-v3": "motor1",
+  "morpho-blue": "motor1",
+  "moonwell": "motor1",
+  arb: "motor2",
+  backrun: "motor3",
+};
+const MOTOR_LABEL: Record<string, string> = {
+  motor1: "M1 · Liquidações",
+  motor2: "M2 · Arbitragem",
+  motor3: "M3 · Backrun",
+};
+function motorOf(protocol: string | null): string | null {
+  if (!protocol) return null;
+  return MOTOR_BY_PROTOCOL[protocol] ?? (protocol.startsWith("backrun") ? "motor3" : null);
+}
+
 function hhmm(ts: string) {
   const d = new Date(ts);
   return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
@@ -141,7 +160,6 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
   if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
 
   // ----- inteligência: drift sustentado real (de pnl.reconciled) -----
-  // bribe/competidores/post-mortem/calibração vivem no DuckDB (fora do webhook) → seguem mock.
   const recon = rows.filter((r) => r.type === "pnl.reconciled").slice(0, 6);
   if (recon.length) {
     snap.driftAlarms = recon.map((r) => {
@@ -153,6 +171,65 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
       return { color, text: `${p.protocol ?? "—"} · ${cause}`, bps: `${bps > 0 ? "+" : ""}${bps}bps` };
     });
   }
+
+  // ----- item 1: falhas recentes (failure.recorded) — categoria + quem nos ganhou -----
+  const failRows = rows.filter((r) => r.type === "failure.recorded").slice(0, 6);
+  if (failRows.length) {
+    snap.failures = failRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const category = (p.failureCategory as string) || "—";
+      const winner = (p.competitorAlias as string) || "";
+      const lost = p.gasUsdLost != null ? `−$${Number(p.gasUsdLost).toFixed(2)} gás` : "";
+      const detail = [winner ? `perdeu p/ ${winner}` : "", lost, (p.reason as string) || ""].filter(Boolean).join(" · ");
+      return {
+        time: hhmm(r.ts),
+        color: category.includes("reverted") || category.includes("lost") ? "var(--red)" : "var(--gold)",
+        protocol: r.protocol || (p.protocol as string) || "—",
+        category,
+        detail: detail || category,
+      };
+    });
+  }
+
+  // ----- item 2: pulso do radar (discovery, do heartbeat em service_status) -----
+  // Prioriza o liquidator (motor que faz discovery); fallback = qualquer serviço com discovery.
+  const discSvc = (byService("liquidator")?.discovery ? byService("liquidator") : statuses.find((s) => s.discovery))!;
+  if (discSvc?.discovery) {
+    const d = discSvc.discovery;
+    snap.discovery = {
+      service: discSvc.service,
+      positions: d.positions,
+      dispatched: d.dispatched,
+      rejected: d.rejected,
+      ago: ago(d.atIso),
+    };
+  }
+
+  // ----- item 3: inteligência real (intel, do heartbeat) substitui o mock quando presente -----
+  const intelSvc = byService("liquidator")?.intel ? byService("liquidator") : statuses.find((s) => s.intel);
+  if (intelSvc?.intel) {
+    snap.intel = { ...intelSvc.intel };
+  }
+
+  // ----- item 4: mini-cards por motor (PnL + ops 24h, derivado dos eventos tx.*) -----
+  const startMs = startOfDay.getTime() - 23 * 60 * 60 * 1000; // janela ~24h
+  const acc: Record<string, { netUsd: number; ops: number }> = {};
+  for (const r of rows) {
+    if (r.type !== "tx.confirmed" && r.type !== "tx.reverted_on_chain") continue;
+    if (new Date(r.ts).getTime() < startMs) continue;
+    const motor = motorOf(r.protocol);
+    if (!motor) continue;
+    const a = (acc[motor] ??= { netUsd: 0, ops: 0 });
+    a.netUsd += r.net_profit_usd ?? (r.type === "tx.reverted_on_chain" ? -(r.gas_usd ?? 0) : 0);
+    a.ops += 1;
+  }
+  // Sempre mostra os 3 cards (M1/M2/M3); motores sem evento ainda ficam zerados (honesto).
+  snap.motorCards = ["motor1", "motor2", "motor3"].map((tag) => ({
+    tag,
+    label: MOTOR_LABEL[tag] ?? tag,
+    netUsd: acc[tag]?.netUsd ?? 0,
+    ops: acc[tag]?.ops ?? 0,
+  }));
 
   return snap;
 }

@@ -3,11 +3,12 @@ pragma solidity 0.8.27;
 
 /// @notice Tipos de DEX suportados — deve bater com `enum DexType` no TypeScript shared-types
 enum DexType {
-    UniswapV2,    // 0
-    UniswapV3,    // 1
-    Aerodrome,    // 2
+    UniswapV2,    // 0 — UniV2 e forks (BaseSwap, AlienBase, SwapBased…) via UniswapV2Lib
+    UniswapV3,    // 1 — UniV3 e forks ABI-compatíveis (Pancake V3, Sushi V3) via UniswapV3Lib
+    Aerodrome,    // 2 — Aerodrome/Velodrome Solidly (vAMM/sAMM) via AerodromeLib
     Curve,        // 3 (futuro)
-    Balancer      // 4 (futuro)
+    Balancer,     // 4 (futuro)
+    Slipstream    // 5 — Aerodrome Slipstream concentrated liquidity via SlipstreamLib
 }
 
 /// @notice Fonte do flashloan que financia uma operação. Selecionada off-chain por

@@ -69,6 +69,46 @@ export interface ChainConfig {
     factory: Address;
   };
 
+  /**
+   * DEXes UniswapV2-compatíveis (BaseSwap, AlienBase, SwapBased…). Todos compartilham a
+   * ABI canônica do Router02 (`swapExactTokensForTokens` + `getAmountsOut`) e do Factory
+   * (`getPair`/`allPairs`). Lista → adicionar venue novo é só config. On-chain executa via
+   * `DexType.UniswapV2` (UniswapV2Lib). `quoter` é opcional (UniV2 cota via router.getAmountsOut).
+   * ⚠️ VERIFICAR cada endereço on-chain (factory.getPair != 0) antes de habilitar em mainnet.
+   */
+  univ2Dexes?: Array<{
+    name: string;
+    router: Address;
+    factory: Address;
+  }>;
+
+  /**
+   * Forks ABI-compatíveis do Uniswap V3 (Pancake V3, Sushi V3…). Reusam `DexType.UniswapV3`
+   * on-chain (mesma `exactInputSingle`/QuoterV2) — só endereços diferentes. `feeTiers` pode
+   * divergir do UniV3 canônico (ex: Pancake V3 usa 2500 no lugar de 3000).
+   * ⚠️ VERIFICAR cada endereço on-chain antes de habilitar em mainnet.
+   */
+  univ3Forks?: Array<{
+    name: string;
+    factory: Address;
+    quoterV2: Address;
+    swapRouter: Address;
+    feeTiers: readonly number[];
+  }>;
+
+  /**
+   * Aerodrome Slipstream (concentrated liquidity). NÃO é ABI-compatível com UniV3:
+   * `getPool` usa `int24 tickSpacing` (não `uint24 fee`) e o SwapRouter tem `deadline` na struct.
+   * On-chain executa via `DexType.Slipstream` (SlipstreamLib). Pricing reusa a math UniV3 (slot0).
+   * ⚠️ VERIFICAR endereços + tickSpacings on-chain antes de habilitar em mainnet.
+   */
+  slipstream?: {
+    factory: Address;
+    quoter: Address;
+    swapRouter: Address;
+    tickSpacings: readonly number[];
+  };
+
   compoundV3?: {
     cUSDCv3: Address;
     cWETHv3: Address;

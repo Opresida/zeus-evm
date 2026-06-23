@@ -10,6 +10,10 @@ export {
 } from './uniswap-v3/multiHopQuoter';
 export { quoteAerodrome } from './aerodrome/router';
 export type { AerodromeQuoteParams } from './aerodrome/router';
+export { quoteUniswapV2 } from './uniswap-v2/quoter';
+export type { UniswapV2QuoteParams } from './uniswap-v2/quoter';
+export { quoteSlipstream } from './slipstream/quoter';
+export type { SlipstreamQuoteParams } from './slipstream/quoter';
 
 // ─── Pricing local (fundação do MIS — Motor 2) ───
 export {
@@ -26,6 +30,8 @@ export {
   AERO_POOL_ABI,
   getUniV3PoolAddress,
   getAeroPoolAddress,
+  getSlipstreamPoolAddress,
+  getV2PoolAddress,
   readUniV3PoolState,
   readAeroPoolState,
   uniV3StateToSpot,

@@ -14,7 +14,7 @@
 
 import type { Address, PublicClient } from 'viem';
 import { formatUnits, parseUnits } from 'viem';
-import { quoteUniswapV3, quoteAerodrome, quoteTraderJoe, isQuote } from '@zeus-evm/dex-adapters';
+import { quoteUniswapV3, quoteAerodrome, quoteTraderJoe, quoteUniswapV2, quoteSlipstream, isQuote } from '@zeus-evm/dex-adapters';
 import type { PoolGroup, InefficiencyObservation } from '@zeus-evm/execution-utils';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -89,13 +89,43 @@ async function quoteLeg(args: {
 }): Promise<bigint | null> {
   const { client, chainConfig, ref, tokenIn, tokenOut, amountIn, decimalsIn, decimalsOut } = args;
   if (ref.dex === 'univ3') {
+    // Forks (Pancake/Sushi) carregam o próprio quoter no ref; UniV3 canônico usa o do config.
     const q = await quoteUniswapV3({
       client,
-      quoterAddress: chainConfig.uniswapV3.quoterV2,
+      quoterAddress: ref.quoter ?? chainConfig.uniswapV3.quoterV2,
       tokenIn,
       tokenOut,
       amountIn,
       fee: ref.fee ?? 500,
+      decimalsIn,
+      decimalsOut,
+    });
+    return isQuote(q) ? q.amountOut : null;
+  }
+  if (ref.dex === 'slipstream') {
+    if (!chainConfig.slipstream || ref.tickSpacing === undefined) return null;
+    const q = await quoteSlipstream({
+      client,
+      quoterAddress: ref.quoter ?? chainConfig.slipstream.quoter,
+      swapRouter: ref.router ?? chainConfig.slipstream.swapRouter,
+      tokenIn,
+      tokenOut,
+      amountIn,
+      tickSpacing: ref.tickSpacing,
+      decimalsIn,
+      decimalsOut,
+    });
+    return isQuote(q) ? q.amountOut : null;
+  }
+  if (ref.dex === 'univ2') {
+    if (!ref.router) return null;
+    const q = await quoteUniswapV2({
+      client,
+      routerAddress: ref.router,
+      venue: ref.venue,
+      tokenIn,
+      tokenOut,
+      amountIn,
       decimalsIn,
       decimalsOut,
     });

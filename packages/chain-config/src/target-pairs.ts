@@ -39,6 +39,14 @@ export interface TargetPair {
   /** Aerodrome tem pool stable? Volatile? */
   aerodromeStable: boolean;
   aerodromeVolatile: boolean;
+
+  // ─── Venues extras do Motor 2 (opcionais — preenchidos a partir dos pools resolvidos) ───
+  /** Forks ABI-compatíveis do UniV3 (Pancake/Sushi) com quoter+router próprios. */
+  univ3Forks?: Array<{ venue: string; quoterV2: Address; swapRouter: Address; feeTiers: readonly number[] }>;
+  /** DEXes UniV2-compatíveis (BaseSwap/AlienBase/…) — cota via router.getAmountsOut. */
+  univ2Dexes?: Array<{ venue: string; router: Address }>;
+  /** Aerodrome Slipstream (CL) — tickSpacings com liquidez + endereços de quoter/router. */
+  slipstream?: { quoter: Address; swapRouter: Address; tickSpacings: readonly number[] };
 }
 
 const T = BASE_MAINNET.tokens;

@@ -11,6 +11,7 @@ export enum DexType {
   Aerodrome = 2,
   Curve = 3,
   Balancer = 4,
+  Slipstream = 5,
 }
 
 /** Resultado de uma cotação off-chain (sem executar swap) */
@@ -21,6 +22,12 @@ export interface Quote {
   source: string;
   /** Endereço do pool ou router que executaria o swap */
   poolOrRouter: Address;
+  /**
+   * SwapRouter concreto pra EXECUTAR este swap on-chain. Necessário pra forks que reusam um
+   * DexType mas têm router próprio (Pancake/Sushi V3 = DexType.UniswapV3; BaseSwap/AlienBase =
+   * DexType.UniswapV2). Quando ausente, o txBuilder cai no router canônico do DexType.
+   */
+  router?: Address;
   /** Token de entrada */
   tokenIn: Address;
   /** Token de saída */

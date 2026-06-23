@@ -54,6 +54,27 @@ describe('groupToTargetPair (Parte A)', () => {
     expect(tp.aerodromeVolatile).toBe(true);
     expect(tp.aerodromeStable).toBe(false);
   });
+
+  it('separa forks UniV3 (venue) do UniV3 canônico + popula UniV2 e Slipstream', () => {
+    const ROUTER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const QUOTER = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const withForks: PoolGroup = {
+      ...group,
+      pools: [
+        { dex: 'univ3', pool: zeroAddress, label: 'UniV3-500', fee: 500 }, // canônico (sem venue)
+        { dex: 'univ3', pool: zeroAddress, label: 'pancakeswap-v3-2500', fee: 2500, venue: 'pancakeswap-v3', router: ROUTER, quoter: QUOTER },
+        { dex: 'univ2', pool: zeroAddress, label: 'baseswap', stable: false, venue: 'baseswap', router: ROUTER },
+        { dex: 'slipstream', pool: zeroAddress, label: 'Slip-100', tickSpacing: 100, venue: 'slipstream', router: ROUTER, quoter: QUOTER },
+      ],
+    };
+    const tp = groupToTargetPair(withForks, 1, 1);
+    // Canônico NÃO inclui o fee do fork (2500)
+    expect([...tp.uniswapV3FeeTiers]).toEqual([500]);
+    expect(tp.univ3Forks).toHaveLength(1);
+    expect(tp.univ3Forks?.[0]).toMatchObject({ venue: 'pancakeswap-v3', quoterV2: QUOTER, swapRouter: ROUTER, feeTiers: [2500] });
+    expect(tp.univ2Dexes).toEqual([{ venue: 'baseswap', router: ROUTER }]);
+    expect(tp.slipstream).toMatchObject({ quoter: QUOTER, swapRouter: ROUTER, tickSpacings: [100] });
+  });
 });
 
 describe('dispatchArb — gate de EV (Parte A)', () => {

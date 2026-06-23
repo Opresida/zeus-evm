@@ -789,6 +789,7 @@ export async function boot(): Promise<LiquidatorState> {
     eventBus.subscribe(
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
+        secret: env.ZEUS_WEBHOOK_SECRET,
         severities,
         logger,
       }),

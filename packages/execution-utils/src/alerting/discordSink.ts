@@ -43,6 +43,7 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.rejected': '🟡',
   'pnl.reconciled': '📊',
   'failure.recorded': '🔴',
+  'zeus.heartbeat': '💓',
 };
 
 interface DiscordEmbed {
@@ -67,6 +68,16 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
 
   // Switch por tipo pra montar embed específico
   switch (event.type) {
+    case 'zeus.heartbeat':
+      // Heartbeat normalmente vai só pro painel (não pelo eventBus). Embed simples por completude.
+      return {
+        title: `${emoji} Heartbeat`,
+        description: `Motor ${event.motor} vivo · ${event.executionLocked ? 'travado' : 'executando'} · uptime ${event.uptimeSec}s · scans ${event.scanCount}`,
+        color,
+        timestamp: event.timestamp,
+        footer,
+      };
+
     case 'liquidator.boot':
       return {
         title: `${emoji} ZEUS Liquidator ONLINE`,

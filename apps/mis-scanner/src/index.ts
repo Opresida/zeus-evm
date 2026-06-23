@@ -35,6 +35,7 @@ import {
   GasOracle,
   EventBus,
   EventIngester,
+  createGenericWebhookSink,
   SenderRegistry,
   BlockHistoryScanner,
   CooccurrenceAnalyzer,
@@ -147,6 +148,16 @@ async function main(): Promise<void> {
   const eventBus = new EventBus(logger);
   const eventIngester = new EventIngester({ store, eventBus, logger, defaultChain: chainConfig.name });
   eventIngester.start();
+  const bootMs = Date.now();
+  // Cola de eventos: encaminha TODOS os eventos do bus pro painel (/api/ingest) com x-zeus-secret.
+  // O heartbeat (abaixo) vai DIRETO pelo sink (não pelo bus) pra não inflar o ledger DuckDB.
+  const webhookSink = env.GENERIC_WEBHOOK_URL
+    ? createGenericWebhookSink({ url: env.GENERIC_WEBHOOK_URL, secret: env.ZEUS_WEBHOOK_SECRET, logger })
+    : null;
+  if (webhookSink) {
+    eventBus.subscribe(webhookSink);
+    logger.info({ url: env.GENERIC_WEBHOOK_URL }, '📡 cola de eventos ativa (bot → painel /api/ingest)');
+  }
   // Competidores (arb é competitivo — o motor TEM que ver o adversário).
   const senderRegistry = new SenderRegistry({ baseDir: resolve('logs', 'competitors'), logger });
   const cooccurrence = new CooccurrenceAnalyzer();
@@ -556,6 +567,27 @@ async function main(): Promise<void> {
   await tick();
   // SEM unref: o scanner deve varrer continuamente até SIGINT (padrão "deixa varrendo").
   setInterval(() => void tick(), SCAN_INTERVAL_MS);
+
+  // ─── Heartbeat → painel (sinal de vida + estado REAL armado-mas-travado) ───
+  // Vai DIRETO pelo sink (não pelo eventBus) pra não gravar no ledger DuckDB a cada 30s.
+  if (webhookSink) {
+    const heartbeat = setInterval(() => {
+      const live = !!arbExec && arbExec.deps.mode !== 'dryrun' && !!arbExec.deps.liveExecutionEnabled;
+      void webhookSink({
+        type: 'zeus.heartbeat',
+        severity: 'info',
+        timestamp: new Date().toISOString(),
+        chain: chainConfig.name,
+        mode: env.ARB_MODE,
+        motor: env.ENGINE_CONTROL_MOTOR,
+        executionLocked: !live,
+        scanCount,
+        uptimeSec: Math.floor((Date.now() - bootMs) / 1000),
+      });
+    }, env.HEARTBEAT_EVERY_SEC * 1000);
+    heartbeat.unref();
+    logger.info({ everySec: env.HEARTBEAT_EVERY_SEC }, '💓 heartbeat ativo (bot → painel)');
+  }
 }
 
 main().catch((err) => {

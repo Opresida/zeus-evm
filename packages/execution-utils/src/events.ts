@@ -34,7 +34,8 @@ export type ZeusEvent =
   | BackrunDispatchedEvent
   | BackrunRejectedEvent
   | PnlReconciledEvent
-  | FailureRecordedEvent;
+  | FailureRecordedEvent
+  | HeartbeatEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -51,6 +52,23 @@ export interface LiquidatorBootEvent extends BaseEvent {
   severity: 'info';
   executorAddress: Address | null;
   account: Address | null;
+}
+
+/**
+ * Sinal de vida periódico do bot → painel. O frontend usa pra mostrar "bot vivo" + o estado REAL
+ * (armado-mas-travado) lado a lado com o estado desejado do toggle. Não é alerta — severidade info.
+ */
+export interface HeartbeatEvent extends BaseEvent {
+  type: 'zeus.heartbeat';
+  severity: 'info';
+  /** Motor que emitiu (ex: 'motor2'). */
+  motor: string;
+  /** Execução ARMADA mas TRAVADA (toggle OFF) — espelha `/readyz` dispatchesPaused. */
+  executionLocked: boolean;
+  /** Nº de scans desde o boot (prova que o loop está girando). */
+  scanCount: number;
+  /** Uptime em segundos. */
+  uptimeSec: number;
 }
 
 export interface LiquidatorShutdownEvent extends BaseEvent {

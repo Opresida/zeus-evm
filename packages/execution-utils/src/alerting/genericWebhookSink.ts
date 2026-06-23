@@ -17,6 +17,11 @@ import type { LoggerLike } from '@zeus-evm/aave-discovery';
 
 export interface GenericWebhookSinkOpts {
   url: string;
+  /**
+   * Segredo compartilhado. Se setado, vai no header `x-zeus-secret` de cada POST. O endpoint do
+   * painel (`/api/ingest`) valida contra `ZEUS_WEBHOOK_SECRET` — os valores DEVEM bater.
+   */
+  secret?: string;
   /** Filtro de severidades. Default: todas. Ex: ['warn', 'critical'] pra reduzir spam. */
   severities?: Severity[];
   /** Filtro de tipos. Default: todos. */
@@ -27,7 +32,7 @@ export interface GenericWebhookSinkOpts {
 }
 
 export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
-  const { url, severities, eventTypes, timeoutMs = 5000, logger } = opts;
+  const { url, secret, severities, eventTypes, timeoutMs = 5000, logger } = opts;
 
   return async (event: ZeusEvent): Promise<void> => {
     if (severities && !severities.includes(event.severity)) return;
@@ -36,9 +41,11 @@ export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (secret) headers['x-zeus-secret'] = secret;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(event),
         signal: controller.signal,
       });

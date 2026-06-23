@@ -83,6 +83,14 @@ const envSchema = z.object({
   ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor2')),
   /** A cada quantos ticks de scan reconsultar o toggle remoto. */
   ENGINE_CONTROL_POLL_EVERY: posInt(5),
+
+  // ─── Cola de eventos (bot → painel via /api/ingest) ───
+  /** URL do endpoint do painel: <frontend Vercel>/api/ingest. Vazio = não envia eventos. */
+  GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo no header `x-zeus-secret`. DEVE bater com `ZEUS_WEBHOOK_SECRET` no painel. */
+  ZEUS_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Intervalo do heartbeat (sinal de vida → painel) em segundos. */
+  HEARTBEAT_EVERY_SEC: posInt(30),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

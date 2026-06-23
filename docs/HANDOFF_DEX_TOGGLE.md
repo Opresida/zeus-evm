@@ -12,23 +12,23 @@
 >   dizia "Sushi V3 é SwapRouter02-compatível" — **ERRADO**. Verificado on-chain (fork em bloco
 >   recente, RPC free): o swap **reverte** via `DexType.UniswapV3` e **passa** via `DexType.PancakeV3`.
 >   Corrigido → `sushiswap-v3` agora é `routerStyle: 'pancakeV3'`. Liquidez do pool é saudável (~48
->   WETH no 0.05%); não era falta de pool. **Os 4 fork tests passam on-chain** (BaseSwap, Slipstream,
->   Pancake V3, Sushi V3). NOTA: o `FORK_BLOCK` fica pinado em 28M (archive, valida no CI com RPC pago);
->   a verificação local foi feita em bloco recente (free tier não forka archive).
+>   WETH no 0.05%); não era falta de pool. **Os 4 fork tests passam on-chain no bloco fixado 28M**
+>   (BaseSwap, Slipstream, Pancake V3, Sushi V3) via **Alchemy free (já serve archive)** — o dRPC free
+>   é que não forkava. `pnpm contracts:test:fork` é plug-and-play; CI roda os fork tests (job
+>   `contracts-fork`) com o secret `BASE_RPC_ARCHIVE` = trap automático contra endereço morto/errado.
+> - **TODOS os endereços de venue verificados on-chain (2026-06-23):** OK os 5 UniV2 vivos + Pancake/Sushi
+>   V3 + Slipstream. **Removidos:** `dackieswap-v2` (router sem bytecode) e `rocketswap` (sem nenhum par
+>   curado). tickSpacing 2000 do Slipstream confirmado real; pool WETH/USDC fundo no tick 100.
 > - **`/api/control` fail-closed:** o POST (liga/desliga execução) agora é **recusado (503) em
 >   produção sem `ZEUS_CONTROL_SECRET`**. Melhor ainda: painel atrás de Vercel Auth.
 >
-> **Pra quem pega isto (Claude no Antigravity / Humberto):** o que foi feito, **o que ainda é do
-> Humberto fazer**, e **TODOS os red flags de RPC/endereços** que precisam de verificação on-chain
-> antes de qualquer redeploy/ligar execução. Nada aqui deve escapar.
->
-> Branches:
-> - `claude/bot-performance-analysis-55qp9o` — Parte A (DEX) + Parte B (toggle). **ESTA branch.**
-> - `claude/motor-remote-control` — só o doc de design pra generalizar M1/M3 (`docs/REMOTE_CONTROL.md`).
->
-> ⚠️ **Por que tantos red flags:** o ambiente onde isto foi codado **não tinha acesso a RPC da Base**
-> (egress bloqueou todos — 403). Logo **nenhum endereço foi verificado on-chain**. Usei os canônicos
-> oficiais + o BaseSwap que já estava no repo. **Verificar é tarefa obrigatória do Humberto/Antigravity.**
+> **HISTÓRICO (já superado pela atualização acima):** as branches foram mergeadas na `main`
+> (`claude/bot-performance-analysis-55qp9o` = código; `claude/motor-remote-control` = doc M1/M3).
+> As seções abaixo (§1 "tarefas do Humberto" e §2 "red flags de endereços") refletem o estado
+> ORIGINAL do dev (sem RPC da Base, nada verificado) — **a maioria já foi resolvida**: endereços
+> verificados, Pancake/Sushi com adapter de deadline, dackie/rocket removidos, RPC = Alchemy.
+> Mantidas só como registro. O que REALMENTE falta hoje: setar secret `BASE_RPC_ARCHIVE` no CI +
+> setar `ZEUS_CONTROL_SECRET`/auth do painel + schema Supabase + **redeploy só testnet** dos contratos.
 
 ---
 
@@ -97,7 +97,14 @@ ZEUS_CONTROL_SECRET=...             # OPCIONAL — ver red flag §3.1 (auth do p
 
 ## 2) 🚩 RED FLAGS de RPC / endereços (verificar TUDO antes de usar)
 
-Todos os endereços abaixo estão em `packages/chain-config/src/base.ts` (`univ2Dexes`, `univ3Forks`, `slipstream`) e marcados com `⚠️ VERIFICAR`. **Nenhum foi conferido on-chain.**
+> ✅ **JÁ RESOLVIDO (2026-06-23) — esta seção é histórica.** Todos os endereços foram verificados
+> on-chain via Alchemy archive. Vivos: BaseSwap/AlienBase/SwapBased/Pancake-v2/Sushi-v2 (UniV2) +
+> Pancake V3 + Sushi V3 + Slipstream. **Removidos:** dackieswap-v2 (router morto) e rocketswap (sem
+> par curado). O "RED FLAG CRÍTICO Pancake V3 deadline" abaixo foi resolvido com `PancakeV3Lib` +
+> `DexType.PancakeV3` (e Sushi V3 entrou no mesmo barco). Não precisa refazer nada daqui manualmente
+> — o job `contracts-fork` no CI revalida automático.
+
+Todos os endereços abaixo estão em `packages/chain-config/src/base.ts` (`univ2Dexes`, `univ3Forks`, `slipstream`). _(Estado original: marcados `⚠️ VERIFICAR`, nenhum conferido on-chain — ver banner acima.)_
 Token de teste pros comandos: USDC=`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, WETH=`0x4200000000000000000000000000000000000006`.
 
 ### 2.1 UniV2 (BaseSwap / AlienBase / SwapBased) — `factory.getPair`

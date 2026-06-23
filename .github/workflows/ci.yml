@@ -65,7 +65,7 @@ jobs:
         run: forge test --no-match-path 'test/fork/**' -vvv
 
   contracts-fork:
-    name: Contracts (fork tests — valida endereços/adapters on-chain)
+    name: Contracts (fork test — valida endereços DEX on-chain)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,9 +84,11 @@ jobs:
             Uniswap/v3-core@v1.0.0 \
             Uniswap/v3-periphery@v1.3.0
 
-      # TRAP PERMANENTE: os fork tests fazem swaps reais contra os routers/factories da Base. Se um
-      # endereço morrer ou for digitado errado, o swap reverte e ESTE job fica vermelho — regressão
-      # automática, sem depender de "lembrar de checar".
+      # TRAP PERMANENTE (só o teste de ENDEREÇOS — ZeusArbExecutorDex.fork): faz swaps reais contra
+      # os routers/factories da Base. Endereço morto/errado → swap reverte → ESTE job fica vermelho.
+      # Os fork tests PESADOS (MotorsProfit/ZeusLiquidator — sims de lucro) ficam FORA do CI: fazem
+      # milhares de leituras de storage e estouram a cota free do RPC (HTTP 429). Rodar local com
+      # `pnpm contracts:test:fork` quando precisar deles.
       # ⚠️ Pra o trap ficar ATIVO, configure o secret `BASE_RPC_ARCHIVE` no repo (Settings > Secrets):
       #    Alchemy Base (free já serve archive). Sem o secret, os fork tests dão skip (vm.skip) e o job
       #    passa — então o aviso abaixo falha de propósito pra você não esquecer de setar.
@@ -104,4 +106,4 @@ jobs:
         env:
           BASE_RPC_ARCHIVE: ${{ secrets.BASE_RPC_ARCHIVE }}
           BASE_RPC_HTTP: ${{ secrets.BASE_RPC_ARCHIVE }}
-        run: forge test --match-path 'test/fork/**' -vvv
+        run: forge test --match-path 'test/fork/ZeusArbExecutorDex.fork.t.sol' -vvv

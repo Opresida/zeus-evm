@@ -51,6 +51,28 @@
 >
 > **Lucro real até hoje: US$ 0** — lógica provada em fork, contratos ainda em Sepolia (NÃO mainnet). (Detalhes no relatório PDF, §5.5/5.6.)
 >
+
+---
+
+## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel
+
+**✅ Concluído (na `main`, commits `fcfc7be`→`f57222d`; detalhes em `CLAUDE.md`):**
+- Expansão de DEX do Motor 2 (Slipstream + forks UniV3/UniV2) + **adapter `PancakeV3Lib`/`DexType.PancakeV3`** (Sushi V3 na Base também usa deadline — verificado on-chain).
+- DexType unificado (fonte única `shared-types` + pin test).
+- **Endereços de venue verificados on-chain** (Alchemy archive) — dackieswap-v2 e rocketswap removidos.
+- **RPC = Alchemy primário** (dRPC free descartado) + `BASE_RPC_ARCHIVE` + `pnpm contracts:test:fork`.
+- **CI:** fix `forge install` (sem `--no-commit`) + pin libs + job `contracts-fork` (trap de endereços).
+- **Redeploy Base Sepolia v8** (com adapters): novos endereços + `revive()` + `setOperator(0xE060…)` nos 2 executors.
+- **Cola do painel:** Supabase criado/verificado; `genericWebhookSink` com `x-zeus-secret`; mis-scanner liga sink + emite `zeus.heartbeat`.
+
+**🔜 Falta (próxima sessão):**
+- [ ] **Vercel:** setar 4 envs (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ZEUS_WEBHOOK_SECRET) + redeploy → painel sai do demo.
+- [ ] **Bot `.env`:** preencher `GENERIC_WEBHOOK_URL` = `<URL do painel Vercel>/api/ingest`.
+- [ ] **GitHub:** setar secret `BASE_RPC_ARCHIVE` (ativa o trap `contracts-fork` do CI).
+- [ ] **Moonwell testnet:** `revive()` + `setOperator()` (se usar Motor 1 Moonwell — ficou kill switch ativo).
+- [ ] **Subir a VM na Fly.io** + secrets; depois **2 semanas DRY_RUN**.
+- [ ] **Mainnet (futuro):** owner=multisig + operador separado (no testnet ficou owner==operador).
+>
 > **Achado OEV (CRÍTICO pra estratégia):** liquidação na Base está se fechando por OEV capture (Aave SVR ~85%, Compound ~85%,
 > Moonwell MEV tax ~99%). **Morpho Blue = único edge real (recapture 0%)** — o liquidator agora prioriza Morpho via gate EV pós-OEV.
 > Detalhes em [`docs/refs/competitive-landscape.md`](./docs/refs/competitive-landscape.md) e [`docs/OIE_PROGRESS.md`](./docs/OIE_PROGRESS.md).

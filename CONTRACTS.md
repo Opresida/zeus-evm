@@ -25,7 +25,14 @@ Especificação detalhada dos smart contracts do bot. Incluindo padrões, audit 
 
 ## 🧭 Visão geral
 
-ZEUS EVM tem **4 contratos v8** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager) + libraries-adapter inline por DEX (UniV3, Aerodrome). Toda a lógica hot-path passa por esses contratos atômicos.
+ZEUS EVM tem **4 contratos v8** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager) + libraries-adapter inline por DEX (UniV3, Aerodrome, **UniswapV2Lib, SlipstreamLib, PancakeV3Lib**). Toda a lógica hot-path passa por esses contratos atômicos.
+
+> **🆕 2026-06-23 — adapters de DEX (Motor 2) + redeploy testnet:**
+> - **`DexType`** ganhou `Slipstream=5` e `PancakeV3=6` (append; fonte única em `shared-types`, espelho no Solidity, guarda no pin test `dex-adapters/src/dexType.pin.test.ts`).
+> - **`PancakeV3Lib.sol`** (novo) — `exactInputSingle` COM `deadline` na struct. Pancake V3 **e Sushi V3 na Base** (verificado on-chain) usam essa trilha; UniV3 canônico/Sushi-fora-da-Base seguem `UniswapV3Lib` (sem deadline).
+> - **`UniswapV2Lib.sol`** + **`SlipstreamLib.sol`** (Aerodrome CL) — adapters dos forks UniV2 e do Slipstream.
+> - EIP-170: ZeusArbExecutor **16.223 B** (folga 8.353 B).
+> - **Redeploy Base Sepolia v8 (2026-06-23, com os adapters):** BribeManager `0xe0B6A6840d1f011F27Ec63eb3390D0d7E0904795` · ZeusLiquidator `0x8E769a56F0f3fA7e7410fE5955D94E9dE458193D` · ZeusArbExecutor `0x0156Aa6729891103Cc22b1e14c5E1e5338E6ab4A` · ZeusMoonwellLiquidator `0x3A34EcDD1A9a53d5799fF0f4cB479FF2963F3dA3`. Owner=deployer `0xE060…cBB4`. Liquidator+ArbExecutor já com `revive()`+`setOperator`. **Moonwell ainda com kill switch ativo.** **Ainda NÃO mainnet.**
 
 ```
 ┌─────────────────────┐  ┌─────────────────────┐  ┌──────────────────────┐

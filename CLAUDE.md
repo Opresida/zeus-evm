@@ -181,6 +181,27 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel (tudo na `main`)
+
+**Mergeado + corrigido (commits `fcfc7be`→`f57222d`):**
+- **Expansão de DEX do Motor 2:** Slipstream (Aerodrome CL) + UniV2 genérico (forks) + forks UniV3.
+  **Adapter `PancakeV3Lib` + `DexType.PancakeV3=6`** (struct `exactInputSingle` COM deadline).
+  Achado verificado on-chain: **Sushi V3 na Base também precisa de deadline** → `routerStyle='pancakeV3'`.
+- **DexType unificado** (era triplicado): fonte única em `shared-types` + re-export + **pin test**.
+- **Toggle remoto "armado-mas-travado"** (Motor 2): painel→`/api/control`→Supabase `engine_control`→bot poll→gate. Fail-safe. `/api/control` POST fail-closed em prod.
+- **Endereços de venue verificados on-chain** (Alchemy archive): vivos = BaseSwap/AlienBase/SwapBased/Pancake-v2/Sushi-v2 + Pancake V3 + Sushi V3 + Slipstream. **Removidos** dackieswap-v2 (router morto) e rocketswap (sem par curado).
+- **RPC: Alchemy é PRIMÁRIO** (dRPC free descartado — não forka archive). `BASE_RPC_ARCHIVE` + `pnpm contracts:test:fork` plug-and-play.
+- **CI:** fix do `forge install` (forge 1.x removeu `--no-commit`) + pin de libs + job `contracts-fork` (trap de endereços). 3 jobs verdes. **Falta setar o secret `BASE_RPC_ARCHIVE` no GitHub** pra ativar o trap.
+- **Redeploy Base Sepolia v8** (com os adapters): BribeManager `0xe0B6…4795` · ZeusLiquidator `0x8E76…193D` · ZeusArbExecutor `0x0156…ab4A` · Moonwell `0x3A34…3dA3`. Liquidator+ArbExecutor com `revive()` + `setOperator(0xE060…cBB4)`.
+- **Cola do painel (eventos bot→painel):** Supabase criado (projeto `kwmhuokedfmlvntovjtw`, schema.sql rodado). `genericWebhookSink` manda `x-zeus-secret`; **mis-scanner liga o sink + emite `zeus.heartbeat`** (30s, direto, não infla DuckDB). Novo `HeartbeatEvent`.
+
+**🔜 Falta (próxima sessão):**
+- **Vercel:** setar 4 envs (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ZEUS_WEBHOOK_SECRET) + redeploy → painel sai do demo.
+- **Bot `.env`:** preencher `GENERIC_WEBHOOK_URL` = `<URL do painel Vercel>/api/ingest` (falta a URL).
+- **Moonwell:** `revive()` + `setOperator()` (se usar Motor 1 Moonwell — ficou com kill switch ativo).
+- **Subir a VM na Fly.io** + secrets dela; depois **2 semanas DRY_RUN** antes de cogitar mainnet.
+- Mainnet (futuro): owner=multisig + operador separado (no testnet ficou owner==operador).
+
 ## 🗺️ Estado atual (snapshot 2026-06-15)
 
 ### ✅ Pronto

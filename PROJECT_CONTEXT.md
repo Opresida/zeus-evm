@@ -81,6 +81,13 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-23 (resumo — detalhes em `CLAUDE.md`)
+- **Motor 2 — expansão de DEX + toggle remoto MERGEADOS na `main`** (Slipstream + forks UniV3/UniV2 + adapter `PancakeV3Lib`/`DexType.PancakeV3`; Sushi V3 na Base também usa deadline). DexType unificado (fonte única + pin test).
+- **Endereços verificados on-chain** (Alchemy archive); dackie/rocket removidos. **RPC = Alchemy primário**.
+- **CI** com job `contracts-fork` (trap de endereços) + fix `forge install`. **Redeploy testnet v8** (revive + setOperator nos 2 executors).
+- **Cola do painel:** Supabase criado/verificado + `genericWebhookSink` com `x-zeus-secret` + `zeus.heartbeat` no Motor 2.
+- **Falta:** 4 envs na Vercel + redeploy · `GENERIC_WEBHOOK_URL` (URL do painel) · secret `BASE_RPC_ARCHIVE` no GitHub · Moonwell revive/setOperator · Fly.io + 2 semanas DRY_RUN.
+
 ### ✅ Concluído
 
 **Camada on-chain (4 contratos v8 split — resolve EIP-170):**

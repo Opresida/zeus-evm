@@ -25,6 +25,11 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 >
 > Os fluxos 1/2/3 abaixo (executeArbitrage / executeFlashloanArbitrage / liquidation) continuam corretos —
 > só estão hoje distribuídos entre ZeusArbExecutor e ZeusLiquidator em vez de um único ZeusExecutor.
+>
+> **🆕 2026-06-23 — DEX adapters do Motor 2 + cola do painel:**
+> - Novos `DexType`: `Slipstream=5` (Aerodrome CL, `SlipstreamLib`) e `PancakeV3=6` (`PancakeV3Lib`, struct com deadline — Pancake **e Sushi V3** na Base). UniV2 genérico via `UniswapV2Lib`. Off-chain config-driven (`routerStyle` por fork). `DexType` com fonte única em `shared-types` + pin test.
+> - **Cola de eventos (bot → painel):** `apps/mis-scanner` liga o `genericWebhookSink` (header `x-zeus-secret`) ao eventBus → POST em `frontend/app/api/ingest` → Supabase `events` → Realtime → painel. Emite `zeus.heartbeat` (30s) direto pelo sink (não pelo bus → fora do ledger DuckDB). Toggle reverso: painel → `/api/control` → Supabase `engine_control` → bot poll.
+> - **RPC:** Alchemy primário (archive no free). Fork tests via `BASE_RPC_ARCHIVE` (`pnpm contracts:test:fork`).
 
 ## 🧭 Visão geral
 

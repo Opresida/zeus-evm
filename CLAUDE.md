@@ -42,7 +42,7 @@ Bot de arbitragem on-chain em EVM. **Duas modalidades:**
 - **Off-chain:** TypeScript + Node 22 + `viem`
 - **Smart contracts:** Solidity 0.8.27 + Foundry (via_ir, optimizer 1M runs)
 - **Monorepo:** pnpm 10+ workspaces (pnpm-only — npm install é bloqueado)
-- **Provider:** dRPC primário + Alchemy fallback
+- **Provider:** Alchemy primário (archive incluso no free tier) + fallback a definir (dRPC free descartado — não serve archive)
 - **Flashloan:** multi-fonte 0% — Morpho + Balancer primário, Aave V3 0.05% fallback
 - **Intelligence:** ledger DuckDB (camada OIE — scoring + observações)
 - **Deploy:** Fly.io (Dockerfile raiz + `deploy/fly/*.toml` com volume persistente)
@@ -279,7 +279,7 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 **Detalhes completos em [TODO.md](./TODO.md).**
 
 ### 🔑 Decisões já tomadas
-- Provider RPC: **dRPC** primário + Alchemy fallback
+- Provider RPC: **Alchemy** primário (archive no free) + fallback a definir (dRPC free descartado em 2026-06-23 — não forka archive)
 - Owner = **carteira testnet dedicada** `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
 - Contratos ainda na **SEPOLIA (testnet)** — **NÃO mainnet**. Lucro real **US$ 0** (provado em fork).
   - _Histórico v6 (pré-split, contrato único): Base Sepolia `0xe38298B4d242d0D1C45696a96c4C588926Cf1139`,

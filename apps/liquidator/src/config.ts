@@ -216,6 +216,10 @@ const envSchema = z.object({
   /** URL genérica pra POST JSON dos eventos crus (sem formatação Discord).
    *  Útil pra Telegram bot, mini server local, n8n, futuro WebSocket gateway. */
   GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo compartilhado enviado no header `x-zeus-secret` de cada POST (autentica no /api/ingest
+   *  do ZEUS Command). DEVE bater com `ZEUS_WEBHOOK_SECRET` no Vercel. Sem ele, o ingest barra (401)
+   *  se exigir secret, ou fica aberto se não. */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   /** Filtro de severidades pro Discord (comma-separated). Default: 'warn,critical' (sem info pra evitar spam).
    *  Override pra 'info,warn,critical' se quiser ver TUDO durante calibração. */
   DISCORD_SEVERITIES: z.string().default('warn,critical'),

@@ -790,11 +790,12 @@ export async function boot(): Promise<LiquidatorState> {
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
         severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
         logger,
       }),
     );
     logger.info(
-      { severities },
+      { severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' },
       `📡 Generic webhook sink ativo — severidades: ${severities.join(',')}`,
     );
   }

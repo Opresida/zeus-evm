@@ -290,10 +290,11 @@ async function main() {
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
         severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
         logger,
       }),
     );
-    logger.info({ severities }, '🔔 Generic webhook sink registrado');
+    logger.info({ severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' }, '🔔 Generic webhook sink registrado');
   }
 
   // Bribe machinery (v7)

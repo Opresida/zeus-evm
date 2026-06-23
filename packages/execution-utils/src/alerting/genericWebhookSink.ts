@@ -21,13 +21,22 @@ export interface GenericWebhookSinkOpts {
   severities?: Severity[];
   /** Filtro de tipos. Default: todos. */
   eventTypes?: ZeusEvent['type'][];
+  /**
+   * Segredo compartilhado. Quando setado, vai no header `x-zeus-secret` de cada POST pra o
+   * receptor (ex: /api/ingest do ZEUS Command) autenticar. Sem ele, o endpoint receptor ou
+   * barra tudo (401, se exigir secret) ou fica aberto — por isso, em produção SEMPRE setar.
+   */
+  secret?: string;
   /** Timeout em ms pro POST. Default 5s. */
   timeoutMs?: number;
   logger?: LoggerLike;
 }
 
 export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
-  const { url, severities, eventTypes, timeoutMs = 5000, logger } = opts;
+  const { url, severities, eventTypes, secret, timeoutMs = 5000, logger } = opts;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (secret) headers['x-zeus-secret'] = secret;
 
   return async (event: ZeusEvent): Promise<void> => {
     if (severities && !severities.includes(event.severity)) return;
@@ -38,7 +47,7 @@ export function createGenericWebhookSink(opts: GenericWebhookSinkOpts) {
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(event),
         signal: controller.signal,
       });

@@ -24,18 +24,30 @@ export interface SolidityNumSwapStep {
 }
 
 /**
- * Resolve o `router` correto pra cada Quote.
- * QuoterV2 não é executor — precisamos do SwapRouter02 (UniV3) ou Aerodrome Router.
+ * Resolve o `router` correto pra um Quote.
+ * Quote carrega `router` quando o venue não é o canônico (forks Pancake/Sushi = UniswapV3 com
+ * router próprio; BaseSwap/AlienBase = UniswapV2; Slipstream SwapRouter) — preferimos ele.
+ * Caso contrário, cai no router canônico do DexType (UniV3 SwapRouter02 / Aerodrome Router).
  */
-function resolveRouter(dex: DexType): Address {
-  switch (dex) {
+function resolveRouter(quote: Pick<Quote, 'dex' | 'router'>): Address {
+  if (quote.router) return quote.router;
+  switch (quote.dex) {
     case DexType.UniswapV3:
       return BASE_MAINNET.uniswapV3.swapRouter02;
     case DexType.Aerodrome:
       if (!BASE_MAINNET.aerodrome) throw new Error('Aerodrome config missing');
       return BASE_MAINNET.aerodrome.router;
+    case DexType.Slipstream:
+      if (!BASE_MAINNET.slipstream) throw new Error('Slipstream config missing');
+      return BASE_MAINNET.slipstream.swapRouter;
+    case DexType.UniswapV2:
+      // UniV2 não tem router canônico único — vários venues. Exige `router` no Quote.
+      throw new Error('UniswapV2 quote sem router — venue não resolvido');
+    case DexType.PancakeV3:
+      // Pancake V3 = fork com SwapRouter próprio (struct com deadline). Exige `router` no Quote.
+      throw new Error('PancakeV3 quote sem router — venue não resolvido');
     default:
-      throw new Error(`Unsupported DexType: ${dex}`);
+      throw new Error(`Unsupported DexType: ${quote.dex}`);
   }
 }
 
@@ -53,7 +65,7 @@ export function buildSwapSteps(opp: CrossDexOpportunity, slippageBps: number = 5
 
   return [
     {
-      router: resolveRouter(opp.buyQuote.dex),
+      router: resolveRouter(opp.buyQuote),
       tokenIn: opp.buyQuote.tokenIn,
       tokenOut: opp.buyQuote.tokenOut,
       amountIn: opp.amountIn,
@@ -62,7 +74,7 @@ export function buildSwapSteps(opp: CrossDexOpportunity, slippageBps: number = 5
       extraData: opp.buyQuote.extraData,
     },
     {
-      router: resolveRouter(opp.sellQuote.dex),
+      router: resolveRouter(opp.sellQuote),
       tokenIn: opp.sellQuote.tokenIn,
       tokenOut: opp.sellQuote.tokenOut,
       amountIn: 0n, // usa saldo atual de tokenB do step anterior

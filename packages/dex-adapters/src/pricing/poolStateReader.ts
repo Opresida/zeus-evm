@@ -82,6 +82,35 @@ const AERO_FACTORY_ABI = [
   },
 ] as const;
 
+/** Slipstream CLFactory.getPool(tokenA, tokenB, int24 tickSpacing) — CL pools por tickSpacing. */
+const SLIPSTREAM_FACTORY_ABI = [
+  {
+    type: 'function',
+    name: 'getPool',
+    stateMutability: 'view',
+    inputs: [
+      { type: 'address' },
+      { type: 'address' },
+      { type: 'int24', name: 'tickSpacing' },
+    ],
+    outputs: [{ type: 'address' }],
+  },
+] as const;
+
+/** UniswapV2 Factory.getPair(tokenA, tokenB) — 1 pool por par (sem fee tier). */
+const UNIV2_FACTORY_ABI = [
+  {
+    type: 'function',
+    name: 'getPair',
+    stateMutability: 'view',
+    inputs: [
+      { type: 'address' },
+      { type: 'address' },
+    ],
+    outputs: [{ type: 'address' }],
+  },
+] as const;
+
 export interface UniV3PoolState {
   pool: Address;
   token0: Address;
@@ -139,6 +168,59 @@ export async function getAeroPoolAddress(opts: {
       abi: AERO_FACTORY_ABI,
       functionName: 'getPool',
       args: [tokenA, tokenB, stable],
+    })) as Address;
+    if (pool === '0x0000000000000000000000000000000000000000') return null;
+    return pool;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve o endereço de um pool Slipstream (CL) via CLFactory.getPool(tokenA, tokenB, tickSpacing).
+ * @dev O estado do pool (slot0/sqrtPriceX96/liquidity) é lido com `readUniV3PoolState` — Slipstream
+ *      expõe a mesma interface de pool da UniV3 (slot0+token0+token1+liquidity); só a FACTORY difere.
+ */
+export async function getSlipstreamPoolAddress(opts: {
+  client: AnyPublicClient;
+  factory: Address;
+  tokenA: Address;
+  tokenB: Address;
+  tickSpacing: number;
+}): Promise<Address | null> {
+  const { client, factory, tokenA, tokenB, tickSpacing } = opts;
+  try {
+    const pool = (await client.readContract({
+      address: factory,
+      abi: SLIPSTREAM_FACTORY_ABI,
+      functionName: 'getPool',
+      args: [tokenA, tokenB, tickSpacing],
+    })) as Address;
+    if (pool === '0x0000000000000000000000000000000000000000') return null;
+    return pool;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve o endereço de um pool UniswapV2 (e forks) via Factory.getPair(tokenA, tokenB).
+ * @dev O estado (reserves) é lido com `readAeroPoolState` — pools UniV2 expõem getReserves +
+ *      token0 + token1 (sem `stable()`, que cai pro default false = produto constante x*y=k).
+ */
+export async function getV2PoolAddress(opts: {
+  client: AnyPublicClient;
+  factory: Address;
+  tokenA: Address;
+  tokenB: Address;
+}): Promise<Address | null> {
+  const { client, factory, tokenA, tokenB } = opts;
+  try {
+    const pool = (await client.readContract({
+      address: factory,
+      abi: UNIV2_FACTORY_ABI,
+      functionName: 'getPair',
+      args: [tokenA, tokenB],
     })) as Address;
     if (pool === '0x0000000000000000000000000000000000000000') return null;
     return pool;

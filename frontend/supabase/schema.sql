@@ -38,9 +38,33 @@ create table if not exists public.push_subscriptions (
 -- habilita streaming de INSERT na tabela events
 alter publication supabase_realtime add table public.events;
 
+-- ---------- controle remoto de execução (toggle do painel → bot) ----------
+-- 1 linha por motor. O bot LÊ (poll) `execution_enabled`; a escrita é EXCLUSIVA das rotas /api
+-- (service role). Modelo armado-mas-travado: default = false (travado). Fail-safe: o bot só liga
+-- com `true` exato; qualquer incerteza mantém travado.
+create table if not exists public.engine_control (
+  motor             text primary key,            -- 'motor2' (arb), depois 'motor1'/'motor3'
+  execution_enabled boolean not null default false,
+  desired_mode      text default 'mainnet' check (desired_mode in ('dryrun','testnet','mainnet')),
+  updated_at        timestamptz not null default now(),
+  updated_by        text
+);
+
+-- seed do Motor 2 (idempotente) — começa TRAVADO.
+insert into public.engine_control (motor, execution_enabled)
+  values ('motor2', false)
+  on conflict (motor) do nothing;
+
 -- ---------- RLS ----------
 alter table public.events enable row level security;
 alter table public.push_subscriptions enable row level security;
+alter table public.engine_control enable row level security;
+
+-- leitura do toggle pelo bot via anon key (RLS de leitura). Escrita só via service role (rotas /api).
+drop policy if exists "engine_control read" on public.engine_control;
+create policy "engine_control read" on public.engine_control
+  for select using (true);
+-- sem policy de insert/update para anon → escrita só pelo service role (bypassa RLS).
 
 -- leitura pública (anon) de eventos — painel é privado por deploy/URL;
 -- aperte para `authenticated` se usar Supabase Auth.

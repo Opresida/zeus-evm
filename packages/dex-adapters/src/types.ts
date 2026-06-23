@@ -4,14 +4,10 @@
 
 import type { Address } from 'viem';
 
-/** Tipo do DEX — deve bater com `enum DexType` no Solidity */
-export enum DexType {
-  UniswapV2 = 0,
-  UniswapV3 = 1,
-  Aerodrome = 2,
-  Curve = 3,
-  Balancer = 4,
-}
+// DexType tem FONTE ÚNICA em @zeus-evm/shared-types (espelha o enum Solidity). Importado pra uso
+// local (Quote.dex) e re-exportado por conveniência dos adapters — NÃO redefinir local aqui.
+import { DexType } from '@zeus-evm/shared-types';
+export { DexType };
 
 /** Resultado de uma cotação off-chain (sem executar swap) */
 export interface Quote {
@@ -21,6 +17,12 @@ export interface Quote {
   source: string;
   /** Endereço do pool ou router que executaria o swap */
   poolOrRouter: Address;
+  /**
+   * SwapRouter concreto pra EXECUTAR este swap on-chain. Necessário pra forks que reusam um
+   * DexType mas têm router próprio (Pancake/Sushi V3 = DexType.UniswapV3; BaseSwap/AlienBase =
+   * DexType.UniswapV2). Quando ausente, o txBuilder cai no router canônico do DexType.
+   */
+  router?: Address;
   /** Token de entrada */
   tokenIn: Address;
   /** Token de saída */

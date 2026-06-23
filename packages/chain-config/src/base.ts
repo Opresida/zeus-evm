@@ -77,6 +77,57 @@ export const BASE_MAINNET: ChainConfig = {
     factory: '0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB',
   },
 
+  // ─── DEXes UniswapV2-compatíveis (Motor 2 — execução via DexType.UniswapV2) ───
+  // ⚠️ VERIFICAR on-chain (factory.getPair de um par conhecido != address(0)) antes de mainnet.
+  //    BaseSwap já estava no repo (verificado pelo time). AlienBase/SwapBased dos docs oficiais.
+  // Adicionar um fork UniV2 novo = SÓ mais uma linha aqui (UniswapV2Lib já cobre on-chain; sem redeploy).
+  univ2Dexes: [
+    { name: 'baseswap',      router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', factory: '0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB' },
+    { name: 'alienbase',     router: '0x8c1A3cF8f83074169FE5D7aD50B978e1cD6b37c7', factory: '0x3E84D913803b02A4a7f027165E8cA42C14C0FdE7' },
+    { name: 'swapbased',     router: '0xaaa3b1F1bd7BCc97fD1917c18ADE665C5D31F066', factory: '0x04C9f118d21e8B767D2e50C946f0cC9F6C367300' },
+    { name: 'pancakeswap-v2', router: '0x8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb', factory: '0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E' },
+    { name: 'sushiswap-v2',   router: '0x6BDED42c6DA8FBf0d2bA55B2fa120C5e0c8D7891', factory: '0x71524B4f93c58fcbF659783284E38825f0622859' },
+    { name: 'dackieswap-v2',  router: '0x195FBc5B8Fbe5f50d26c1b426B27a020E15Dd457', factory: '0x591f122D1df761E616c13d265006fcbf4c6d6551' },
+    { name: 'rocketswap',     router: '0x4cf76043B3f97ba06917cBd90F9e3A2AAC1B306e', factory: '0x1B8eea9315bE495187D873DA7773a874545D9D48' },
+  ],
+
+  // ─── Forks Uniswap V3 (Motor 2) ───
+  // Pricing reusa a trilha UniV3 (slot0/QuoterV2). A EXECUÇÃO depende do `routerStyle`:
+  //   'uniswapV3' → DexType.UniswapV3 (struct SEM deadline); 'pancakeV3' → DexType.PancakeV3
+  //   (struct exactInputSingle COM deadline).
+  // ✅ VERIFICADO on-chain via fork test (ZeusArbExecutorDex.fork.t.sol): tanto Pancake QUANTO
+  //    Sushi na Base têm SwapRouter com `deadline` na struct → ambos routerStyle='pancakeV3'.
+  //    (Sushi NÃO é SwapRouter02 aqui — o swap reverte sem o deadline; confirmado no fork.)
+  //    Pancake V3 usa feeTiers [100, 500, 2500, 10000] (2500 no lugar de 3000); Sushi usa os padrão.
+  univ3Forks: [
+    {
+      name: 'pancakeswap-v3',
+      routerStyle: 'pancakeV3',
+      factory: '0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865',
+      quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
+      swapRouter: '0x1b81D678ffb9C0263b24A97847620C99d213eB14',
+      feeTiers: [100, 500, 2500, 10000] as const,
+    },
+    {
+      name: 'sushiswap-v3',
+      routerStyle: 'pancakeV3', // SwapRouter da Sushi na Base tem deadline (verificado no fork)
+      factory: '0xc35DADB65012eC5796536bD9864eD8773aBc74C4',
+      quoterV2: '0xb1E835Dc2785b52265711e17fCCb0fd018226a6e',
+      swapRouter: '0xFB7eF66a7e61224DD6FcD0D7d9C3be5C8B049b9f',
+      feeTiers: [100, 500, 3000, 10000] as const,
+    },
+  ],
+
+  // ─── Aerodrome Slipstream (concentrated liquidity — execução via DexType.Slipstream) ───
+  // ⚠️ VERIFICAR on-chain antes de mainnet (CLFactory.getPool(tokenA, tokenB, tickSpacing) != 0).
+  //    tickSpacings Slipstream Base: 1 (stable), 50/100/200 (volatile tiers), 2000 (exótico).
+  slipstream: {
+    factory: '0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A',
+    quoter: '0x254cF9E1E6e233aa1AC962CB9B05b2cfeAaE15b0',
+    swapRouter: '0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5',
+    tickSpacings: [1, 50, 100, 200, 2000] as const,
+  },
+
   // ─── Compound III ───
   compoundV3: {
     cUSDCv3: '0xb125E6687d4313864e53df431d5425969c15Eb2F',

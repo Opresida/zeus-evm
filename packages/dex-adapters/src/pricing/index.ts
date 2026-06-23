@@ -22,6 +22,8 @@ export {
   AERO_POOL_ABI,
   getUniV3PoolAddress,
   getAeroPoolAddress,
+  getSlipstreamPoolAddress,
+  getV2PoolAddress,
   readUniV3PoolState,
   readAeroPoolState,
   uniV3StateToSpot,

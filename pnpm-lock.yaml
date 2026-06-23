@@ -359,6 +359,9 @@ importers:
       '@zeus-evm/chain-config':
         specifier: workspace:*
         version: link:../chain-config
+      '@zeus-evm/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
       viem:
         specifier: 'catalog:'
         version: 2.50.4(typescript@5.9.3)(zod@3.25.76)

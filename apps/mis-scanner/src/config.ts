@@ -71,6 +71,18 @@ const envSchema = z.object({
   ADAPTIVE_THRESHOLDS_ENABLED: boolDefault(false),
   ADAPTIVE_RECALC_INTERVAL_SEC: posInt(600),
   ADAPTIVE_WINDOW_DAYS: posInt(7),
+
+  // ─── Controle remoto de execução (toggle do Frontend via Supabase `engine_control`) ───
+  // Modelo armado-mas-travado: o bot sobe com ARB_EXECUTION_ENABLED=true + ARB_MODE=mainnet (armado),
+  // mas o ENVIO fica TRAVADO até o toggle remoto ligar. Sem SUPABASE_URL → fica travado pra sempre
+  // (fail-safe). A escrita no Supabase é feita só pelas rotas /api do Frontend (nunca pelo bot).
+  SUPABASE_URL: optionalUrl(),
+  /** Chave de LEITURA do Supabase (anon ou service role com RLS de leitura em engine_control). */
+  SUPABASE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Identificador do motor na tabela engine_control. */
+  ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor2')),
+  /** A cada quantos ticks de scan reconsultar o toggle remoto. */
+  ENGINE_CONTROL_POLL_EVERY: posInt(5),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

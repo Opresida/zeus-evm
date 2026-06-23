@@ -15,6 +15,8 @@ import type { Address, PublicClient } from 'viem';
 import {
   getUniV3PoolAddress,
   getAeroPoolAddress,
+  getSlipstreamPoolAddress,
+  getV2PoolAddress,
   readUniV3PoolState,
   readAeroPoolState,
   getTraderJoePairs,
@@ -167,6 +169,60 @@ export async function resolvePoolGroups(opts: {
         } catch (err) {
           logger?.debug?.({ pair: pair.label, fee, err: err instanceof Error ? err.message : err }, 'UniV3 resolve falhou (transiente) — pula');
         }
+      }
+    }
+
+    // Forks UniV3 (Pancake/Sushi): 1 pool por fee tier do fork. Reusa a leitura UniV3 (slot0).
+    // Cada PoolRef carrega router/quoter/venue do fork pra cotar+executar no venue certo.
+    for (const fork of chainConfig.univ3Forks ?? []) {
+      for (const fee of fork.feeTiers) {
+        try {
+          const pool = await withRetry(() => getUniV3PoolAddress({ client, factory: fork.factory, tokenA, tokenB, fee }));
+          if (!pool) continue;
+          const state = await withRetry(() => readUniV3PoolState({ client, pool }));
+          if (!state || state.sqrtPriceX96 === 0n || state.liquidity === 0n) {
+            logger?.debug?.({ pair: pair.label, fork: fork.name, fee }, `${fork.name} pool morto/vazio — descartado`);
+            continue;
+          }
+          pools.push({ dex: 'univ3', pool, label: `${fork.name}-${fee}`, fee, router: fork.swapRouter, quoter: fork.quoterV2, venue: fork.name, routerStyle: fork.routerStyle });
+        } catch (err) {
+          logger?.debug?.({ pair: pair.label, fork: fork.name, fee, err: err instanceof Error ? err.message : err }, `${fork.name} resolve falhou (transiente) — pula`);
+        }
+      }
+    }
+
+    // Slipstream (Aerodrome CL): 1 pool por tickSpacing. Reusa a leitura UniV3 (slot0/sqrtPriceX96).
+    if (chainConfig.slipstream) {
+      const slip = chainConfig.slipstream;
+      for (const tickSpacing of slip.tickSpacings) {
+        try {
+          const pool = await withRetry(() => getSlipstreamPoolAddress({ client, factory: slip.factory, tokenA, tokenB, tickSpacing }));
+          if (!pool) continue;
+          const state = await withRetry(() => readUniV3PoolState({ client, pool }));
+          if (!state || state.sqrtPriceX96 === 0n || state.liquidity === 0n) {
+            logger?.debug?.({ pair: pair.label, tickSpacing }, 'Slipstream pool morto/vazio — descartado');
+            continue;
+          }
+          pools.push({ dex: 'slipstream', pool, label: `Slip-${tickSpacing}`, tickSpacing, router: slip.swapRouter, quoter: slip.quoter, venue: 'slipstream' });
+        } catch (err) {
+          logger?.debug?.({ pair: pair.label, tickSpacing, err: err instanceof Error ? err.message : err }, 'Slipstream resolve falhou (transiente) — pula');
+        }
+      }
+    }
+
+    // DEXes UniV2 (BaseSwap/AlienBase/…): 1 pool por par. Reusa a leitura Aero (getReserves, x*y=k).
+    for (const v2 of chainConfig.univ2Dexes ?? []) {
+      try {
+        const pool = await withRetry(() => getV2PoolAddress({ client, factory: v2.factory, tokenA, tokenB }));
+        if (!pool) continue;
+        const state = await withRetry(() => readAeroPoolState({ client, pool }));
+        if (!state || state.reserve0 === 0n || state.reserve1 === 0n) {
+          logger?.debug?.({ pair: pair.label, venue: v2.name }, `${v2.name} par morto/vazio — descartado`);
+          continue;
+        }
+        pools.push({ dex: 'univ2', pool, label: v2.name, stable: false, router: v2.router, venue: v2.name });
+      } catch (err) {
+        logger?.debug?.({ pair: pair.label, venue: v2.name, err: err instanceof Error ? err.message : err }, `${v2.name} resolve falhou (transiente) — pula`);
       }
     }
 

@@ -12,7 +12,7 @@
 
 import type { Address, PublicClient } from 'viem';
 import { BASE_MAINNET, type TargetPair } from '@zeus-evm/chain-config';
-import { quoteUniswapV3, quoteAerodrome, type QuoteResult } from '@zeus-evm/dex-adapters';
+import { quoteUniswapV3, quoteAerodrome, quoteUniswapV2, quoteSlipstream, DexType, type QuoteResult } from '@zeus-evm/dex-adapters';
 
 type AnyPublicClient = PublicClient<any, any>;
 
@@ -84,6 +84,74 @@ export async function quoteFanout(params: FanoutParams): Promise<QuoteResult[]> 
         tokenOut,
         amountIn,
         stable: true,
+        decimalsIn,
+        decimalsOut,
+        blockNumber,
+      }),
+    );
+  }
+
+  // Forks UniV3 (Pancake/Sushi): 1 quote por fee tier, no quoter/router do fork.
+  for (const fork of pair.univ3Forks ?? []) {
+    for (const fee of fork.feeTiers) {
+      tasks.push(
+        quoteUniswapV3({
+          client,
+          quoterAddress: fork.quoterV2,
+          tokenIn,
+          tokenOut,
+          amountIn,
+          fee,
+          decimalsIn,
+          decimalsOut,
+          blockNumber,
+        }).then((q) =>
+          q && 'amountOut' in q
+            ? {
+                ...q,
+                // Pricing veio da trilha UniV3; a EXECUÇÃO usa o DexType certo do fork (Pancake
+                // precisa da struct com deadline → PancakeV3Lib). routerStyle decide.
+                dex: fork.routerStyle === 'pancakeV3' ? DexType.PancakeV3 : DexType.UniswapV3,
+                router: fork.swapRouter,
+                source: `${fork.venue} ${(fee / 10_000).toFixed(2)}%`,
+              }
+            : q,
+        ),
+      );
+    }
+  }
+
+  // Slipstream (CL): 1 quote por tickSpacing.
+  if (pair.slipstream) {
+    const slip = pair.slipstream;
+    for (const tickSpacing of slip.tickSpacings) {
+      tasks.push(
+        quoteSlipstream({
+          client,
+          quoterAddress: slip.quoter,
+          swapRouter: slip.swapRouter,
+          tokenIn,
+          tokenOut,
+          amountIn,
+          tickSpacing,
+          decimalsIn,
+          decimalsOut,
+          blockNumber,
+        }),
+      );
+    }
+  }
+
+  // DEXes UniV2 (BaseSwap/AlienBase/…): 1 quote por venue, via router.getAmountsOut.
+  for (const v2 of pair.univ2Dexes ?? []) {
+    tasks.push(
+      quoteUniswapV2({
+        client,
+        routerAddress: v2.router,
+        venue: v2.venue,
+        tokenIn,
+        tokenOut,
+        amountIn,
         decimalsIn,
         decimalsOut,
         blockNumber,

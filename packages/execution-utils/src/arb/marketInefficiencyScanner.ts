@@ -38,20 +38,38 @@ const WAD = 10n ** 18n;
 
 type AnyPublicClient = PublicClient<any, any>;
 
-export type PoolDex = 'univ3' | 'aerodrome' | 'traderjoe';
+export type PoolDex = 'univ3' | 'aerodrome' | 'traderjoe' | 'slipstream' | 'univ2';
 
 /** Referência a um pool específico dentro de um grupo (mesmo par de tokens). */
 export interface PoolRef {
   dex: PoolDex;
   pool: Address;
-  /** Label legível (ex: 'UniV3-500', 'Aero-volatile'). */
+  /** Label legível (ex: 'UniV3-500', 'Aero-volatile', 'Slip-100', 'BaseSwap'). */
   label: string;
-  /** Aerodrome: stable (true) ou volatile (false). Imutável — cacheado no resolve. */
+  /** Aerodrome/UniV2: stable (true) ou volatile (false). UniV2 = sempre volatile. Imutável. */
   stable?: boolean;
-  /** UniV3: fee tier (100/500/3000/10000) — pro quoter. Imutável — cacheado no resolve. */
+  /** UniV3/forks: fee tier (100/500/3000/10000) — pro quoter. Imutável — cacheado no resolve. */
   fee?: number;
   /** Trader Joe LB: tokenX do par (pra orientar swapForY). Imutável — cacheado no resolve. */
   lbTokenX?: Address;
+  /** Slipstream: tickSpacing do pool CL (1/50/100/200/2000) — pro quoter/execução. Imutável. */
+  tickSpacing?: number;
+  /**
+   * SwapRouter/Router concreto do venue (forks UniV3 = Pancake/Sushi; UniV2 = BaseSwap/AlienBase;
+   * Slipstream SwapRouter). Necessário pra EXECUTAR no venue certo quando vários compartilham
+   * o mesmo DexType. Imutável — cacheado no resolve.
+   */
+  router?: Address;
+  /** Quoter do venue (forks UniV3 + Slipstream têm quoter próprio). Imutável — cacheado no resolve. */
+  quoter?: Address;
+  /** Nome do venue pra logs/atribuição (ex: 'pancakeswap-v3', 'baseswap'). */
+  venue?: string;
+  /**
+   * Forks UniV3: estilo do SwapRouter pra EXECUÇÃO. 'uniswapV3' = struct sem deadline
+   * (SwapRouter02); 'pancakeV3' = struct exactInputSingle COM deadline (Pancake) → DexType.PancakeV3.
+   * Pricing é idêntico (slot0) — só a execução muda. Imutável — cacheado no resolve.
+   */
+  routerStyle?: 'uniswapV3' | 'pancakeV3';
 }
 
 /** Grupo de pools que negociam o MESMO par (tokenA/tokenB) em venues diferentes. */
@@ -171,7 +189,8 @@ export class MarketInefficiencyScanner {
     const out: Array<{ label: string; spot: bigint }> = [];
     for (const ref of group.pools) {
       try {
-        if (ref.dex === 'univ3') {
+        // Slipstream é CL como UniV3 (slot0/sqrtPriceX96) → mesma trilha de leitura/pricing.
+        if (ref.dex === 'univ3' || ref.dex === 'slipstream') {
           const state = await readUniV3PoolState({ client, pool: ref.pool });
           if (!state) continue;
           // Normaliza pra spot tokenB-por-tokenA segundo a ordenação do pool
@@ -181,13 +200,17 @@ export class MarketInefficiencyScanner {
           let spot = uniV3StateToSpot(state, d0, d1); // token1 por token0
           if (!aIsToken0 && spot > 0n) spot = (10n ** 18n * 10n ** 18n) / spot; // inverte p/ B-por-A consistente
           if (spot > 0n) out.push({ label: ref.label, spot });
-        } else if (ref.dex === 'aerodrome') {
+        // UniV2 é produto constante x*y=k como Aero volatile → mesma trilha (getReserves).
+        } else if (ref.dex === 'aerodrome' || ref.dex === 'univ2') {
           const state = await readAeroPoolState({ client, pool: ref.pool });
           if (!state) continue;
           const aIsToken0 = state.token0.toLowerCase() === group.tokenA.toLowerCase();
           const d0 = aIsToken0 ? group.decimalsA : group.decimalsB;
           const d1 = aIsToken0 ? group.decimalsB : group.decimalsA;
-          let spot = aeroStateToSpot(state, d0, d1);
+          // UniV2 nunca tem pool stable; força produto constante mesmo se readAeroPoolState
+          // tiver lido stable=true por acaso (pool UniV2 não expõe stable()).
+          const stateForPricing = ref.dex === 'univ2' ? { ...state, stable: false } : state;
+          let spot = aeroStateToSpot(stateForPricing, d0, d1);
           if (!aIsToken0 && spot > 0n) spot = (10n ** 18n * 10n ** 18n) / spot;
           if (spot > 0n) out.push({ label: ref.label, spot });
         } else {
@@ -305,10 +328,10 @@ export class MarketInefficiencyScanner {
     for (const group of this.groups.values()) {
       const aIsToken0 = group.tokenA.toLowerCase() < group.tokenB.toLowerCase();
       for (const ref of group.pools) {
-        if (ref.dex === 'univ3') {
+        if (ref.dex === 'univ3' || ref.dex === 'slipstream') {
           calls.push({ address: ref.pool, abi: UNIV3_POOL_ABI, functionName: 'slot0' });
           index.push({ group, ref, aIsToken0 });
-        } else if (ref.dex === 'aerodrome') {
+        } else if (ref.dex === 'aerodrome' || ref.dex === 'univ2') {
           calls.push({ address: ref.pool, abi: AERO_POOL_ABI, functionName: 'getReserves' });
           index.push({ group, ref, aIsToken0 });
         } else {
@@ -338,12 +361,14 @@ export class MarketInefficiencyScanner {
 
       let spot: bigint;
       let oriented = false; // true = spot já está em "tokenB por tokenA" (não inverter)
-      if (ref.dex === 'univ3') {
+      if (ref.dex === 'univ3' || ref.dex === 'slipstream') {
         const s = r.result as readonly [bigint, number, number, number, number, number, boolean];
         spot = uniV3SpotPrice1e18(s[0], d0, d1);
-      } else if (ref.dex === 'aerodrome') {
+      } else if (ref.dex === 'aerodrome' || ref.dex === 'univ2') {
         const res = r.result as readonly [bigint, bigint, bigint];
-        spot = aeroSpotPrice1e18(ref.stable ?? false, res[0], res[1], d0, d1);
+        // UniV2 = sempre produto constante (stable=false); Aero respeita o flag cacheado.
+        const stable = ref.dex === 'univ2' ? false : (ref.stable ?? false);
+        spot = aeroSpotPrice1e18(stable, res[0], res[1], d0, d1);
       } else {
         // Trader Joe: getSwapOut(A→B) → spot já é "tokenB por tokenA"
         const res = r.result as readonly [bigint, bigint, bigint]; // amountInLeft, amountOut, fee

@@ -7,13 +7,20 @@ import type { Address, Hex } from 'viem';
 
 // ─── Mirror dos structs Solidity ───
 
-/** Tipos de DEX suportados (deve bater com `uint8 dexType` no Solidity) */
+/**
+ * Tipos de DEX suportados. FONTE ÚNICA do enum no TS — `@zeus-evm/dex-adapters` re-exporta daqui.
+ * Espelhado em `contracts/src/interfaces/IZeusExecutor.sol` (enum Solidity): os valores DEVEM bater
+ * com o `uint8 dexType` on-chain. SÓ APPEND, NUNCA REORDENAR (quebra a calldata já encodada).
+ * Guarda automática: `packages/dex-adapters/src/dexType.pin.test.ts`.
+ */
 export enum DexType {
   UniswapV2 = 0,
   UniswapV3 = 1,
   Aerodrome = 2,
   Curve = 3,
   Balancer = 4,
+  Slipstream = 5, // Aerodrome Slipstream CL — SlipstreamLib
+  PancakeV3 = 6, // Pancake V3 (struct exactInputSingle COM deadline) — PancakeV3Lib
 }
 
 /**

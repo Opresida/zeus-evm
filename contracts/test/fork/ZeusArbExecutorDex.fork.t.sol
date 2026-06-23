@@ -49,7 +49,8 @@ contract ZeusArbExecutorDexForkTest is Test {
     address public profitReceiver = makeAddr("profitReceiver");
 
     function setUp() public {
-        string memory rpc = vm.envOr("BASE_RPC_HTTP", string(""));
+        // Prefere BASE_RPC_ARCHIVE (endpoint archive dedicado p/ fork) → cai pra BASE_RPC_HTTP.
+        string memory rpc = vm.envOr("BASE_RPC_ARCHIVE", vm.envOr("BASE_RPC_HTTP", string("")));
         if (bytes(rpc).length == 0) {
             vm.skip(true);
             return;

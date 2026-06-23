@@ -31,6 +31,13 @@ contract ZeusArbExecutorDexForkTest is Test {
     address constant SLIPSTREAM_SWAP_ROUTER = 0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5;
     // tickSpacing do pool WETH/USDC no Slipstream (volatile). Ajustar se o CI revelar outro.
     int24 constant SLIP_WETH_USDC_TICK_SPACING = 100;
+    // PancakeSwap V3 SwapRouter (struct exactInputSingle COM deadline — DexType.PancakeV3).
+    address constant PANCAKE_V3_SWAP_ROUTER = 0x1b81D678ffb9C0263b24A97847620C99d213eB14;
+    uint24 constant PANCAKE_WETH_USDC_FEE = 500; // ajustar se o CI revelar outro tier com liquidez
+    // SushiSwap V3 SwapRouter na Base — tem `deadline` na struct (NÃO é SwapRouter02). Verificado
+    // neste fork: reverte via DexType.UniswapV3, passa via DexType.PancakeV3. → routerStyle='pancakeV3'.
+    address constant SUSHI_V3_SWAP_ROUTER = 0xFB7eF66a7e61224DD6FcD0D7d9C3be5C8B049b9f;
+    uint24 constant SUSHI_WETH_USDC_FEE = 500; // ajustar se o CI revelar outro tier com liquidez
 
     uint256 constant FORK_BLOCK = 28_000_000;
     uint256 constant INITIAL_MAX_TRADE = 1_000 ether;
@@ -119,6 +126,74 @@ contract ZeusArbExecutorDexForkTest is Test {
         arb.executeArbitrage(p);
 
         assertGt(IERC20(WETH).balanceOf(profitReceiver) - before, 0, "Slipstream swap nao rendeu WETH");
+        assertEq(IERC20(USDC).balanceOf(address(arb)), 0, "USDC sobrou no contrato");
+    }
+
+    /// PancakeV3: swap USDC→WETH via DexType.PancakeV3 (extraData = uint24 fee).
+    /// Prova que a struct exactInputSingle COM deadline (PancakeV3Lib) não reverte no router real —
+    /// é exatamente o caso que reverteria se Pancake fosse roteado pelo UniswapV3Lib (sem deadline).
+    function test_Fork_PancakeV3_SwapProfitsInWETH() public {
+        uint256 amountIn = 1_000e6; // 1000 USDC
+        deal(USDC, address(arb), amountIn);
+
+        SwapStep[] memory steps = new SwapStep[](1);
+        steps[0] = SwapStep({
+            router: PANCAKE_V3_SWAP_ROUTER,
+            tokenIn: USDC,
+            tokenOut: WETH,
+            amountIn: amountIn,
+            minAmountOut: 0,
+            dexType: DexType.PancakeV3,
+            extraData: abi.encode(PANCAKE_WETH_USDC_FEE)
+        });
+
+        ArbitrageParams memory p = ArbitrageParams({
+            steps: steps,
+            minProfitWei: 1,
+            profitToken: WETH,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
+        });
+
+        uint256 before = IERC20(WETH).balanceOf(profitReceiver);
+        vm.prank(operator);
+        arb.executeArbitrage(p);
+
+        assertGt(IERC20(WETH).balanceOf(profitReceiver) - before, 0, "PancakeV3 swap nao rendeu WETH");
+        assertEq(IERC20(USDC).balanceOf(address(arb)), 0, "USDC sobrou no contrato");
+    }
+
+    /// SushiV3: swap USDC→WETH via DexType.PancakeV3 (router da Sushi na Base TEM deadline).
+    /// Achado do fork: rotear Sushi como UniswapV3 (sem deadline) REVERTE — por isso usa o adapter
+    /// com deadline (PancakeV3Lib), igual ao Pancake. base.ts: sushiswap-v3 routerStyle='pancakeV3'.
+    function test_Fork_SushiV3_SwapProfitsInWETH() public {
+        uint256 amountIn = 1_000e6; // 1000 USDC
+        deal(USDC, address(arb), amountIn);
+
+        SwapStep[] memory steps = new SwapStep[](1);
+        steps[0] = SwapStep({
+            router: SUSHI_V3_SWAP_ROUTER,
+            tokenIn: USDC,
+            tokenOut: WETH,
+            amountIn: amountIn,
+            minAmountOut: 0,
+            dexType: DexType.PancakeV3,
+            extraData: abi.encode(SUSHI_WETH_USDC_FEE)
+        });
+
+        ArbitrageParams memory p = ArbitrageParams({
+            steps: steps,
+            minProfitWei: 1,
+            profitToken: WETH,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Aave
+        });
+
+        uint256 before = IERC20(WETH).balanceOf(profitReceiver);
+        vm.prank(operator);
+        arb.executeArbitrage(p);
+
+        assertGt(IERC20(WETH).balanceOf(profitReceiver) - before, 0, "SushiV3 swap nao rendeu WETH");
         assertEq(IERC20(USDC).balanceOf(address(arb)), 0, "USDC sobrou no contrato");
     }
 }

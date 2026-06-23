@@ -43,6 +43,9 @@ function resolveRouter(quote: Pick<Quote, 'dex' | 'router'>): Address {
     case DexType.UniswapV2:
       // UniV2 não tem router canônico único — vários venues. Exige `router` no Quote.
       throw new Error('UniswapV2 quote sem router — venue não resolvido');
+    case DexType.PancakeV3:
+      // Pancake V3 = fork com SwapRouter próprio (struct com deadline). Exige `router` no Quote.
+      throw new Error('PancakeV3 quote sem router — venue não resolvido');
     default:
       throw new Error(`Unsupported DexType: ${quote.dex}`);
   }

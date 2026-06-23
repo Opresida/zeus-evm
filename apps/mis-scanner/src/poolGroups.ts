@@ -184,7 +184,7 @@ export async function resolvePoolGroups(opts: {
             logger?.debug?.({ pair: pair.label, fork: fork.name, fee }, `${fork.name} pool morto/vazio — descartado`);
             continue;
           }
-          pools.push({ dex: 'univ3', pool, label: `${fork.name}-${fee}`, fee, router: fork.swapRouter, quoter: fork.quoterV2, venue: fork.name });
+          pools.push({ dex: 'univ3', pool, label: `${fork.name}-${fee}`, fee, router: fork.swapRouter, quoter: fork.quoterV2, venue: fork.name, routerStyle: fork.routerStyle });
         } catch (err) {
           logger?.debug?.({ pair: pair.label, fork: fork.name, fee, err: err instanceof Error ? err.message : err }, `${fork.name} resolve falhou (transiente) — pula`);
         }

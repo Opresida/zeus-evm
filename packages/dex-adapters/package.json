@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@zeus-evm/chain-config": "workspace:*",
+    "@zeus-evm/shared-types": "workspace:*",
     "viem": "catalog:"
   },
   "devDependencies": {

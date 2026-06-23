@@ -64,6 +64,12 @@ export interface PoolRef {
   quoter?: Address;
   /** Nome do venue pra logs/atribuição (ex: 'pancakeswap-v3', 'baseswap'). */
   venue?: string;
+  /**
+   * Forks UniV3: estilo do SwapRouter pra EXECUÇÃO. 'uniswapV3' = struct sem deadline
+   * (SwapRouter02); 'pancakeV3' = struct exactInputSingle COM deadline (Pancake) → DexType.PancakeV3.
+   * Pricing é idêntico (slot0) — só a execução muda. Imutável — cacheado no resolve.
+   */
+  routerStyle?: 'uniswapV3' | 'pancakeV3';
 }
 
 /** Grupo de pools que negociam o MESMO par (tokenA/tokenB) em venues diferentes. */

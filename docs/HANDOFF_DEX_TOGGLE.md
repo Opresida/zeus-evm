@@ -1,5 +1,23 @@
 # HANDOFF — Expansão de DEX (Motor 2) + Toggle remoto de execução
 
+> **⭐ ATUALIZAÇÃO PÓS-REVIEW (2026-06-23) — correções aplicadas nesta branch antes do merge:**
+> - **Enum `DexType` unificado:** era triplicado e dessincronizado (`Slipstream=5` só entrou em 2 de 3).
+>   Agora `packages/shared-types` é a **fonte única TS** (`dex-adapters` re-exporta); espelhado no
+>   Solidity; **pin test** (`dex-adapters/src/dexType.pin.test.ts`) trava o CI se dessincronizar.
+> - **Pancake V3 resolvido (não é mais red flag):** a struct `exactInputSingle` do Pancake tem
+>   `deadline` → ganhou **adapter dedicado** `PancakeV3Lib.sol` + `DexType.PancakeV3` (6). Off-chain é
+>   config-driven: cada fork em `univ3Forks` tem `routerStyle: 'uniswapV3' | 'pancakeV3'`. Pricing
+>   segue na trilha UniV3 (slot0); só a EXECUÇÃO desvia.
+> - **⚠️ ACHADO no fork test — Sushi V3 na Base TAMBÉM precisa de deadline:** a anotação original
+>   dizia "Sushi V3 é SwapRouter02-compatível" — **ERRADO**. Verificado on-chain (fork em bloco
+>   recente, RPC free): o swap **reverte** via `DexType.UniswapV3` e **passa** via `DexType.PancakeV3`.
+>   Corrigido → `sushiswap-v3` agora é `routerStyle: 'pancakeV3'`. Liquidez do pool é saudável (~48
+>   WETH no 0.05%); não era falta de pool. **Os 4 fork tests passam on-chain** (BaseSwap, Slipstream,
+>   Pancake V3, Sushi V3). NOTA: o `FORK_BLOCK` fica pinado em 28M (archive, valida no CI com RPC pago);
+>   a verificação local foi feita em bloco recente (free tier não forka archive).
+> - **`/api/control` fail-closed:** o POST (liga/desliga execução) agora é **recusado (503) em
+>   produção sem `ZEUS_CONTROL_SECRET`**. Melhor ainda: painel atrás de Vercel Auth.
+>
 > **Pra quem pega isto (Claude no Antigravity / Humberto):** o que foi feito, **o que ainda é do
 > Humberto fazer**, e **TODOS os red flags de RPC/endereços** que precisam de verificação on-chain
 > antes de qualquer redeploy/ligar execução. Nada aqui deve escapar.

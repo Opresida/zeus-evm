@@ -91,12 +91,18 @@ export const BASE_MAINNET: ChainConfig = {
     { name: 'rocketswap',     router: '0x4cf76043B3f97ba06917cBd90F9e3A2AAC1B306e', factory: '0x1B8eea9315bE495187D873DA7773a874545D9D48' },
   ],
 
-  // ─── Forks Uniswap V3 (Motor 2 — execução via DexType.UniswapV3, router próprio) ───
-  // ⚠️ VERIFICAR on-chain antes de mainnet. Pancake V3 usa feeTiers [100, 500, 2500, 10000]
-  //    (2500 no lugar de 3000!). Sushi V3 é SwapRouter02-compatível (feeTiers UniV3 padrão).
+  // ─── Forks Uniswap V3 (Motor 2) ───
+  // Pricing reusa a trilha UniV3 (slot0/QuoterV2). A EXECUÇÃO depende do `routerStyle`:
+  //   'uniswapV3' → DexType.UniswapV3 (struct SEM deadline); 'pancakeV3' → DexType.PancakeV3
+  //   (struct exactInputSingle COM deadline).
+  // ✅ VERIFICADO on-chain via fork test (ZeusArbExecutorDex.fork.t.sol): tanto Pancake QUANTO
+  //    Sushi na Base têm SwapRouter com `deadline` na struct → ambos routerStyle='pancakeV3'.
+  //    (Sushi NÃO é SwapRouter02 aqui — o swap reverte sem o deadline; confirmado no fork.)
+  //    Pancake V3 usa feeTiers [100, 500, 2500, 10000] (2500 no lugar de 3000); Sushi usa os padrão.
   univ3Forks: [
     {
       name: 'pancakeswap-v3',
+      routerStyle: 'pancakeV3',
       factory: '0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865',
       quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
       swapRouter: '0x1b81D678ffb9C0263b24A97847620C99d213eB14',
@@ -104,6 +110,7 @@ export const BASE_MAINNET: ChainConfig = {
     },
     {
       name: 'sushiswap-v3',
+      routerStyle: 'pancakeV3', // SwapRouter da Sushi na Base tem deadline (verificado no fork)
       factory: '0xc35DADB65012eC5796536bD9864eD8773aBc74C4',
       quoterV2: '0xb1E835Dc2785b52265711e17fCCb0fd018226a6e',
       swapRouter: '0xFB7eF66a7e61224DD6FcD0D7d9C3be5C8B049b9f',

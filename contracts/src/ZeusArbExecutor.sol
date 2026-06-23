@@ -16,6 +16,7 @@ import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 import {UniswapV2Lib} from "./libraries/UniswapV2Lib.sol";
 import {SlipstreamLib} from "./libraries/SlipstreamLib.sol";
+import {PancakeV3Lib} from "./libraries/PancakeV3Lib.sol";
 import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
 
 /// @title ZeusArbExecutor — contrato dedicado a arbitragens cross-DEX + backrun.
@@ -429,6 +430,8 @@ contract ZeusArbExecutor is
                 SlipstreamLib.swap(steps[i]);
             } else if (dt == DexType.UniswapV2) {
                 UniswapV2Lib.swap(steps[i]);
+            } else if (dt == DexType.PancakeV3) {
+                PancakeV3Lib.swap(steps[i]);
             } else {
                 revert InvalidDexType(uint8(dt));
             }

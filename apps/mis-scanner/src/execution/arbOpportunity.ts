@@ -33,11 +33,16 @@ export function groupToTargetPair(
   const aerodromeStable = group.pools.some((p) => p.dex === 'aerodrome' && p.stable === true);
   const aerodromeVolatile = group.pools.some((p) => p.dex === 'aerodrome' && p.stable === false);
 
-  // Forks UniV3: agrupa por venue → {quoterV2, swapRouter, feeTiers}.
-  const forkMap = new Map<string, { venue: string; quoterV2: Address; swapRouter: Address; feeTiers: number[] }>();
+  // Forks UniV3: agrupa por venue → {routerStyle, quoterV2, swapRouter, feeTiers}.
+  const forkMap = new Map<
+    string,
+    { venue: string; routerStyle: 'uniswapV3' | 'pancakeV3'; quoterV2: Address; swapRouter: Address; feeTiers: number[] }
+  >();
   for (const p of group.pools) {
     if (p.dex !== 'univ3' || !p.venue || !p.router || !p.quoter || typeof p.fee !== 'number') continue;
-    const entry = forkMap.get(p.venue) ?? { venue: p.venue, quoterV2: p.quoter, swapRouter: p.router, feeTiers: [] };
+    const entry =
+      forkMap.get(p.venue) ??
+      { venue: p.venue, routerStyle: p.routerStyle ?? 'uniswapV3', quoterV2: p.quoter, swapRouter: p.router, feeTiers: [] };
     entry.feeTiers.push(p.fee);
     forkMap.set(p.venue, entry);
   }

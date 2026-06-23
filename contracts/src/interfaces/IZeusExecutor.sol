@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.27;
 
-/// @notice Tipos de DEX suportados — deve bater com `enum DexType` no TypeScript shared-types
+/// @notice Tipos de DEX suportados. Espelhado em `packages/shared-types/src/index.ts` (fonte única
+///         TS) — os valores DEVEM bater. SÓ APPEND, NUNCA REORDENAR (quebra calldata já encodada).
+///         Guarda: `packages/dex-adapters/src/dexType.pin.test.ts`.
 enum DexType {
     UniswapV2,    // 0 — UniV2 e forks (BaseSwap, AlienBase, SwapBased…) via UniswapV2Lib
-    UniswapV3,    // 1 — UniV3 e forks ABI-compatíveis (Pancake V3, Sushi V3) via UniswapV3Lib
+    UniswapV3,    // 1 — UniV3 e forks SwapRouter02-compatíveis (Sushi V3) via UniswapV3Lib
     Aerodrome,    // 2 — Aerodrome/Velodrome Solidly (vAMM/sAMM) via AerodromeLib
     Curve,        // 3 (futuro)
     Balancer,     // 4 (futuro)
-    Slipstream    // 5 — Aerodrome Slipstream concentrated liquidity via SlipstreamLib
+    Slipstream,   // 5 — Aerodrome Slipstream concentrated liquidity via SlipstreamLib
+    PancakeV3     // 6 — Pancake V3 (exactInputSingle COM deadline na struct) via PancakeV3Lib
 }
 
 /// @notice Fonte do flashloan que financia uma operação. Selecionada off-chain por

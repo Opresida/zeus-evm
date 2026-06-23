@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
  * `engine_control` (o bot faz poll dela). Modelo armado-mas-travado: ligar aqui só LIBERA o envio;
  * os circuit breakers do bot (MAX_TRADE_ETH, min profit, simulação+EV gate) seguem valendo.
  *
- * Auth: o painel é privado-por-URL (mesmo modelo do resto do app, sem Supabase Auth). Pra
- * travar esta rota sensível, setar `ZEUS_CONTROL_SECRET` — aí exige header `x-zeus-control`
- * batendo. Sem ele, libera (consistente com o painel atual). Em produção, prefira pôr o painel
- * inteiro atrás de auth (Vercel password / Supabase Auth) em vez de expor o segredo no browser.
+ * Auth: setar `ZEUS_CONTROL_SECRET` → exige header `x-zeus-control` batendo. FAIL-CLOSED em
+ * produção: sem o segredo, o POST (que LIGA/DESLIGA execução) é recusado (503) — nunca fica aberto
+ * em prod. Em dev libera (painel privado-por-URL). O GET (read-only) segue a mesma regra do segredo
+ * mas não trava em prod. Melhor ainda: pôr o painel inteiro atrás de auth (Vercel password /
+ * Supabase Auth) em vez de expor o segredo no browser.
  */
 
 const MOTORS = new Set(["motor1", "motor2", "motor3"]);
@@ -20,8 +21,19 @@ const MODES = new Set(["dryrun", "testnet", "mainnet"]);
 
 function checkAuth(req: Request): boolean {
   const secret = process.env.ZEUS_CONTROL_SECRET;
-  if (!secret) return true; // sem segredo → libera (painel privado-por-URL).
+  if (!secret) return true; // sem segredo → libera (painel privado-por-URL em dev).
   return req.headers.get("x-zeus-control") === secret;
+}
+
+/** FAIL-CLOSED: a rota de mutação NUNCA fica aberta em produção sem `ZEUS_CONTROL_SECRET`. */
+function writeBlockedInProd(): NextResponse | null {
+  if (process.env.NODE_ENV === "production" && !process.env.ZEUS_CONTROL_SECRET) {
+    return NextResponse.json(
+      { error: "ZEUS_CONTROL_SECRET não configurado — rota de controle travada em produção (fail-closed)" },
+      { status: 503 },
+    );
+  }
+  return null;
 }
 
 /** GET — estado desejado atual (pra UI mostrar o que foi pedido). */
@@ -41,6 +53,8 @@ export async function GET(req: Request) {
 
 /** POST — liga/desliga a execução de um motor. Body: { motor, execution_enabled, desired_mode? }. */
 export async function POST(req: Request) {
+  const blocked = writeBlockedInProd();
+  if (blocked) return blocked;
   if (!checkAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: { motor?: string; execution_enabled?: boolean; desired_mode?: string; updated_by?: string };

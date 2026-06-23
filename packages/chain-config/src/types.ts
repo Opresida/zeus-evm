@@ -83,13 +83,15 @@ export interface ChainConfig {
   }>;
 
   /**
-   * Forks ABI-compatíveis do Uniswap V3 (Pancake V3, Sushi V3…). Reusam `DexType.UniswapV3`
-   * on-chain (mesma `exactInputSingle`/QuoterV2) — só endereços diferentes. `feeTiers` pode
-   * divergir do UniV3 canônico (ex: Pancake V3 usa 2500 no lugar de 3000).
+   * Forks do Uniswap V3 (Pancake V3, Sushi V3…). Pricing reusa a trilha UniV3 (slot0/QuoterV2).
+   * A EXECUÇÃO depende do `routerStyle`: 'uniswapV3' = SwapRouter02-compatível (struct sem deadline);
+   * 'pancakeV3' = struct `exactInputSingle` COM deadline (Pancake) → `DexType.PancakeV3`.
+   * `feeTiers` pode divergir do UniV3 canônico (ex: Pancake V3 usa 2500 no lugar de 3000).
    * ⚠️ VERIFICAR cada endereço on-chain antes de habilitar em mainnet.
    */
   univ3Forks?: Array<{
     name: string;
+    routerStyle: 'uniswapV3' | 'pancakeV3';
     factory: Address;
     quoterV2: Address;
     swapRouter: Address;

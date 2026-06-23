@@ -64,8 +64,10 @@ export interface TxConfirmedEvent extends BaseEvent {
   type: 'tx.confirmed';
   severity: 'info';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). Liquidações usam `borrower`. */
+  pair?: string;
   profitUsd: number | null;
   gasCostUsd: number;
   netProfitUsd: number | null;
@@ -77,8 +79,10 @@ export interface TxRevertedOnChainEvent extends BaseEvent {
   type: 'tx.reverted_on_chain';
   severity: 'warn';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). */
+  pair?: string;
   gasUsdLost: number;
   blockNumber: string;
 }

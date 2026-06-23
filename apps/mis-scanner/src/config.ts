@@ -83,6 +83,14 @@ const envSchema = z.object({
   ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor2')),
   /** A cada quantos ticks de scan reconsultar o toggle remoto. */
   ENGINE_CONTROL_POLL_EVERY: posInt(5),
+
+  // ─── Alerting / ponte pro painel (ZEUS Command) ───
+  // Sem isso, NADA do Motor 2 chega ao painel (só M1/M3 mandavam). Aponta pra /api/ingest do Vercel.
+  GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo do header x-zeus-secret (= ZEUS_WEBHOOK_SECRET no Vercel). */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Filtro de severidades (comma-separated). Default: tudo. */
+  GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

@@ -39,6 +39,9 @@ type AnyWalletClient = WalletClient<any, any, any>;
 
 export type ArbMode = 'dryrun' | 'testnet' | 'mainnet';
 
+/** Placeholder pro campo `borrower` dos eventos tx.* (arb não tem borrower — usa `pair`). */
+const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as Address;
+
 export interface ArbDispatchDeps {
   mode: ArbMode;
   /**
@@ -193,12 +196,26 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
         deps.failureCollector.record(fe);
         deps.eventBus?.emit({ type: 'failure.recorded', timestamp: new Date().toISOString(), chain: chainConfig.name, mode, severity: 'warn', protocol: 'arb', failureCategory: 'reverted_on_chain', txHash, gasUsdLost: gasUsd, reason: 'arb reverted on-chain' });
       }
+      // tx.reverted_on_chain → alimenta a tabela de Transações + PnL do painel (independe do failureCollector).
+      deps.eventBus?.emit({
+        type: 'tx.reverted_on_chain', timestamp: new Date().toISOString(), chain: chainConfig.name, mode, severity: 'warn',
+        protocol: 'arb', txHash, borrower: ZERO_ADDR, pair: opp.pair.id, gasUsdLost: gasUsd, blockNumber: receipt.blockNumber.toString(),
+      });
       const result: ArbDispatchResult = { status: 'reverted_on_chain', txHash, flashSource: flashSel.flashSource };
       await deps.onResult?.(result, { opp, calldata });
       return result;
     }
 
     deps.failureTracker?.recordSuccess();
+
+    // tx.confirmed → entra na tabela de Transações + views de PnL do painel (protocol='arb').
+    // Drift preciso vai no pnl.reconciled abaixo; aqui levamos net/gas pra UI.
+    deps.eventBus?.emit({
+      type: 'tx.confirmed', timestamp: new Date().toISOString(), chain: chainConfig.name, mode, severity: 'info',
+      protocol: 'arb', txHash, borrower: ZERO_ADDR, pair: opp.pair.id,
+      profitUsd: opp.profitUsd, gasCostUsd: gasUsd, netProfitUsd: filtered.netProfitUsd ?? null, profitDeltaBps: 0,
+      blockNumber: receipt.blockNumber.toString(),
+    });
 
     // Reconciliação (esperado vs realizado) — alimenta PnlAggregator + DriftTracker via onReconcile.
     if (deps.pnlReconciler) {

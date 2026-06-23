@@ -35,6 +35,8 @@ import {
   GasOracle,
   EventBus,
   EventIngester,
+  createGenericWebhookSink,
+  type Severity,
   SenderRegistry,
   BlockHistoryScanner,
   CooccurrenceAnalyzer,
@@ -147,6 +149,20 @@ async function main(): Promise<void> {
   const eventBus = new EventBus(logger);
   const eventIngester = new EventIngester({ store, eventBus, logger, defaultChain: chainConfig.name });
   eventIngester.start();
+
+  // ─── Ponte pro painel (ZEUS Command) — sem isto, NADA do Motor 2 chega ao front ───
+  if (env.GENERIC_WEBHOOK_URL) {
+    const severities = env.GENERIC_SEVERITIES.split(',').map((s) => s.trim()) as Severity[];
+    eventBus.subscribe(
+      createGenericWebhookSink({
+        url: env.GENERIC_WEBHOOK_URL,
+        severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
+        logger,
+      }),
+    );
+    logger.info({ severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' }, '📡 Generic webhook sink ativo (Motor 2 → painel)');
+  }
   // Competidores (arb é competitivo — o motor TEM que ver o adversário).
   const senderRegistry = new SenderRegistry({ baseDir: resolve('logs', 'competitors'), logger });
   const cooccurrence = new CooccurrenceAnalyzer();

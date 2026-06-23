@@ -140,6 +140,8 @@ export interface LiveSnapshot {
   txRows?: TxRow[];
   txCounts?: { all: number; ok: number; rev: number; pre: number };
   eventLog?: { time: string; color: string; type: string; text: string }[];
+  /** Drift sustentado real (de pnl.reconciled) — alimenta a tela Inteligência. */
+  driftAlarms?: { color: string; text: string; bps: string }[];
 }
 
 export interface TxRow {

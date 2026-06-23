@@ -182,7 +182,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   // ---- intelligence ----
   const bribe = M.bribe;
   const ourBribe = M.ourBribe;
-  const driftAlarms = M.driftAlarms;
+  // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
+  const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   const competitors = M.competitors;
   const postmortem = M.postmortem;
   const calib = M.calib;

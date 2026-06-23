@@ -140,5 +140,19 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
   }
   if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
 
+  // ----- inteligência: drift sustentado real (de pnl.reconciled) -----
+  // bribe/competidores/post-mortem/calibração vivem no DuckDB (fora do webhook) → seguem mock.
+  const recon = rows.filter((r) => r.type === "pnl.reconciled").slice(0, 6);
+  if (recon.length) {
+    snap.driftAlarms = recon.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const bps = Number(p.profitDeltaBps ?? 0);
+      const mag = Math.abs(bps);
+      const color = mag >= 100 ? "var(--red)" : mag >= 30 ? "var(--gold)" : "var(--green)";
+      const cause = (p.attributionCause as string) || "—";
+      return { color, text: `${p.protocol ?? "—"} · ${cause}`, bps: `${bps > 0 ? "+" : ""}${bps}bps` };
+    });
+  }
+
   return snap;
 }

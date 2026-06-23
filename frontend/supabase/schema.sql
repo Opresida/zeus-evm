@@ -34,9 +34,27 @@ create table if not exists public.push_subscriptions (
   created_at   timestamptz not null default now()
 );
 
+-- ---------- estado ao vivo dos serviços (heartbeat) ----------
+-- 1 linha por serviço (UPSERT). O heartbeat (~30s) NÃO vai pra `events` (inundaria a tabela +
+-- o realtime, afogando as transações). O /api/ingest roteia type='zeus.heartbeat' pra cá.
+-- Alimenta os gauges do painel: gás-agora, uptime, EV adaptativo e o ESTADO REAL do toggle (auto_paused).
+create table if not exists public.service_status (
+  service             text primary key,           -- 'liquidator' | 'backrun-engine' | 'mis-scanner'
+  chain               text,
+  mode                text,
+  uptime_sec          integer,
+  gas_reserve_eth     double precision,
+  gas_reserve_usd     double precision,
+  adaptive_min_ev_usd double precision,
+  auto_paused         boolean,
+  motor_stats         jsonb,
+  updated_at          timestamptz not null default now()
+);
+
 -- ---------- realtime ----------
--- habilita streaming de INSERT na tabela events
+-- habilita streaming de INSERT na tabela events + UPDATE/INSERT em service_status
 alter publication supabase_realtime add table public.events;
+alter publication supabase_realtime add table public.service_status;
 
 -- ---------- controle remoto de execução (toggle do painel → bot) ----------
 -- 1 linha por motor. O bot LÊ (poll) `execution_enabled`; a escrita é EXCLUSIVA das rotas /api
@@ -59,6 +77,12 @@ insert into public.engine_control (motor, execution_enabled)
 alter table public.events enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.engine_control enable row level security;
+alter table public.service_status enable row level security;
+
+-- leitura pública do estado dos serviços (painel privado-por-URL). Escrita só via service role (/api/ingest).
+drop policy if exists "service_status read" on public.service_status;
+create policy "service_status read" on public.service_status
+  for select using (true);
 
 -- leitura do toggle pelo bot via anon key (RLS de leitura). Escrita só via service role (rotas /api).
 drop policy if exists "engine_control read" on public.engine_control;

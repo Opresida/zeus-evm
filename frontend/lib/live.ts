@@ -1,6 +1,6 @@
 import { usd } from "./viewModel";
 import { uptimeFromSec } from "./viewModel";
-import type { EventRow, LiveSnapshot, TxRow, ZeusEvent } from "./types";
+import type { EventRow, LiveSnapshot, ServiceStatusRow, TxRow, ZeusEvent } from "./types";
 
 const TX_TYPES = new Set(["tx.confirmed", "tx.reverted_on_chain", "tx.reverted_pre_dispatch"]);
 
@@ -46,9 +46,9 @@ function tickerText(r: EventRow): string {
   return `${r.type}${p}${ev?.reason ? " · " + ev.reason : ""}`;
 }
 
-/** Deriva o snapshot ao vivo a partir das linhas de eventos (mais recente primeiro). */
-export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
-  if (!rows.length) return {};
+/** Deriva o snapshot ao vivo a partir dos eventos (mais recente primeiro) + status dos serviços. */
+export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = []): LiveSnapshot {
+  if (!rows.length && !statuses.length) return {};
   const snap: LiveSnapshot = {};
 
   // ----- transações -----
@@ -86,15 +86,20 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     snap.kpiWinRate = ((ok / today.length) * 100).toFixed(1) + "%";
   }
 
-  // ----- estado a partir do último heartbeat / gás -----
-  const hb = rows.find((r) => r.type === "zeus.heartbeat");
-  if (hb) {
-    const p = hb.payload as ZeusEvent;
-    if (p.gasReserveEth != null) snap.gasEth = p.gasReserveEth.toFixed(3);
-    if (p.gasReserveUsd != null) snap.gasUsd = "$" + p.gasReserveUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (p.adaptiveMinEvUsd != null) snap.adaptiveEv = "$" + p.adaptiveMinEvUsd.toFixed(2);
-    if (p.autoPaused != null) snap.botStatus = p.autoPaused ? "PAUSED" : "RUNNING";
-  }
+  // ----- estado ao vivo a partir do service_status (heartbeat por serviço) -----
+  const byService = (s: string) => statuses.find((x) => x.service === s);
+  // Gás: vem do serviço que segura a wallet financiada (liquidator); fallback = qualquer um com gás.
+  const gasSvc = byService("liquidator") ?? statuses.find((s) => s.gas_reserve_eth != null);
+  if (gasSvc?.gas_reserve_eth != null) snap.gasEth = gasSvc.gas_reserve_eth.toFixed(3);
+  if (gasSvc?.gas_reserve_usd != null)
+    snap.gasUsd = "$" + gasSvc.gas_reserve_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // EV adaptativo: do Motor 2 (mis-scanner).
+  const mis = byService("mis-scanner");
+  if (mis?.adaptive_min_ev_usd != null) snap.adaptiveEv = "$" + mis.adaptive_min_ev_usd.toFixed(2);
+  // Estado REAL do bot: o toggle do Motor 2 (auto_paused = travado). Senão, qualquer serviço pausado.
+  if (mis?.auto_paused != null) snap.botStatus = mis.auto_paused ? "TRAVADO" : "RUNNING";
+  else if (statuses.some((s) => s.auto_paused)) snap.botStatus = "PAUSED";
+
   const gasEvt = rows.find((r) => r.type === "gas.alert" || r.type === "gas.recovered");
   if (gasEvt) {
     const p = gasEvt.payload as ZeusEvent;
@@ -102,9 +107,8 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     if (snap.gasUsd == null && p.balanceUsd != null) snap.gasUsd = "$" + p.balanceUsd.toFixed(2);
   }
 
-  // ----- log do sistema -----
+  // ----- log do sistema (heartbeat agora vem do service_status, não de events) -----
   const sysTypes = new Set([
-    "zeus.heartbeat",
     "failure.cooldown_activated",
     "failure.cooldown_expired",
     "gas.alert",
@@ -113,19 +117,28 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     "liquidator.boot",
     "liquidator.shutdown",
   ]);
-  const sys = rows.filter((r) => sysTypes.has(r.type)).slice(0, 7);
-  if (sys.length) {
-    snap.eventLog = sys.map((r) => {
+  const sysLines = rows
+    .filter((r) => sysTypes.has(r.type))
+    .slice(0, 6)
+    .map((r) => {
       const p = r.payload as ZeusEvent;
       let text = (p?.reason as string) || "";
-      if (r.type === "zeus.heartbeat" && p.uptimeSec != null)
-        text = `Heartbeat ok · gás ${p.gasReserveEth?.toFixed(3) ?? "?"} ETH · uptime ${uptimeFromSec(p.uptimeSec)}`;
-      else if (r.type === "gas.alert") text = text || `Gás baixo · ${p.balanceEth?.toFixed(3) ?? "?"} ETH`;
+      if (r.type === "gas.alert") text = text || `Gás baixo · ${p.balanceEth?.toFixed(3) ?? "?"} ETH`;
       else if (r.type.includes("cooldown")) text = text || `Cooldown · ${p.consecutiveFailures ?? "?"} falhas · ${p.cooldownSec ?? "?"}s`;
       else if (r.type.includes("kill_switch")) text = text || `Kill switch · perda 24h ${usd(p.loss24hUsd ?? 0)}`;
       return { time: hhmm(r.ts), color: colorFor(r.type), type: r.type, text: text || r.type };
     });
+  // Linha sintética de heartbeat (estado mais fresco) no topo do log.
+  const freshest = statuses.slice().sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+  if (freshest) {
+    sysLines.unshift({
+      time: hhmm(freshest.updated_at),
+      color: "var(--gold)",
+      type: "zeus.heartbeat",
+      text: `Heartbeat ${freshest.service} · gás ${freshest.gas_reserve_eth?.toFixed(3) ?? "?"} ETH · uptime ${uptimeFromSec(freshest.uptime_sec ?? 0)}`,
+    });
   }
+  if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
 
   return snap;
 }

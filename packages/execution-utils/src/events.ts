@@ -34,7 +34,8 @@ export type ZeusEvent =
   | BackrunDispatchedEvent
   | BackrunRejectedEvent
   | PnlReconciledEvent
-  | FailureRecordedEvent;
+  | FailureRecordedEvent
+  | ZeusHeartbeatEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -244,4 +245,34 @@ export interface FailureRecordedEvent extends BaseEvent {
   /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
   gasUsdLost?: number;
   reason?: string;
+}
+
+// ─── Heartbeat (estado ao vivo) ─────────────────────────────────────────
+// Os outros eventos são DELTAS (disparam num limiar). Pra gauges contínuos do painel
+// (gás-agora, uptime, EV adaptativo, estado REAL do toggle) precisa de um snapshot periódico.
+// Emitido a cada ~30s reusando valores já coletados no loop de métricas. No /api/ingest do
+// painel, NÃO entra na tabela `events` (inundaria) — vira UPSERT em `service_status` (1 linha/serviço).
+
+/** Stats resumidas por motor (pro mini-card do painel). */
+export interface MotorStat {
+  /** Identificador do motor ('motor1' | 'motor2' | 'motor3' ou nome do serviço). */
+  tag: string;
+  ops: number;
+  netPnl24hUsd: number;
+}
+
+export interface ZeusHeartbeatEvent extends BaseEvent {
+  type: 'zeus.heartbeat';
+  severity: 'info';
+  /** Nome do serviço que emitiu (liquidator | backrun-engine | mis-scanner). */
+  service: string;
+  uptimeSec: number;
+  /** Reserva de gás da wallet ativa. */
+  gasReserveEth?: number;
+  gasReserveUsd?: number;
+  /** Threshold de EV adaptativo atual (USD), quando aplicável. */
+  adaptiveMinEvUsd?: number;
+  /** Estado REAL de execução: true = pausado/travado (no Motor 2 = toggle OFF). */
+  autoPaused: boolean;
+  motorStats?: MotorStat[];
 }

@@ -373,6 +373,24 @@ async function main(): Promise<void> {
   const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
   adaptiveTimer.unref();
 
+  // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
+  // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
+  const emitHeartbeat = () => {
+    const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
+    const live = !!arbExec?.deps.liveExecutionEnabled;
+    eventBus.emit({
+      type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain: chainConfig.name,
+      mode: arbExec?.deps.mode ?? 'dryrun', severity: 'info', service: 'mis-scanner',
+      uptimeSec: Math.floor(process.uptime()),
+      adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
+      autoPaused: armed ? !live : false, // travado só conta quando está armado
+      motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+    });
+  };
+  emitHeartbeat();
+  const heartbeatTimer = setInterval(emitHeartbeat, 30_000);
+  heartbeatTimer.unref();
+
   // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
   // Só faz sentido quando a execução está ARMADA (mode != dryrun). Em dryrun o toggle é irrelevante
   // (nunca submete de qualquer jeito). Fail-safe: erro/sem-config → mantém TRAVADO.

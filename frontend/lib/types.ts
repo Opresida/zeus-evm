@@ -95,6 +95,20 @@ export interface EventRow {
   payload: ZeusEvent;
 }
 
+/** Linha de `service_status` (heartbeat por serviço — upsert). */
+export interface ServiceStatusRow {
+  service: string;
+  chain: string | null;
+  mode: string | null;
+  uptime_sec: number | null;
+  gas_reserve_eth: number | null;
+  gas_reserve_usd: number | null;
+  adaptive_min_ev_usd: number | null;
+  auto_paused: boolean | null;
+  motor_stats: { tag: string; ops: number; netPnl24hUsd: number }[] | null;
+  updated_at: string;
+}
+
 /** Estado de UI controlado pelo painel. */
 export interface UiState {
   screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "reports" | "settings";

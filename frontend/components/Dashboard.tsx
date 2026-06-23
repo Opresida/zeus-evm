@@ -5,7 +5,7 @@ import { Hover } from "@/components/ui";
 import { buildViewModel } from "@/lib/viewModel";
 import { deriveSnapshot } from "@/lib/live";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import type { EventRow, UiState } from "@/lib/types";
+import type { EventRow, ServiceStatusRow, UiState } from "@/lib/types";
 import { MOCK } from "@/lib/mockData";
 import type { Actions } from "@/components/screens/shared";
 import { Home } from "@/components/screens/Home";
@@ -40,6 +40,7 @@ export default function Dashboard() {
     chans: { ...MOCK.chanDefault },
   });
   const [rows, setRows] = useState<EventRow[]>([]);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatusRow[]>([]);
   const live = isSupabaseConfigured();
 
   // tema persistido
@@ -73,10 +74,22 @@ export default function Dashboard() {
         if (active && data) setRows(data as EventRow[]);
       });
 
+    // estado ao vivo dos serviços (heartbeat) — tabela separada (não inunda events)
+    sb.from("service_status")
+      .select("*")
+      .then(({ data }) => {
+        if (active && data) setServiceStatus(data as ServiceStatusRow[]);
+      });
+
     const ch = sb
       .channel("events-stream")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events" }, (payload) => {
         setRows((prev) => [payload.new as EventRow, ...prev].slice(0, 400));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_status" }, (payload) => {
+        const row = payload.new as ServiceStatusRow;
+        if (!row?.service) return;
+        setServiceStatus((prev) => [row, ...prev.filter((s) => s.service !== row.service)]);
       })
       .subscribe();
 
@@ -86,7 +99,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  const snapshot = useMemo(() => (live ? deriveSnapshot(rows) : null), [live, rows]);
+  const snapshot = useMemo(() => (live ? deriveSnapshot(rows, serviceStatus) : null), [live, rows, serviceStatus]);
   const vm = useMemo(() => buildViewModel(ui, snapshot), [ui, snapshot]);
 
   const actions: Actions = useMemo(

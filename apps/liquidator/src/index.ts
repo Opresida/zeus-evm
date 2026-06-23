@@ -808,6 +808,7 @@ export async function boot(): Promise<LiquidatorState> {
   // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
   // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
   let lastBlocksProcessed = 0;
+  let hbTick = 0; // throttle do heartbeat (loop é 5s → emite a cada 6 = ~30s)
   // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
   const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   const metricsSyncInterval = setInterval(() => {
@@ -870,6 +871,16 @@ export async function boot(): Promise<LiquidatorState> {
       const drift = driftTracker.stats();
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
+
+      // Heartbeat ~30s pro painel (gás-agora / uptime / estado real) — reusa valores já coletados.
+      if (hbTick++ % 6 === 0) {
+        eventBus.emit({
+          type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain, mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          severity: 'info', service: 'liquidator', uptimeSec: Math.floor(proc.uptime_sec),
+          gasReserveEth: Number(gasStats.balanceEth ?? 0), gasReserveUsd: gasStats.balanceUsd ?? undefined,
+          autoPaused: pauseStatus.paused, motorStats: [{ tag: 'motor1', ops: 0, netPnl24hUsd: pnlStats.netPnlUsd }],
+        });
+      }
     } catch (err) {
       logger.debug(
         { err: err instanceof Error ? err.message : err },

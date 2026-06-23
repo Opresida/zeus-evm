@@ -41,6 +41,12 @@ export type ArbMode = 'dryrun' | 'testnet' | 'mainnet';
 
 export interface ArbDispatchDeps {
   mode: ArbMode;
+  /**
+   * Trava de execução ao vivo (modelo "armado-mas-travado"). Default/ausente = false = TRAVADO:
+   * mesmo em modo testnet/mainnet, simula + observa mas NÃO submete tx. Ligado remotamente via
+   * Supabase `engine_control` (ver index.ts poll). Fail-safe: na dúvida, fica false.
+   */
+  liveExecutionEnabled?: boolean;
   client: AnyPublicClient;
   wallet?: AnyWalletClient;
   account?: Address;
@@ -125,13 +131,17 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
     return { status: 'rejected', reason: `simulação reverteu: ${sim.revertReason ?? 'unknown'}`, flashSource: flashSel.flashSource };
   }
 
-  // 5. DRY_RUN: loga e não submete.
-  if (mode === 'dryrun') {
+  // 5. DRY_RUN ou execução TRAVADA (armado-mas-travado): simula, observa e NÃO submete.
+  //    A simulação já rodou (passo 4) → o ledger ganha o dado rico mesmo com o envio travado.
+  if (mode === 'dryrun' || !deps.liveExecutionEnabled) {
+    const locked = mode !== 'dryrun'; // modo live mas toggle remoto OFF
     logger.info(
-      { pair: opp.pair.id, profitUsd: opp.profitUsd.toFixed(2), flashSource: flashSel.flashSource, gasSim: sim.gasUsed?.toString() },
-      `🟦 DRY_RUN arb: ${opp.pair.id} válida (não submetida) profit~$${opp.profitUsd.toFixed(2)}`,
+      { pair: opp.pair.id, profitUsd: opp.profitUsd.toFixed(2), flashSource: flashSel.flashSource, gasSim: sim.gasUsed?.toString(), locked },
+      locked
+        ? `🔒 arb TRAVADO (toggle OFF): ${opp.pair.id} válida+simulada, envio bloqueado — profit~$${opp.profitUsd.toFixed(2)}`
+        : `🟦 DRY_RUN arb: ${opp.pair.id} válida (não submetida) profit~$${opp.profitUsd.toFixed(2)}`,
     );
-    const result: ArbDispatchResult = { status: 'dryrun_skipped', netProfitUsd: filtered.netProfitUsd, flashSource: flashSel.flashSource };
+    const result: ArbDispatchResult = { status: 'dryrun_skipped', reason: locked ? 'execution_locked' : undefined, netProfitUsd: filtered.netProfitUsd, flashSource: flashSel.flashSource };
     await deps.onResult?.(result, { opp, calldata });
     return result;
   }

@@ -65,6 +65,7 @@ import { optimizeFlashLoan, fetchEthUsd, fetchTokenUsd } from './flashEstimator'
 import { loadConfig } from './config';
 import { findFreshArb } from './execution/arbOpportunity';
 import { dispatchArb, type ArbDispatchDeps } from './execution/arbDispatcher';
+import { fetchEngineControlEnabled } from './engineControl';
 
 // Carrega .env local + raiz do monorepo (2 níveis acima) — RPC fica na raiz
 dotenv.config();
@@ -199,7 +200,19 @@ async function main(): Promise<void> {
         port: env.HEALTH_SERVER_PORT,
         host: env.HEALTH_SERVER_HOST,
         version: 'dryrun',
-        readinessProvider: () => ({ status: 'ok', checks: {}, dispatchesPaused: false, pausedReasons: [] }),
+        // dispatchesPaused = execução armada mas TRAVADA (toggle remoto OFF). O Frontend lê isto
+        // (via heartbeat/health) pra mostrar o estado REAL do bot vs o estado desejado no painel.
+        readinessProvider: () => {
+          const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
+          const live = !!arbExec?.deps.liveExecutionEnabled;
+          const paused = armed && !live;
+          return {
+            status: 'ok',
+            checks: {},
+            dispatchesPaused: paused,
+            pausedReasons: paused ? ['execution_locked (toggle remoto OFF)'] : [],
+          };
+        },
         metricsProvider: () => metricRegistry.render(),
         logger,
       })
@@ -286,12 +299,18 @@ async function main(): Promise<void> {
         ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE, logger,
         minProfitUsd: env.MIN_ARB_PROFIT_USD, maxSlippageBps, maxTradeWei,
         estimatedGasUsd: env.GAS_COST_USD_ESTIMATE,
+        // Armado-mas-travado: sobe SEMPRE travado (fail-safe). Só o toggle remoto liga.
+        liveExecutionEnabled: false,
         // Inteligência (Parte B): reconciliação, falhas, post-mortem, eventos.
         pnlTracker, failureTracker, pnlReconciler, failureCollector, eventBus,
         competitorResolver, blockPositionTracker,
       },
     };
-    logger.info({ mode, executor: env.ARB_EXECUTOR_ADDRESS ?? '(ausente)', topN: env.ARB_TOP_N }, `⚙️ Execução de ARB LIGADA (mode=${mode})`);
+    const remoteControlled = mode !== 'dryrun' && !!env.SUPABASE_URL;
+    logger.info(
+      { mode, executor: env.ARB_EXECUTOR_ADDRESS ?? '(ausente)', topN: env.ARB_TOP_N, remoteControlled, locked: true },
+      `⚙️ Execução de ARB ARMADA (mode=${mode}) — envio TRAVADO até toggle remoto${remoteControlled ? '' : ' (sem SUPABASE_URL → travado permanente, fail-safe)'}`,
+    );
   } else {
     logger.info('⚙️ Execução de ARB desligada (ARB_EXECUTION_ENABLED=false) — só observação');
   }
@@ -338,6 +357,35 @@ async function main(): Promise<void> {
   const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
   adaptiveTimer.unref();
 
+  // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
+  // Só faz sentido quando a execução está ARMADA (mode != dryrun). Em dryrun o toggle é irrelevante
+  // (nunca submete de qualquer jeito). Fail-safe: erro/sem-config → mantém TRAVADO.
+  const remoteControlActive = !!arbExec && arbExec.deps.mode !== 'dryrun';
+  const pollEngineControl = async () => {
+    if (!arbExec || arbExec.deps.mode === 'dryrun') return;
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: env.SUPABASE_URL,
+      supabaseKey: env.SUPABASE_KEY,
+      motor: env.ENGINE_CONTROL_MOTOR,
+    });
+    const prev = !!arbExec.deps.liveExecutionEnabled;
+    if (next !== prev) {
+      arbExec.deps.liveExecutionEnabled = next; // mesma ref → afeta o gate no dispatchArb
+      logger.warn(
+        { motor: env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
+        next
+          ? '🟢 TOGGLE REMOTO: execução LIGADA — envios passam a ser submetidos (circuit breakers seguem valendo)'
+          : '🔴 TOGGLE REMOTO: execução DESLIGADA — envios travados (simula+observa apenas)',
+      );
+      // O estado REAL é exposto via /readyz (dispatchesPaused) — o Frontend lê de lá pra mostrar
+      // estado-desejado vs estado-real. (Heartbeat dedicado fica pro plano da "cola" de webhook.)
+    }
+  };
+  if (remoteControlActive) {
+    await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
+    logger.info({ motor: env.ENGINE_CONTROL_MOTOR, pollEvery: env.ENGINE_CONTROL_POLL_EVERY }, '🎛️ controle remoto de execução ATIVO (poll via Supabase)');
+  }
+
   // Graceful shutdown: salva snapshot + drena o ledger DuckDB ao sair (Ctrl+C)
   let stopping = false;
   const shutdown = async () => {
@@ -361,6 +409,11 @@ async function main(): Promise<void> {
     try {
       const obs = await mis.scanAllBatched(client);
       scanCount++;
+
+      // Reconsulta o toggle remoto a cada N scans (barato; fail-safe interno mantém travado em erro).
+      if (remoteControlActive && scanCount % env.ENGINE_CONTROL_POLL_EVERY === 0) {
+        await pollEngineControl();
+      }
       const active = obs.filter((o) => o.maxDivergenceBps >= minDivergenceBps);
       if (active.length > 0) {
         logger.info(

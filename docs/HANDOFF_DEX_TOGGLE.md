@@ -90,7 +90,12 @@ cast call <FACTORY> "getPair(address,address)(address)" <USDC> <WETH> --rpc-url 
 - **baseswap** factory `0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB` — já estava no repo (confiança alta).
 - **alienbase** factory `0x3E84D913803b02A4a7f027165E8cA42C14C0FdE7` — 🚩 verificar.
 - **swapbased** factory `0x04C9f118d21e8B767D2e50C946f0cC9F6C367300` — 🚩 verificar.
-- Routers (BaseSwap `0x327Df1...`, AlienBase `0x8c1A3c...`, SwapBased `0xaaa3b1...`): cobertos pelo fork test só pro BaseSwap.
+- **pancakeswap-v2** factory `0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E` — 🚩 verificar (config-only adicionado na 2ª passada).
+- **sushiswap-v2** factory `0x71524B4f93c58fcbF659783284E38825f0622859` — 🚩🚩 verificar (router/factory do Sushi V2 na Base de menor confiança).
+- **dackieswap-v2** factory `0x591f122D1df761E616c13d265006fcbf4c6d6551` — 🚩🚩 verificar.
+- **rocketswap** factory `0x1B8eea9315bE495187D873DA7773a874545D9D48` — 🚩🚩 verificar.
+- Routers correspondentes idem. **NENHUM desses V2 extras é coberto por fork test** — verificar todos via `cast` (§2.1 comando acima).
+- ✅ **Importante:** estes forks UniV2 são **config-only** (sem código novo, **sem redeploy** — a `UniswapV2Lib` já roteia). Endereço errado = venue resolve a 0 pools (inofensivo em DRY_RUN). Remover/comentar a linha em `base.ts` desabilita.
 
 ### 2.2 Forks UniV3 (Pancake / Sushi) — `factory.getPool` + **ABI do SwapRouter**
 ```bash
@@ -156,6 +161,46 @@ cast call <CLFACTORY> "getPool(address,address,int24)(address)" <USDC> <WETH> 10
 - 🚩 Endereços v8 (split) no `CLAUDE.md` continuam "a atualizar ao redeploy" — atualizar após o deploy dos novos contratos.
 - Regra `approvedDexAdapters` segue **sem enforcement on-chain** (documentado em `docs/LOOSE_WIRES.md`) — os novos
   venues entram pela mesma porta; o controle de risco é off-chain (gate/sim) + circuit breakers do contrato.
+
+---
+
+## 3.5) 🛣️ Onda 2 — Curve + Maverick (Humberto faz no PC — NÃO implementado)
+
+> Deixados de fora da onda 1 porque têm **matemática/arquitetura própria** (não dá pra reusar
+> UniV2Lib nem a trilha UniV3). Cada um é um adapter novo (lib on-chain + pricing + quoter + fork test).
+> **Exigem redeploy** (novo branch no `_executeSwaps`). Notas de design pra adiantar:
+
+### Curve (StableSwap) — `DexType.Curve=3` (enum JÁ reservado)
+- **On-chain (`CurveLib.sol`):** Curve é **pool-based** (não router). O `SwapStep.router` aponta pro
+  **pool**. Swap = `exchange(int128 i, int128 j, uint256 dx, uint256 min_dy)` (pools stable antigos) ou
+  `exchange(uint256 i, uint256 j, ...)` (crypto/NG) — **o selector varia por tipo de pool** (plain/meta/ng).
+  Começar **só com plain stable** (USDC/USDT/USDbC). `extraData = abi.encode(int128 i, int128 j)` (índices
+  dos tokens no pool). `approve` no pool.
+- **Off-chain:** NÃO reimplementar o invariant StableSwap — cotar via `get_dy(i, j, dx)` (view) no
+  próprio pool. Pricing spot = probe `get_dy` de 1 unidade (igual ao Trader Joe `getSwapOut`).
+- **Discovery:** Curve registry/MetaRegistry via AddressProvider `0x0000000022D53366457F9d5E68Ec105046FC4383`
+  (canônico multi-chain) → resolve pools por par. **🚩 verificar na Base.**
+- **Scanner:** novo `PoolDex 'curve'`; rota de pricing = probe get_dy (espelhar a trilha do traderjoe).
+- **Cuidado:** índices i/j e tipo de pool são por-pool → cachear no resolve (como fee/tickSpacing).
+
+### Maverick (dynamic distribution AMM) — `DexType.Maverick=6` (APPEND ao enum, não reordenar)
+- **On-chain (`MaverickLib.sol`):** Maverick V2 tem **Router** com `exactInputSingle`. Bins se movem →
+  não dá pra precificar por reserves estáticas. `extraData = abi.encode(address pool)` (Maverick é
+  pool-específico). `router` = Maverick Router; `approve` no router.
+- **Off-chain:** cotar via **Maverick Quoter** (`calculateSwap`/`quoteExactInputSingle`) — não reimplementar
+  a distribuição. Pricing spot = quote de 1 unidade.
+- **Discovery:** Factory/PoolLens do Maverick V2 na Base → resolve pool por par. **🚩 pegar endereços nos docs.**
+- **Scanner:** novo `PoolDex 'maverick'`; pricing via quoter (não via slot0/reserves).
+- Adicionar `Maverick=6` no enum Solidity **e** no mirror TS (`dex-adapters/src/types.ts`) — manter sincronizados.
+
+### Onde plugar (mesma espinha da onda 1)
+1. Enum: `contracts/src/interfaces/IZeusExecutor.sol` + `packages/dex-adapters/src/types.ts`.
+2. Lib + branch em `_executeSwaps` (`ZeusArbExecutor.sol`). **Medir EIP-170 a cada lib** (folga atual 8.8 KB).
+3. Config: campos em `chain-config/src/{types,base}.ts` (estilo lista, como `univ2Dexes`).
+4. Adapter off-chain: `dex-adapters/src/{curve,maverick}/` (resolver pool + quote + pricing).
+5. Scanner: `PoolDex` + branches em `marketInefficiencyScanner.ts` + `poolGroups.ts` + `flashEstimator.ts`.
+6. Execução: `quoteFanout.ts` + `txBuilder.ts` (`resolveRouter`) + `groupToTargetPair`.
+7. Fork test em `test/fork/` (dobra como verificação on-chain dos endereços).
 
 ---
 

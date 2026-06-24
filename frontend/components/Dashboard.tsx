@@ -42,6 +42,9 @@ export default function Dashboard() {
   const [rows, setRows] = useState<EventRow[]>([]);
   const [serviceStatus, setServiceStatus] = useState<ServiceStatusRow[]>([]);
   const live = isSupabaseConfigured();
+  // Toggle Demo: ON = dados de mock (layout/apresentação); OFF = dados REAIS do Supabase
+  // (cards sem dado real ficam vazios — útil pra ver o que ainda não está fiado ao backend).
+  const [demoMode, setDemoMode] = useState(true);
 
   // tema persistido
   useEffect(() => {
@@ -51,6 +54,15 @@ export default function Dashboard() {
   useEffect(() => {
     localStorage.setItem("zeus-theme", ui.theme);
   }, [ui.theme]);
+
+  // demo mode persistido
+  useEffect(() => {
+    const d = localStorage.getItem("zeus-demo");
+    if (d != null) setDemoMode(d === "1");
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("zeus-demo", demoMode ? "1" : "0");
+  }, [demoMode]);
 
   // relógio / uptime / ticker
   useEffect(() => {
@@ -100,7 +112,7 @@ export default function Dashboard() {
   }, []);
 
   const snapshot = useMemo(() => (live ? deriveSnapshot(rows, serviceStatus) : null), [live, rows, serviceStatus]);
-  const vm = useMemo(() => buildViewModel(ui, snapshot), [ui, snapshot]);
+  const vm = useMemo(() => buildViewModel(ui, demoMode ? null : snapshot), [ui, snapshot, demoMode]);
 
   const actions: Actions = useMemo(
     () => ({
@@ -180,6 +192,19 @@ export default function Dashboard() {
           <span style={css("font:600 11px/1 'IBM Plex Mono'; color:var(--text);")}>{vm.runwayDays}d</span>
           <span style={css("font:500 10px/1 'IBM Plex Mono'; color:var(--muted);")}>runway</span>
         </div>
+
+        <Hover
+          as="button"
+          onClick={() => setDemoMode((d) => !d)}
+          base={`display:flex; align-items:center; gap:7px; padding:7px 11px; border-radius:8px; cursor:pointer; border:1px solid ${demoMode ? "var(--gold)" : "var(--border2)"}; background:${demoMode ? "var(--goldsoft)" : "var(--panel)"};`}
+          hover="border-color:var(--gold);"
+          title={demoMode ? "Modo DEMO (dados de mock). Clique pra mostrar dados REAIS." : "Modo AO VIVO (dados reais). Clique pra voltar ao DEMO."}
+        >
+          <span style={{ ...css("width:7px; height:7px; border-radius:50%; flex:none;"), background: demoMode ? "var(--gold)" : "var(--green)" }} />
+          <span style={{ ...css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.12em;"), color: demoMode ? "var(--gold)" : "var(--text2)" }}>
+            {demoMode ? "DEMO" : "LIVE"}
+          </span>
+        </Hover>
 
         <Hover
           as="button"

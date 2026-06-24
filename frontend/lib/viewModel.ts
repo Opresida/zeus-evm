@@ -1,4 +1,4 @@
-import { MOCK } from "./mockData";
+import { MOCK, EMPTY } from "./mockData";
 import type { LiveSnapshot, UiState } from "./types";
 
 // ===== Helpers de formatação (portados do design) =====
@@ -19,6 +19,7 @@ function col(n: number) {
 
 /** Constrói um path SVG a partir de uma série, normalizado num range comum. */
 function pathFrom(vals: number[], gmin: number, grng: number, W: number, H: number, pad: number, close: boolean) {
+  if (vals.length < 2) return ""; // sem dado suficiente (modo real vazio) → gráfico em branco
   const n = vals.length;
   const pts = vals.map((v, i) => [pad + (i / (n - 1)) * (W - pad * 2), H - pad - ((v - gmin) / grng) * (H - pad * 2)] as const);
   let d = "M" + pts.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" L");
@@ -40,12 +41,15 @@ export type ViewModel = ReturnType<typeof buildViewModel>;
  * dinâmicos com dados reais derivados dos eventos do Supabase.
  */
 export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
-  const M = MOCK;
+  // demo = sem snapshot ao vivo (live == null). No modo AO VIVO usamos EMPTY como fallback → cards
+  // sem dado real ficam vazios ("—"/0) em vez de mostrar mock. O Dashboard passa live=null no demo.
+  const demo = live == null;
+  const M = demo ? MOCK : EMPTY;
   const screen = ui.screen;
 
   // ---- uptime / clock (tick) ----
   const baseUp = 287400 + ui.tick;
-  const uptime = uptimeFromSec(baseUp);
+  const uptime = demo ? uptimeFromSec(baseUp) : "—";
   const now = new Date();
   const clock =
     String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + ":" + String(now.getSeconds()).padStart(2, "0");
@@ -176,10 +180,10 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const pnlAreaPath = pathFrom(ser, gmin, grng, 600, 200, 12, true);
   const pnlExpectedPath = pathFrom(expSer, gmin, grng, 600, 200, 12, false);
   const pnlk = {
-    realized: usd(ser[ser.length - 1]),
-    expected: usd(expSer[expSer.length - 1]),
-    drift: "−118 bps",
-    gas: usdp(1420),
+    realized: ser.length ? usd(ser[ser.length - 1]) : "—",
+    expected: expSer.length ? usd(expSer[expSer.length - 1]) : "—",
+    drift: demo ? "−118 bps" : "—",
+    gas: demo ? usdp(1420) : "—",
   };
   const motorBreak = M.motorBreak.map((m) => ({ ...m, val: usd(m.val) }));
   const protoBreak = M.protoBreak.map((p) => ({ ...p, val: usd(p.val) }));
@@ -219,12 +223,12 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const latP95Path = pathFrom(M.latP95, lmin, lrng, 600, 150, 8, false);
   const ks = { loss: usd(M.ks.loss), limit: usdp(M.ks.limit), pct: M.ks.pct, last: M.ks.last };
   const healthKpis = [
-    { label: "Kill switch", isStatus: true, isVal: false, dot: "var(--green)", big: "Armado", unit: "", color: "var(--text)", sub: "limite 24h: −$2.000" },
-    { label: "Uptime", isStatus: false, isVal: true, dot: "", big: uptime, unit: "", color: "var(--text)", sub: "sem restart" },
-    { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: "142", unit: "ms", color: "var(--text)", sub: "alvo <200ms" },
-    { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: "410", unit: "ms", color: "var(--gold)", sub: "alvo <500ms" },
-    { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: "3", unit: "", color: "var(--text2)", sub: "prof. máx. 2" },
-    { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: "1.3%", unit: "", color: "var(--cyan)", sub: "6 de 477 ops" },
+    { label: "Kill switch", isStatus: true, isVal: false, dot: demo ? "var(--green)" : "var(--muted)", big: demo ? "Armado" : "—", unit: "", color: "var(--text)", sub: demo ? "limite 24h: −$2.000" : "" },
+    { label: "Uptime", isStatus: false, isVal: true, dot: "", big: uptime, unit: "", color: "var(--text)", sub: demo ? "sem restart" : "" },
+    { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: demo ? "142" : "—", unit: demo ? "ms" : "", color: "var(--text)", sub: demo ? "alvo <200ms" : "" },
+    { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: demo ? "410" : "—", unit: demo ? "ms" : "", color: "var(--gold)", sub: demo ? "alvo <500ms" : "" },
+    { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: demo ? "3" : "—", unit: "", color: "var(--text2)", sub: demo ? "prof. máx. 2" : "" },
+    { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: demo ? "1.3%" : "—", unit: "", color: "var(--cyan)", sub: demo ? "6 de 477 ops" : "" },
   ];
   const eventLog = live?.eventLog ?? M.eventLog;
 
@@ -237,7 +241,9 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     gas: usdp(rp.gas),
     drift: rp.drift,
     bestMotor: rp.bestMotor,
-    summary: `No período, o ZEUS executou ${rp.ops} operações com win-rate de ${rp.win}, gerando ${usd(rp.net)} líquidos na Base mainnet. O Motor 2 (Arbitragem) liderou a contribuição de lucro, enquanto o gás representou ${M.wallet.gas30dPct} do bruto. O drift médio de ${rp.drift} indica execução ligeiramente abaixo do esperado — atribuível a competição de bribe em WETH/USDC. Runway de gás saudável em ${runwayDays} dias.`,
+    summary: demo
+      ? `No período, o ZEUS executou ${rp.ops} operações com win-rate de ${rp.win}, gerando ${usd(rp.net)} líquidos na Base mainnet. O Motor 2 (Arbitragem) liderou a contribuição de lucro, enquanto o gás representou ${M.wallet.gas30dPct} do bruto. O drift médio de ${rp.drift} indica execução ligeiramente abaixo do esperado — atribuível a competição de bribe em WETH/USDC. Runway de gás saudável em ${runwayDays} dias.`
+      : "Sem dados ainda — o resumo é gerado a partir dos eventos reais do bot.",
   };
 
   // ---- settings ----

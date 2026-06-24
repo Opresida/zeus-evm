@@ -38,6 +38,11 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     motor_stats: partial.motor_stats ?? null,
     discovery: partial.discovery ?? null,
     intel: partial.intel ?? null,
+    health: partial.health ?? null,
+    competitors: partial.competitors ?? null,
+    edge_pairs: partial.edge_pairs ?? null,
+    cooldowns: partial.cooldowns ?? null,
+    kill_switch: partial.kill_switch ?? null,
     updated_at: partial.updated_at ?? now(),
   };
 }
@@ -106,11 +111,34 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.repByPeriod?.monthly.ops).toBe("3");
   });
 
+  it("Fase 2: blocos do heartbeat (health/competitors/cooldowns/kill_switch/edge_pairs)", () => {
+    const snap = deriveSnapshot([], [
+      status({
+        service: "liquidator",
+        health: { components: [{ name: "auto-pause", ok: true, detail: "ativo" }] },
+        competitors: [{ alias: "bob.eth", category: "mev_searcher", txs: 12, bribeGwei: 0.5, threat: 0.8 }],
+        cooldowns: [{ label: "auto-pause", reason: "oracle stale", active: true }],
+        kill_switch: { loss24hUsd: 40, limitUsd: 100, triggered: false },
+      }),
+      status({
+        service: "mis-scanner",
+        edge_pairs: [{ pair: "WETH/USDC", score: 9.2, persistPct: "62%", avgBps: 18, samples: 30 }],
+      }),
+    ]);
+    expect(snap.health?.[0]).toMatchObject({ name: "auto-pause", ok: true });
+    expect(snap.competitors?.[0]).toMatchObject({ alias: "bob.eth", txs: 12 });
+    expect(snap.cooldowns?.[0]).toMatchObject({ active: true });
+    expect(snap.killSwitch).toMatchObject({ loss24hUsd: 40, limitUsd: 100 });
+    expect(snap.edgePairs?.[0]).toMatchObject({ pair: "WETH/USDC", samples: 30 });
+  });
+
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {
     const snap = deriveSnapshot([], []);
     expect(snap.failures).toBeUndefined();
     expect(snap.discovery).toBeUndefined();
     expect(snap.motorCards).toBeUndefined();
     expect(snap.kpi7d).toBeUndefined();
+    expect(snap.health).toBeUndefined();
+    expect(snap.killSwitch).toBeUndefined();
   });
 });

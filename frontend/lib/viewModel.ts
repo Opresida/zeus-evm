@@ -204,20 +204,59 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const gasAlerts = M.gasAlerts;
 
   // ---- intelligence ----
-  const bribe = M.bribe;
+  // Inteligência AO VIVO (item 3): market-bribe/competidores/drift reais do heartbeat (null = só mock).
+  const intelLive = live?.intel ?? null;
+  // market-bribe real (P50/P75/P95) do heartbeat; senão o mock do design.
+  const bribe =
+    intelLive?.marketBribeP50Gwei != null
+      ? [
+          { pct: "P50", gwei: intelLive.marketBribeP50Gwei.toFixed(2), note: "mediana" },
+          { pct: "P75", gwei: (intelLive.marketBribeP75Gwei ?? 0).toFixed(2), note: "disputado" },
+          { pct: "P95", gwei: (intelLive.marketBribeP95Gwei ?? 0).toFixed(2), note: "guerra de bribe" },
+        ]
+      : M.bribe;
   const ourBribe = M.ourBribe;
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
-  const competitors = M.competitors;
+  // competidores reais do heartbeat. won/lost por-corrida ainda não rastreado (Fase 2b via race.lost):
+  // "won" mostra txs observadas; bribe/kind/nome são reais.
+  const competitors = live?.competitors?.length
+    ? live.competitors.map((c) => ({
+        name: c.alias,
+        won: c.txs,
+        lost: 0,
+        bribe: `${c.bribeGwei.toFixed(2)} gwei`,
+        kind: c.category,
+      }))
+    : M.competitors;
   const postmortem = M.postmortem;
   const calib = M.calib;
-  const edgePairs = M.edgePairs;
-  // Inteligência AO VIVO (item 3): market-bribe/competidores/drift reais do heartbeat (null = só mock).
-  const intelLive = live?.intel ?? null;
+  const edgePairs = live?.edgePairs?.length
+    ? live.edgePairs.map((e) => ({
+        pair: e.pair,
+        edge: e.persistPct,
+        pct: e.persistPct.replace("%", ""),
+        note: `${e.avgBps} bps · ${e.samples} amostras`,
+      }))
+    : M.edgePairs;
 
   // ---- health ----
-  const components = M.components;
-  const cooldowns = M.cooldowns;
+  const components = live?.health?.length
+    ? live.health.map((c) => ({
+        name: c.name,
+        status: c.ok ? "READY" : "DOWN",
+        color: c.ok ? "var(--green)" : "var(--red)",
+        detail: c.detail ?? "",
+      }))
+    : M.components;
+  const cooldowns = live?.cooldowns?.length
+    ? live.cooldowns.map((c) => ({
+        scope: c.label,
+        state: c.active ? "ATIVO" : "OK",
+        color: c.active ? "var(--gold)" : "var(--green)",
+        reason: c.reason,
+      }))
+    : M.cooldowns;
   // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
   const failures = live?.failures ?? [];
   const discovery = live?.discovery ?? null;
@@ -227,9 +266,26 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const lrng = lmax - lmin || 1;
   const latP50Path = pathFrom(M.latP50, lmin, lrng, 600, 150, 8, false);
   const latP95Path = pathFrom(M.latP95, lmin, lrng, 600, 150, 8, false);
-  const ks = { loss: usd(M.ks.loss), limit: usdp(M.ks.limit), pct: M.ks.pct, last: M.ks.last };
+  const ksLive = live?.killSwitch ?? null;
+  const ks = ksLive
+    ? {
+        loss: usd(-Math.abs(ksLive.loss24hUsd)),
+        limit: usdp(ksLive.limitUsd),
+        pct: ksLive.limitUsd > 0 ? ((Math.abs(ksLive.loss24hUsd) / ksLive.limitUsd) * 100).toFixed(0) : "0",
+        last: ksLive.triggered ? "DISPARADO" : "—",
+      }
+    : { loss: usd(M.ks.loss), limit: usdp(M.ks.limit), pct: M.ks.pct, last: M.ks.last };
   const healthKpis = [
-    { label: "Kill switch", isStatus: true, isVal: false, dot: demo ? "var(--green)" : "var(--muted)", big: demo ? "Armado" : "—", unit: "", color: "var(--text)", sub: demo ? "limite 24h: −$2.000" : "" },
+    {
+      label: "Kill switch",
+      isStatus: true,
+      isVal: false,
+      dot: ksLive ? (ksLive.triggered ? "var(--red)" : "var(--green)") : demo ? "var(--green)" : "var(--muted)",
+      big: ksLive ? (ksLive.triggered ? "DISPARADO" : "Armado") : demo ? "Armado" : "—",
+      unit: "",
+      color: "var(--text)",
+      sub: ksLive ? `limite 24h: ${usdp(ksLive.limitUsd)}` : demo ? "limite 24h: −$2.000" : "",
+    },
     { label: "Uptime", isStatus: false, isVal: true, dot: "", big: uptime, unit: "", color: "var(--text)", sub: demo ? "sem restart" : "" },
     { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: demo ? "142" : "—", unit: demo ? "ms" : "", color: "var(--text)", sub: demo ? "alvo <200ms" : "" },
     { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: demo ? "410" : "—", unit: demo ? "ms" : "", color: "var(--gold)", sub: demo ? "alvo <500ms" : "" },

@@ -295,6 +295,58 @@ export interface HeartbeatIntel {
   driftBps?: number;
   /** Alertas de drift sustentado acumulados ("o bot está mentindo pra si mesmo"). */
   sustainedAlerts?: number;
+  /** Lance de mercado p75 (priority fee gwei) — entre o mediano e o agressivo. */
+  marketBribeP75Gwei?: number;
+}
+
+/**
+ * Blocos extras do heartbeat (Fase 2 da cobertura do painel) — todos REUSAM valores que o loop de
+ * métricas do bot já computa (health/competidores/cooldowns/kill-switch/edge-pairs). Vão em colunas
+ * jsonb de `service_status`. Opcionais → motor que não tem o dado simplesmente omite o bloco.
+ */
+export interface HeartbeatHealth {
+  /** Prontidão dos componentes (espelha o /readyz): nome + ok + detalhe curto. */
+  components: { name: string; ok: boolean; detail?: string }[];
+}
+export interface HeartbeatCompetitor {
+  /** Alias conhecido ou endereço encurtado. */
+  alias: string;
+  /** Categoria inferida (liquidator | generic_arber | mev_searcher | unknown). */
+  category: string;
+  /** Total de txs observadas do competidor. */
+  txs: number;
+  /** Lance médio do competidor (priority fee gwei). */
+  bribeGwei: number;
+  /** Score de ameaça [0..1]. */
+  threat: number;
+}
+export interface HeartbeatCooldown {
+  /** Rótulo curto (ex.: "auto-pause"). */
+  label: string;
+  /** Motivo legível. */
+  reason: string;
+  /** Ainda ativo? */
+  active: boolean;
+}
+export interface HeartbeatKillSwitch {
+  /** Perda acumulada na janela de 24h (USD). */
+  loss24hUsd: number;
+  /** Limite que dispara o kill switch (USD). */
+  limitUsd: number;
+  /** Já disparou? */
+  triggered: boolean;
+}
+export interface HeartbeatEdgePair {
+  /** Par/grupo (ex.: "WETH/USDC"). */
+  pair: string;
+  /** Score de persistência empírica. */
+  score: number;
+  /** Razão de persistência formatada (ex.: "62%"). */
+  persistPct: string;
+  /** Divergência média (bps). */
+  avgBps: number;
+  /** Nº de amostras. */
+  samples: number;
 }
 
 export interface ZeusHeartbeatEvent extends BaseEvent {
@@ -315,4 +367,15 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */
   intel?: HeartbeatIntel;
+  // ── Fase 2 (cobertura do painel): blocos extras, todos opcionais e reusando o loop de métricas ──
+  /** Prontidão dos componentes (tela Saúde). */
+  health?: HeartbeatHealth;
+  /** Top competidores observados (tela Inteligência). */
+  competitors?: HeartbeatCompetitor[];
+  /** Cooldowns / motivos de auto-pause ativos (tela Saúde). */
+  cooldowns?: HeartbeatCooldown[];
+  /** Estado do kill switch (perda 24h vs limite) (tela Saúde). */
+  killSwitch?: HeartbeatKillSwitch;
+  /** Ranking de pares com edge persistente (Motor 2 / tela Inteligência). */
+  edgePairs?: HeartbeatEdgePair[];
 }

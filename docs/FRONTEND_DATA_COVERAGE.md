@@ -76,3 +76,27 @@ Ao fim, no modo **LIVE** o painel mostra **só dado real** (e o que estiver sem 
 
 ## Ordem recomendada
 Fase 1 primeiro (rápida, sem mexer no bot, já enche metade do painel assim que o bot rodar) → Fase 2 (a maior, transmissão) → Fase 3 (polish). Cada card vira um checkbox; o toggle LIVE valida.
+
+---
+
+## ✅ Status de execução
+
+### Fase 1 — FEITA (commit `e1ba7dd`)
+KPIs 7d/30d/projeção/w14sum, barras 14d, série PnL realizado vs esperado, breakdown por motor/protocolo, gás 24h/30d, relatórios por período — tudo derivado de `events` no `live.ts`, fiado no `viewModel`. Testes: frontend 6/6 + typecheck 0.
+
+### Fase 2 — FEITA (esta sessão)
+**Supabase:** colunas jsonb `health`/`competitors`/`edge_pairs`/`cooldowns`/`kill_switch` adicionadas a `service_status`.
+**Bot (heartbeat enriquecido, reusa o loop de métricas):**
+- liquidator: `health` (4 componentes), `competitors` (`topThreats(8)`), `cooldowns` (`pauseStatus.reasons`), `kill_switch` (`currentLoss24h` vs `DAILY_LOSS_LIMIT_USD`), **market-bribe p75** no `intel`.
+- mis-scanner: `edge_pairs` (`mis.ranking()`).
+- `/api/ingest` roteia os blocos novos → colunas de `service_status`.
+**Frontend:** `live.ts` consome os blocos; `viewModel` fia os cards (bribe P50/P75/P95, competidores, edge pairs, componentes de saúde, cooldowns, kill switch). Testes: frontend 7/7 + typecheck 0 · bot heartbeat 6/6 + typecheck 13/13.
+
+**Fase 2b (deferido — precisa de pontos de emissão novos no bot, não só reuso):**
+- `race.lost` (post-mortem de corridas perdidas) + `calibration.applied` (log de auto-calibração) como **events**.
+- `competitors`: won/lost real por-corrida (hoje "won" mostra txs observadas; bribe/kind/nome já são reais).
+- Latência dispatch p50/p95 (extrair dos histogramas Prometheus) + acúmulo do chart no front.
+- `wallet_snapshots` (tabela) + writer diário de saldo → chart de saldo 30d.
+
+### Fase 3 — pendente
+`insights` (anomalias): regra sobre drift/concentração/bribe/runway, computada no painel a partir dos dados das Fases 1/2.

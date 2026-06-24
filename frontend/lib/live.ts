@@ -211,6 +211,24 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
     snap.intel = { ...intelSvc.intel };
   }
 
+  // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
+  // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
+  const liq = byService("liquidator");
+  const healthSvc = liq?.health ? liq : statuses.find((s) => s.health);
+  if (healthSvc?.health?.components?.length) snap.health = healthSvc.health.components;
+
+  const compSvc = liq?.competitors ? liq : statuses.find((s) => s.competitors);
+  if (compSvc?.competitors?.length) snap.competitors = compSvc.competitors;
+
+  const coolSvc = liq?.cooldowns ? liq : statuses.find((s) => s.cooldowns);
+  if (coolSvc?.cooldowns?.length) snap.cooldowns = coolSvc.cooldowns;
+
+  const ksSvc = liq?.kill_switch ? liq : statuses.find((s) => s.kill_switch);
+  if (ksSvc?.kill_switch) snap.killSwitch = ksSvc.kill_switch;
+
+  const edgeSvc = byService("mis-scanner")?.edge_pairs ? byService("mis-scanner") : statuses.find((s) => s.edge_pairs);
+  if (edgeSvc?.edge_pairs?.length) snap.edgePairs = edgeSvc.edge_pairs;
+
   // ----- item 4: mini-cards por motor (PnL + ops 24h, derivado dos eventos tx.*) -----
   const startMs = startOfDay.getTime() - 23 * 60 * 60 * 1000; // janela ~24h
   const acc: Record<string, { netUsd: number; ops: number }> = {};

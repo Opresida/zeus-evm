@@ -66,6 +66,12 @@ export async function POST(req: Request) {
       motor_stats: e.motorStats ?? null,
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
+      // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).
+      health: e.health ?? null,
+      competitors: e.competitors ?? null,
+      edge_pairs: e.edgePairs ?? null,
+      cooldowns: e.cooldowns ?? null,
+      kill_switch: e.killSwitch ?? null,
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

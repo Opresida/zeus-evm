@@ -9,7 +9,16 @@
  * stats por motor, pulso do radar (discovery) e agregados de inteligência (intel).
  */
 
-import type { HeartbeatDiscovery, HeartbeatIntel, ZeusHeartbeatEvent } from '@zeus-evm/execution-utils';
+import type {
+  HeartbeatCompetitor,
+  HeartbeatCooldown,
+  HeartbeatDiscovery,
+  HeartbeatEdgePair,
+  HeartbeatHealth,
+  HeartbeatIntel,
+  HeartbeatKillSwitch,
+  ZeusHeartbeatEvent,
+} from '@zeus-evm/execution-utils';
 
 export interface HeartbeatInput {
   service: string;
@@ -32,6 +41,12 @@ export interface HeartbeatInput {
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência — omitido quando não há dados. */
   intel?: HeartbeatIntel;
+  // ── Fase 2 — blocos extras (todos opcionais; omitidos quando vazios) ──
+  health?: HeartbeatHealth;
+  competitors?: HeartbeatCompetitor[];
+  cooldowns?: HeartbeatCooldown[];
+  killSwitch?: HeartbeatKillSwitch;
+  edgePairs?: HeartbeatEdgePair[];
 }
 
 /** Constrói o evento `zeus.heartbeat` a partir de valores já coletados pelo loop de métricas. */
@@ -51,6 +66,11 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     // Só inclui se houver dado — mantém o payload enxuto (intel/discovery são opcionais no tipo).
     ...(i.discovery ? { discovery: i.discovery } : {}),
     ...(i.intel ? { intel: i.intel } : {}),
+    ...(i.health && i.health.components.length ? { health: i.health } : {}),
+    ...(i.competitors && i.competitors.length ? { competitors: i.competitors } : {}),
+    ...(i.cooldowns && i.cooldowns.length ? { cooldowns: i.cooldowns } : {}),
+    ...(i.killSwitch ? { killSwitch: i.killSwitch } : {}),
+    ...(i.edgePairs && i.edgePairs.length ? { edgePairs: i.edgePairs } : {}),
   };
 }
 

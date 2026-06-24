@@ -112,11 +112,23 @@ export interface ServiceStatusRow {
   /** Agregados de inteligência (item 3) — market-bribe, competidores, drift. */
   intel: {
     marketBribeP50Gwei?: number;
+    marketBribeP75Gwei?: number;
     marketBribeP95Gwei?: number;
     competitorsActive?: number;
     driftBps?: number;
     sustainedAlerts?: number;
   } | null;
+  // ----- Fase 2 — blocos extras (jsonb) -----
+  /** Prontidão dos componentes (tela Saúde). */
+  health: { components: { name: string; ok: boolean; detail?: string }[] } | null;
+  /** Top competidores observados (tela Inteligência). */
+  competitors: { alias: string; category: string; txs: number; bribeGwei: number; threat: number }[] | null;
+  /** Ranking de pares com edge persistente (Motor 2). */
+  edge_pairs: { pair: string; score: number; persistPct: string; avgBps: number; samples: number }[] | null;
+  /** Cooldowns / motivos de auto-pause ativos. */
+  cooldowns: { label: string; reason: string; active: boolean }[] | null;
+  /** Kill switch (perda 24h vs limite). */
+  kill_switch: { loss24hUsd: number; limitUsd: number; triggered: boolean } | null;
   updated_at: string;
 }
 
@@ -158,7 +170,7 @@ export interface LiveSnapshot {
   /** Pulso do radar (item 2) — "scanner vivo · viu N posições · há Xs". */
   discovery?: { service: string; positions: number; dispatched: number; rejected: number; ago: string };
   /** Inteligência real (item 3) — market-bribe / competidores / drift (substitui mock quando presente). */
-  intel?: { marketBribeP50Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number };
+  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
 
@@ -177,6 +189,18 @@ export interface LiveSnapshot {
   gas30d?: number;
   gas30dPct?: string;
   repByPeriod?: Record<string, { net: number; win: string; ops: string; gas: number; drift: string; bestMotor: string; range: string; label: string }>;
+
+  // ----- Fase 2 — blocos do heartbeat (service_status) -----
+  /** Competidores reais (won/lost não disponível; mostra alias/categoria/txs/bribe/threat). */
+  competitors?: { alias: string; category: string; txs: number; bribeGwei: number; threat: number }[];
+  /** Ranking de pares com edge persistente (Motor 2). */
+  edgePairs?: { pair: string; score: number; persistPct: string; avgBps: number; samples: number }[];
+  /** Prontidão dos componentes (tela Saúde). */
+  health?: { name: string; ok: boolean; detail?: string }[];
+  /** Cooldowns / auto-pause ativos. */
+  cooldowns?: { label: string; reason: string; active: boolean }[];
+  /** Kill switch (perda 24h vs limite). */
+  killSwitch?: { loss24hUsd: number; limitUsd: number; triggered: boolean };
 }
 
 export interface TxRow {

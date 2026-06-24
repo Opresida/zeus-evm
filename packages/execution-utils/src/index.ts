@@ -80,6 +80,11 @@ export type {
   MotorStat,
   HeartbeatDiscovery,
   HeartbeatIntel,
+  HeartbeatHealth,
+  HeartbeatCompetitor,
+  HeartbeatCooldown,
+  HeartbeatKillSwitch,
+  HeartbeatEdgePair,
 } from './events';
 
 // ─── Event Decoder ───

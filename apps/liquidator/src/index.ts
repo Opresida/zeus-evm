@@ -906,11 +906,34 @@ export async function boot(): Promise<LiquidatorState> {
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
           intel: compactIntel({
             marketBribeP50Gwei: mkt.p50Gwei,
+            marketBribeP75Gwei: mkt.p75Gwei,
             marketBribeP95Gwei: mkt.p95Gwei,
             competitorsActive: mkt.competitorsActive,
             driftBps: drift.avg_drift_bps_all,
             sustainedAlerts: drift.sustained_alerts_count,
           }),
+          // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
+          health: {
+            components: [
+              { name: 'auto-pause', ok: !pauseStatus.paused, detail: pauseStatus.paused ? pauseStatus.reasons.map((r) => r.message).join('; ') : 'ativo' },
+              { name: 'gás-reserva', ok: Number(gasStats.balanceEth ?? 0) > 0.002, detail: `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` },
+              { name: 'reorg', ok: finStats.reorgsInWindow === 0, detail: `${finStats.reorgsInWindow} na janela` },
+              { name: 'kill-switch', ok: !pnlStats.killSwitchTriggered, detail: pnlStats.killSwitchTriggered ? 'ATIVO' : 'ok' },
+            ],
+          },
+          competitors: senderRegistry.topThreats(8).map((p) => ({
+            alias: p.known_alias ?? `${p.sender.slice(0, 6)}…${p.sender.slice(-4)}`,
+            category: p.category,
+            txs: p.total_txs,
+            bribeGwei: Number((p.gas.avg_priority_fee_gwei ?? 0).toFixed(3)),
+            threat: Number((p.threat?.overall_score ?? 0).toFixed(2)),
+          })),
+          cooldowns: pauseStatus.reasons.map((r) => ({ label: r.source, reason: r.message, active: true })),
+          killSwitch: {
+            loss24hUsd: Number(pnlTracker.currentLoss24h().toFixed(2)),
+            limitUsd: env.DAILY_LOSS_LIMIT_USD,
+            triggered: pnlStats.killSwitchTriggered,
+          },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }

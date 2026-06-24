@@ -385,6 +385,14 @@ async function main(): Promise<void> {
       adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
       autoPaused: armed ? !live : false, // travado só conta quando está armado
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+      // Fase 2 — ranking de pares com edge persistente (reusa o mesmo mis.ranking() do loop de scan).
+      edgePairs: mis.ranking().slice(0, 8).map((r) => ({
+        pair: r.groupLabel,
+        score: Number((r.score ?? 0).toFixed(2)),
+        persistPct: `${(r.persistenceRatio * 100).toFixed(0)}%`,
+        avgBps: Math.round(r.avgDivergenceBps ?? 0),
+        samples: r.samples,
+      })),
     });
   };
   emitHeartbeat();

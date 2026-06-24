@@ -54,6 +54,10 @@ a { color: inherit; }
   /* impede que um filho com texto largo estoure a coluna e seja cortado */
   .z-grid-2 > *, .z-grid-3 > *, .z-grid-4 > *, .z-grid-6 > *, .z-grid-row2 > * { min-width: 0; }
   .z-topmeta { display: none !important; }
+  /* topbar: deixa quebrar em 2 linhas no mobile (altura auto) e some o espaçador que empurrava */
+  .z-topbar { flex-wrap: wrap !important; height: auto !important; min-height: 56px;
+    gap: 8px 10px !important; padding: 9px 14px !important; }
+  .z-topspacer { display: none !important; }
   .z-search { width: 100% !important; }
   .z-txtable { overflow-x: auto; }
   .z-txtable .z-txgrid { min-width: 760px; }

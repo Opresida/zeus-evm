@@ -155,6 +155,7 @@ export default function Dashboard() {
     >
       {/* ===== TOPBAR ===== */}
       <header
+        className="z-topbar"
         style={css(
           "display:flex; align-items:center; gap:18px; padding:0 22px; height:60px; border-bottom:1px solid var(--border); background:var(--bg2); position:sticky; top:0; z-index:20;",
         )}
@@ -180,7 +181,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div className="z-topspacer" style={{ flex: 1 }} />
 
         <div
           style={css(

@@ -1,4 +1,5 @@
 import { MOCK, EMPTY } from "./mockData";
+import { generateInsights } from "./insights";
 import type { LiveSnapshot, UiState } from "./types";
 
 // ===== Helpers de formatação (portados do design) =====
@@ -308,6 +309,18 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
       : "Sem dados ainda — o resumo é gerado a partir dos eventos reais do bot.",
   };
 
+  // ---- Fase 3: insights gerados (regras sobre os dados reais; em DEMO usa a narrativa do design) ----
+  const insights = demo
+    ? M.insights
+    : generateInsights({
+        motorBreak: live?.motorBreak,
+        driftBps: live?.intel?.driftBps,
+        killSwitch: ksLive ?? undefined,
+        runwayDays: parseFloat(runwayDays),
+        competitors: live?.competitors,
+        winRatePct: parseFloat(String(k.winRate)),
+      });
+
   // ---- settings ----
   const notif = ui.notif;
   const notifRules = M.notifMeta.map(([key, label, value]) => ({
@@ -338,7 +351,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     k,
     pnl14,
     motors,
-    insights: M.insights,
+    insights,
     ticker,
     txFilters,
     txHeads,

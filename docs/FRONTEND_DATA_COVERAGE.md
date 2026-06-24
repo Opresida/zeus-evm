@@ -98,5 +98,8 @@ KPIs 7d/30d/projeção/w14sum, barras 14d, série PnL realizado vs esperado, bre
 - Latência dispatch p50/p95 (extrair dos histogramas Prometheus) + acúmulo do chart no front.
 - `wallet_snapshots` (tabela) + writer diário de saldo → chart de saldo 30d.
 
-### Fase 3 — pendente
-`insights` (anomalias): regra sobre drift/concentração/bribe/runway, computada no painel a partir dos dados das Fases 1/2.
+### Fase 3 — FEITA (esta sessão)
+`insights` (anomalias) gerados por regras determinísticas em `lib/insights.ts` sobre os dados reais das Fases 1/2: concentração de motor (≥55%), drift sustentado (≥150 bps), kill switch (disparado / ≥50% do limite), runway de gás (<3d), competidor dominante (ameaça ≥0,7) e win-rate baixo (<50%). Fiado no `viewModel` (LIVE = gerado, DEMO = narrativa do design). Testes: 9/9 + frontend 16/16 total + typecheck 0.
+
+## Resultado final
+Com o bot rodando + Vercel configurado, no modo **LIVE** o painel mostra dado real em: Home (KPIs/14d/motores/insights), PnL (realizado vs esperado/breakdowns), Carteira (gás), Inteligência (bribe P50/P75/P95/competidores/edge pairs/drift), Saúde (componentes/cooldowns/kill switch) e Relatórios. Cards ainda vazios em LIVE = Fase 2b (post-mortem, calib, latência p50/p95, saldo 30d).

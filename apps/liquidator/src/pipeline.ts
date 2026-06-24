@@ -33,7 +33,6 @@ import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator';
 import { buildMorphoLiquidationTx } from './protocols/morpho/builder';
 import { simulateMorphoLiquidation } from './protocols/morpho/simulator';
-import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math';
 import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calculator';
 import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
 import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
@@ -55,7 +54,12 @@ import {
   type PnlReconciler,
   type FailureCollector,
 } from '@zeus-evm/execution-utils';
-import { isAaveStillLiquidatable, isCompoundStillLiquidatable } from './staleCheck';
+import {
+  isAaveStillLiquidatable,
+  isCompoundStillLiquidatable,
+  isMoonwellStillLiquidatable,
+  isMorphoStillLiquidatable,
+} from './staleCheck';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -1017,16 +1021,20 @@ async function _runMorphoPipelineInner(
     calldata: built.data,
   });
 
-  // 3.5 Stale check — re-lê position + recomputa isLiquidatable antes do submit real
-  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success) {
-    const stillLiq = isMorphoLiquidatable(
-      { borrowShares: position.borrowShares, collateral: position.collateral },
-      { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
-      position.collateralPrice,
-      position.lltv,
-    );
-    if (!stillLiq) {
-      return { status: 'reverted_pre_dispatch', reason: 'stale position: não mais liquidável (Morpho HF recovered)' };
+  // 3.5 Stale check — RE-LÊ a position fresh + recomputa isLiquidatable antes do submit real
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success && ctx.chainConfig.morpho?.morphoBlue) {
+    const staleCheck = await isMorphoStillLiquidatable({
+      client: ctx.client,
+      morpho: ctx.chainConfig.morpho.morphoBlue,
+      marketId: position.marketId,
+      borrower: position.borrower,
+      market: { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
+      collateralPrice: position.collateralPrice,
+      lltv: position.lltv,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      return { status: 'reverted_pre_dispatch', reason: `stale position: ${staleCheck.reason ?? 'Morpho não mais liquidável'}` };
     }
   }
 
@@ -1196,6 +1204,19 @@ async function _runMoonwellPipelineInner(
     callerAddress,
     calldata: built.data,
   });
+
+  // 3.5 Stale check — Comptroller.getAccountLiquidity (shortfall>0?) antes do submit real
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success && ctx.chainConfig.moonwell?.comptroller) {
+    const staleCheck = await isMoonwellStillLiquidatable({
+      client: ctx.client,
+      comptroller: ctx.chainConfig.moonwell.comptroller,
+      borrower: position.borrower,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      return { status: 'reverted_pre_dispatch', reason: `stale position: ${staleCheck.reason ?? 'Moonwell não mais liquidável'}` };
+    }
+  }
 
   // 4. Dispatcher — protocol='moonwell' na caixa-preta
   return dispatch({

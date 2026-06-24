@@ -77,6 +77,7 @@ export async function POST(req: Request) {
       cooldowns: e.cooldowns ?? null,
       kill_switch: e.killSwitch ?? null,
       latency: e.latency ?? null, // Fase 2b — p50/p95 de dispatch
+      reorgs: e.reorgs ?? null, // Motor 1 — resiliência de reorg + órfãs recuperadas
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

@@ -44,6 +44,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     cooldowns: partial.cooldowns ?? null,
     kill_switch: partial.kill_switch ?? null,
     latency: partial.latency ?? null,
+    reorgs: partial.reorgs ?? null,
     updated_at: partial.updated_at ?? now(),
   };
 }
@@ -170,6 +171,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
   it("Fase 2b: latência com samples=0 é ignorada (omite o bloco)", () => {
     const snap = deriveSnapshot([], [status({ service: "liquidator", latency: { p50Ms: 0, p95Ms: 0, samples: 0 } })]);
     expect(snap.latency).toBeUndefined();
+  });
+
+  it("Motor 1: resiliência de reorg (reorgs 24h + órfãs recuperadas) do service_status", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "liquidator", reorgs: { window24h: 2, orphansRecovered: 1, orphansDetected: 1 } }),
+    ]);
+    expect(snap.reorgs).toMatchObject({ window24h: 2, orphansRecovered: 1 });
   });
 
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {

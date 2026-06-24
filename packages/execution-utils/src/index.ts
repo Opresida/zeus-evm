@@ -86,6 +86,7 @@ export type {
   HeartbeatKillSwitch,
   HeartbeatEdgePair,
   HeartbeatLatency,
+  HeartbeatReorgs,
   CalibrationAppliedEvent,
   WalletSnapshotEvent,
 } from './events';

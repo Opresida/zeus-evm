@@ -268,6 +268,10 @@ export function deriveSnapshot(
   const latSvc = liq?.latency ? liq : statuses.find((s) => s.latency);
   if (latSvc?.latency && latSvc.latency.samples > 0) snap.latency = latSvc.latency;
 
+  // Motor 1 — resiliência de reorg (reorgs 24h + órfãs recuperadas).
+  const reorgSvc = liq?.reorgs ? liq : statuses.find((s) => s.reorgs);
+  if (reorgSvc?.reorgs) snap.reorgs = reorgSvc.reorgs;
+
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
   if (walletSnaps.length) {

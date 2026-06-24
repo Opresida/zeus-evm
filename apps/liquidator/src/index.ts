@@ -953,6 +953,12 @@ export async function boot(): Promise<LiquidatorState> {
           },
           // Fase 2b — latência p50/p95 de dispatch (omitida enquanto samples===0 = sem execução real).
           latency: latencyTracker.stats(),
+          // Motor 1 mainnet — resiliência de reorg + órfãs recuperadas (dormente até reorg real).
+          reorgs: {
+            window24h: finStats.reorgsInWindow,
+            orphansRecovered: orphanRecoveryManager.getStats().total_recoveries_succeeded,
+            orphansDetected: orphanRecoveryManager.getStats().total_orphans_detected,
+          },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }

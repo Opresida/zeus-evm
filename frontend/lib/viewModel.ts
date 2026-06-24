@@ -291,7 +291,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     { label: "Uptime", isStatus: false, isVal: true, dot: "", big: uptime, unit: "", color: "var(--text)", sub: demo ? "sem restart" : "" },
     { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p50Ms) : demo ? "142" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--text)", sub: live?.latency ? `${live.latency.samples} amostras` : demo ? "alvo <200ms" : "" },
     { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p95Ms) : demo ? "410" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--gold)", sub: live?.latency ? "alvo <500ms" : demo ? "alvo <500ms" : "" },
-    { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: demo ? "3" : "—", unit: "", color: "var(--text2)", sub: demo ? "prof. máx. 2" : "" },
+    { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: live?.reorgs ? String(live.reorgs.window24h) : demo ? "3" : "—", unit: "", color: "var(--text2)", sub: live?.reorgs ? `${live.reorgs.orphansRecovered} órfãs recuperadas` : demo ? "prof. máx. 2" : "" },
     { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: demo ? "1.3%" : "—", unit: "", color: "var(--cyan)", sub: demo ? "6 de 477 ops" : "" },
   ];
   const eventLog = live?.eventLog ?? M.eventLog;

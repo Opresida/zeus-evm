@@ -383,6 +383,14 @@ export interface HeartbeatLatency {
   /** Nº de amostras na janela (0 = ainda não despachou nada; bloco é omitido). */
   samples: number;
 }
+export interface HeartbeatReorgs {
+  /** Reorgs detectadas na janela (rolling do FinalityTracker). */
+  window24h: number;
+  /** Tx órfãs recuperadas (re-submetidas com sucesso) pós-reorg. */
+  orphansRecovered: number;
+  /** Tx órfãs detectadas no total (recuperadas + skip + falha). */
+  orphansDetected: number;
+}
 export interface HeartbeatEdgePair {
   /** Par/grupo (ex.: "WETH/USDC"). */
   pair: string;
@@ -427,4 +435,6 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   edgePairs?: HeartbeatEdgePair[];
   /** Latência de dispatch p50/p95 (Fase 2b) — omitido enquanto não há dispatch real. */
   latency?: HeartbeatLatency;
+  /** Resiliência de reorg (Motor 1 mainnet) — reorgs na janela + órfãs recuperadas. */
+  reorgs?: HeartbeatReorgs;
 }

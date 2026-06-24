@@ -140,6 +140,8 @@ export interface ServiceStatusRow {
   kill_switch: { loss24hUsd: number; limitUsd: number; triggered: boolean } | null;
   /** Fase 2b — latência de dispatch p50/p95 (ms). */
   latency: { p50Ms: number; p95Ms: number; samples: number } | null;
+  /** Motor 1 — resiliência de reorg (reorgs na janela + órfãs recuperadas). */
+  reorgs: { window24h: number; orphansRecovered: number; orphansDetected: number } | null;
   updated_at: string;
 }
 
@@ -230,6 +232,8 @@ export interface LiveSnapshot {
   calib?: { time: string; effect: string; text: string }[];
   /** Latência de dispatch p50/p95 (ms) — do service_status. */
   latency?: { p50Ms: number; p95Ms: number; samples: number };
+  /** Resiliência de reorg (Motor 1) — reorgs 24h + órfãs recuperadas. */
+  reorgs?: { window24h: number; orphansRecovered: number; orphansDetected: number };
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

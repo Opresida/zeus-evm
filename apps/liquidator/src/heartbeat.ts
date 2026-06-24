@@ -18,6 +18,7 @@ import type {
   HeartbeatIntel,
   HeartbeatKillSwitch,
   HeartbeatLatency,
+  HeartbeatReorgs,
   ZeusHeartbeatEvent,
 } from '@zeus-evm/execution-utils';
 
@@ -49,6 +50,7 @@ export interface HeartbeatInput {
   killSwitch?: HeartbeatKillSwitch;
   edgePairs?: HeartbeatEdgePair[];
   latency?: HeartbeatLatency;
+  reorgs?: HeartbeatReorgs;
 }
 
 /** Constrói o evento `zeus.heartbeat` a partir de valores já coletados pelo loop de métricas. */
@@ -74,6 +76,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     ...(i.killSwitch ? { killSwitch: i.killSwitch } : {}),
     ...(i.edgePairs && i.edgePairs.length ? { edgePairs: i.edgePairs } : {}),
     ...(i.latency && i.latency.samples > 0 ? { latency: i.latency } : {}),
+    ...(i.reorgs ? { reorgs: i.reorgs } : {}),
   };
 }
 

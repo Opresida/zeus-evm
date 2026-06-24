@@ -216,6 +216,9 @@ export {
   type ReorgAggregateStats,
 } from './finality';
 
+// ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
+export { fetchEngineControlEnabled } from './engineControl';
+
 // ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───
 export {
   Tracer,

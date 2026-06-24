@@ -119,6 +119,9 @@ export interface DispatchInput {
   txStateMachine?: TxStateMachine;
   /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet; dormente em DRY_RUN). */
   orphanRecoveryManager?: OrphanRecoveryManager;
+  /** Toggle remoto de execução (engine_control). Só `true` EXATO libera o ENVIO; ausente/false = travado
+   *  (armado-mas-travado). Mesmo em testnet/mainnet, sem isto a tx não é submetida (só simula+observa). */
+  liveExecutionEnabled?: boolean;
 }
 
 /**
@@ -186,6 +189,17 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       `🟦 DRY_RUN: tx VÁLIDA (não submetida). Gas estimado: ${simulationGas?.toString() ?? 'n/a'}`,
     );
     return { status: 'dryrun_skipped', reason: 'mode=dryrun' };
+  }
+
+  // Gate 2.5: toggle remoto (armado-mas-travado). Só `true` EXATO libera o envio — qualquer
+  // outra coisa mantém TRAVADO (fail-safe), mesmo em testnet/mainnet. A oportunidade foi simulada
+  // e validada (coleta de dados segue normal); só o ENVIO fica travado até o painel ligar.
+  if (input.liveExecutionEnabled !== true) {
+    logger.info(
+      { ...summary },
+      `🔒 EXECUÇÃO TRAVADA (toggle off): tx VÁLIDA mas NÃO submetida — ligue no painel pra executar.`,
+    );
+    return { status: 'dryrun_skipped', reason: 'execução travada pelo toggle (engine_control)' };
   }
 
   // Gate 3: wallet obrigatória em testnet/mainnet

@@ -99,6 +99,7 @@ import {
   type Severity,
   type ReadinessReport,
   type HeartbeatDiscovery,
+  fetchEngineControlEnabled,
 } from '@zeus-evm/execution-utils';
 
 /** Holder mutável do pulso do radar — discoveryTick escreve, o heartbeat lê (mesma referência). */
@@ -209,6 +210,9 @@ interface LiquidatorState {
   txStateMachine: TxStateMachine;
   /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
   orphanRecoveryManager: OrphanRecoveryManager;
+  /** Toggle remoto de execução (painel via engine_control). false = armado-mas-travado (só coleta).
+   *  Mutável: o poll em main() atualiza; o gate no dispatcher lê por dispatch. */
+  liveExecutionEnabled: boolean;
 }
 
 /**
@@ -1202,6 +1206,8 @@ export async function boot(): Promise<LiquidatorState> {
     latencyTracker,
     txStateMachine,
     orphanRecoveryManager,
+    // Toggle remoto: sobe SEMPRE travado (fail-safe). O poll em main() liga quando o painel confirmar.
+    liveExecutionEnabled: false,
   };
 }
 
@@ -1537,6 +1543,7 @@ export async function processOpportunity(
     senderRegistry: state.senderRegistry,
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1576,6 +1583,7 @@ export async function processCompoundOpportunity(
     senderRegistry: state.senderRegistry,
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1612,6 +1620,7 @@ export async function processMorphoOpportunity(
     senderRegistry: state.senderRegistry,
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1648,6 +1657,7 @@ export async function processMoonwellOpportunity(
     senderRegistry: state.senderRegistry,
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -2099,6 +2109,32 @@ async function main() {
       logger.error({ err: err instanceof Error ? err.message : err }, 'tick falhou'),
     );
   }, state.env.LIQUIDATOR_POLL_INTERVAL_SEC * 1000);
+
+  // ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
+  // Modelo armado-mas-travado: sobe SEMPRE travado; só liga quando o painel confirmar `true` exato.
+  // Em DRY_RUN o gate é irrelevante (nunca submete), mas o poll roda igual pra refletir no heartbeat.
+  const pollEngineControl = async () => {
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: state.env.SUPABASE_URL,
+      supabaseKey: state.env.SUPABASE_KEY,
+      motor: state.env.ENGINE_CONTROL_MOTOR,
+    });
+    if (next !== state.liveExecutionEnabled) {
+      state.liveExecutionEnabled = next; // lido por dispatch no gate 2.5
+      logger.warn(
+        { motor: state.env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
+        next
+          ? '🟢 TOGGLE REMOTO: execução LIGADA — tx passam a ser submetidas (circuit breakers seguem valendo)'
+          : '🔴 TOGGLE REMOTO: execução DESLIGADA — envios travados (simula+observa apenas)',
+      );
+    }
+  };
+  await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
+  setInterval(() => {
+    pollEngineControl().catch((err) =>
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'poll engine_control falhou (mantém travado)'),
+    );
+  }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
 
   // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
   // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o

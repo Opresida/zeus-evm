@@ -225,6 +225,15 @@ const envSchema = z.object({
   DISCORD_SEVERITIES: z.string().default('warn,critical'),
   /** Filtro de severidades pro generic webhook. Default: 'info,warn,critical' (envia tudo). */
   GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+  // ── Controle remoto de execução (toggle do painel via Supabase engine_control) ──
+  /** URL base do Supabase (REST) pra LER o toggle de execução. Sem ela → execução TRAVADA (fail-safe). */
+  SUPABASE_URL: optionalUrl(),
+  /** Chave Supabase (anon/service) pro REST read do engine_control. Sem ela → TRAVADA (fail-safe). */
+  SUPABASE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Motor desta instância na tabela engine_control. Default 'motor1' (liquidator). */
+  ENGINE_CONTROL_MOTOR: z.string().default('motor1'),
+  /** Cadência do poll do toggle (segundos). Default 15. */
+  ENGINE_CONTROL_POLL_SEC: z.coerce.number().positive().default(15),
 
   // ─── Bribe (V7) — opt-in pra liquidator competir via bundle privado ───
   /** Se true, usa funções v7 `*WithBribe` em vez das v6. Default false (mantém v6).

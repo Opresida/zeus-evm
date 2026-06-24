@@ -16,11 +16,10 @@ const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-
  * Mostra o estado DESEJADO (o que o painel pediu). O estado REAL do bot vem do health/heartbeat —
  * se divergir (ex.: bot offline, sem SUPABASE_URL), o operador percebe pelo "estado real" no Home.
  */
-function ExecutionControl() {
+function ExecutionControl({ motor, label }: { motor: string; label: string }) {
   const [enabled, setEnabled] = useState<boolean | null>(null); // null = carregando
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const motor = "motor2";
 
   useEffect(() => {
     let alive = true;
@@ -35,11 +34,11 @@ function ExecutionControl() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [motor]);
 
   const apply = async (next: boolean) => {
     if (next) {
-      if (!window.confirm("LIGAR execução do Motor 2 — o bot passará a SUBMETER transações reais. Continuar?")) return;
+      if (!window.confirm(`LIGAR execução do ${label} — o bot passará a SUBMETER transações reais. Continuar?`)) return;
       if (!window.confirm("Confirmação final: dinheiro real em jogo. Circuit breakers seguem ativos. Ligar agora?")) return;
     }
     setBusy(true);
@@ -65,7 +64,7 @@ function ExecutionControl() {
   const trackBg = on ? "var(--green, #4cc08a)" : "var(--border2, #2a3146)";
   return (
     <div style={css(card + `margin-bottom:14px; border-color:${on ? "var(--green, #4cc08a)" : "var(--border)"};`)}>
-      <span style={css(kicker)}>Execução · Motor 2 (arbitragem)</span>
+      <span style={css(kicker)}>Execução · {label}</span>
       <div style={css("display:flex; align-items:center; gap:14px; margin-top:14px;")}>
         <div style={css("flex:1;")}>
           <span style={css("display:block; font:600 14px/1.2 'IBM Plex Sans'; color:var(--text);")}>
@@ -122,7 +121,10 @@ export function Settings({ vm, ui, actions }: ScreenProps) {
       <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Configurações</h1>
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 20px;")}>Execução, notificações, canais, tema e conta</p>
 
-      <ExecutionControl />
+      <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:0;")}>
+        <ExecutionControl motor="motor1" label="Motor 1 (liquidações)" />
+        <ExecutionControl motor="motor2" label="Motor 2 (arbitragem)" />
+      </div>
 
       <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px;")}>
         <div style={css(card)}>

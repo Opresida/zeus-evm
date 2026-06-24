@@ -117,6 +117,8 @@ export interface PipelineDeps {
   txStateMachine?: import('@zeus-evm/execution-utils').TxStateMachine;
   /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
   orphanRecoveryManager?: import('@zeus-evm/execution-utils').OrphanRecoveryManager;
+  /** Toggle remoto de execução (engine_control). false = armado-mas-travado (só coleta). */
+  liveExecutionEnabled?: boolean;
 }
 
 /**
@@ -572,6 +574,7 @@ async function _runAavePipelineInner(
     senderRegistry: deps.senderRegistry,
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -868,6 +871,7 @@ async function _runCompoundPipelineInner(
     senderRegistry: deps.senderRegistry,
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -1093,6 +1097,7 @@ async function _runMorphoPipelineInner(
     senderRegistry: deps.senderRegistry,
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1270,6 +1275,7 @@ async function _runMoonwellPipelineInner(
     senderRegistry: deps.senderRegistry,
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

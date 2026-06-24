@@ -197,6 +197,68 @@ contract ZeusArbExecutorForkTest is Test {
         arb.executeFlashloanArbitrage(USDC, 1_000e6, p);
     }
 
+    /// @dev Mesmo round-trip, mas financiado pelo flashloan 0% do Morpho Blue (singleton real na Base).
+    ///      Prova que `executeFlashloanArbitrage` com FlashSource.Morpho: o Morpho aceitou nosso
+    ///      flashLoan(USDC, ...), invocou onMorphoFlashLoan, o decode do blob + flag transiente
+    ///      funcionaram, e o fluxo chegou no swap/repay — revertendo por shortfall (sem dislocation
+    ///      real → não paga o principal de volta). Espelha o caso Aave acima.
+    function test_Fork_ExecuteFlashloanArb_FlashSourceMorpho_RoundTrip() public {
+        SwapStep[] memory steps = new SwapStep[](1);
+        steps[0] = SwapStep({
+            router: SWAP_ROUTER_V3,
+            tokenIn: USDC,
+            tokenOut: WETH,
+            amountIn: 1_000e6,
+            minAmountOut: 0,
+            dexType: DexType.UniswapV3,
+            extraData: abi.encode(USDC_WETH_FEE)
+        });
+
+        ArbitrageParams memory p = ArbitrageParams({
+            steps: steps,
+            minProfitWei: 1,
+            profitToken: USDC,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Morpho
+        });
+
+        vm.prank(operator);
+        // Reverte no repay/profit (sem dislocation), NÃO na iniciação do flash do Morpho.
+        vm.expectRevert();
+        arb.executeFlashloanArbitrage(USDC, 1_000e6, p);
+    }
+
+    /// @dev Round-trip financiado pelo flashloan 0% do Balancer V2 Vault (real na Base).
+    ///      Prova que `executeFlashloanArbitrage` com FlashSource.Balancer:
+    ///      flashLoan(recipient, [USDC], [amount], blob) → receiveFlashLoan → flag transiente
+    ///      → decode → dispatch do swap → repay, revertendo por shortfall (sem lucro real).
+    ///      Espelha o ZeusLiquidator.fork (_FlashSourceBalancer_RoundTrip) no contrato do ARB.
+    function test_Fork_ExecuteFlashloanArb_FlashSourceBalancer_RoundTrip() public {
+        SwapStep[] memory steps = new SwapStep[](1);
+        steps[0] = SwapStep({
+            router: SWAP_ROUTER_V3,
+            tokenIn: USDC,
+            tokenOut: WETH,
+            amountIn: 1_000e6,
+            minAmountOut: 0,
+            dexType: DexType.UniswapV3,
+            extraData: abi.encode(USDC_WETH_FEE)
+        });
+
+        ArbitrageParams memory p = ArbitrageParams({
+            steps: steps,
+            minProfitWei: 1,
+            profitToken: USDC,
+            profitReceiver: profitReceiver,
+            flashSource: FlashSource.Balancer
+        });
+
+        vm.prank(operator);
+        // Reverte no repay/profit, NÃO na iniciação do flash do Balancer Vault.
+        vm.expectRevert();
+        arb.executeFlashloanArbitrage(USDC, 1_000e6, p);
+    }
+
     function test_Fork_ExecuteBackrun_ValidatesBribeConfig() public {
         SwapStep[] memory steps = new SwapStep[](1);
         steps[0] = SwapStep({

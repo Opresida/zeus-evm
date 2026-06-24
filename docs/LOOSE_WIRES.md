@@ -4,6 +4,14 @@
 > sólido, o que é fio solto, e o plano de remediação faseado. Honestidade > otimismo: a tese de
 > "3 motores descorrelacionados" hoje, na prática, **se reduz a 1 motor parcialmente estrangulado**.
 
+> **Atualização 2026-06-24 — Prontidão MAINNET do Motor 1 (FECHADO):**
+> - ✅ **OrphanRecoveryManager** (R5) ligado no dispatch (re-submete tx órfã pós-reorg; dormente em DRY_RUN).
+> - ✅ **approvedDexAdapters** agora é **whitelist on-chain** (`approvedRouter` + `setApprovedRouter` nos 3
+>   contratos; default-deny) — não é mais só doc.
+> - ✅ **Stale-check** estendido a **Morpho** (re-read fresh) e **Moonwell** (`getAccountLiquidity`), antes só Aave/Compound.
+> - Operacional (deploy/multisig/operator/fund) em [MAINNET_READINESS_MOTOR1.md](./MAINNET_READINESS_MOTOR1.md).
+> - Restam só itens não-bloqueantes: `GasFingerprintTracker`/`ActivityPatternTracker` (Fase 7+).
+
 ---
 
 ## TL;DR — quais motores REALMENTE disparam hoje

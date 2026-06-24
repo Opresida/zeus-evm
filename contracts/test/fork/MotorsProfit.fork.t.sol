@@ -70,8 +70,8 @@ contract MotorsProfitForkTest is Test {
         liq = new ZeusLiquidator(AAVE_V3_POOL, MORPHO_SINGLETON, BALANCER_VAULT, address(bribeManager), owner, MAX_TRADE);
 
         vm.startPrank(owner);
-        arb.setWeth(WETH); arb.setUniV3SwapRouter(SWAP_ROUTER_V3); arb.setOperator(operator, true); arb.revive();
-        liq.setWeth(WETH); liq.setUniV3SwapRouter(SWAP_ROUTER_V3); liq.setOperator(operator, true); liq.revive();
+        arb.setWeth(WETH); arb.setUniV3SwapRouter(SWAP_ROUTER_V3); arb.setOperator(operator, true); arb.revive(); arb.setApprovedRouter(SWAP_ROUTER_V3, true);
+        liq.setWeth(WETH); liq.setUniV3SwapRouter(SWAP_ROUTER_V3); liq.setOperator(operator, true); liq.revive(); liq.setApprovedRouter(SWAP_ROUTER_V3, true);
         vm.stopPrank();
     }
 

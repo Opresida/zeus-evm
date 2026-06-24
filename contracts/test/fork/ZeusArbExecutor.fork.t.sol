@@ -53,6 +53,7 @@ contract ZeusArbExecutorForkTest is Test {
         arb.setUniV3SwapRouter(SWAP_ROUTER_V3);
         arb.setOperator(operator, true);
         arb.revive();
+        arb.setApprovedRouter(SWAP_ROUTER_V3, true);
         vm.stopPrank();
     }
 

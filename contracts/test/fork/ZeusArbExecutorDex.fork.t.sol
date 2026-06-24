@@ -63,6 +63,11 @@ contract ZeusArbExecutorDexForkTest is Test {
         vm.startPrank(owner);
         arb.setOperator(operator, true);
         arb.revive();
+        // Whitelist on-chain de routers (Fase Motor 1 mainnet) — aprova os routers exercitados.
+        arb.setApprovedRouter(BASESWAP_ROUTER, true);
+        arb.setApprovedRouter(SLIPSTREAM_SWAP_ROUTER, true);
+        arb.setApprovedRouter(PANCAKE_V3_SWAP_ROUTER, true);
+        arb.setApprovedRouter(SUSHI_V3_SWAP_ROUTER, true);
         vm.stopPrank();
     }
 

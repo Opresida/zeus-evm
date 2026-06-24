@@ -53,6 +53,12 @@ contract ZeusLiquidator is
     uint256 public maxTradeWei;
     mapping(address => uint256) private _maxTradePerToken;
     mapping(address => bool) private _operators;
+    /// @notice Routers DEX aprovados pro _executeSwaps (whitelist on-chain — defesa em profundidade).
+    mapping(address => bool) public approvedRouter;
+
+    /// @notice Router de swap não está na whitelist on-chain.
+    error RouterNotApproved(address router);
+    event RouterApprovalSet(address indexed router, bool approved);
     bool private _killed;
 
     address public weth;
@@ -630,6 +636,7 @@ contract ZeusLiquidator is
                 : steps[i].amountIn;
             uint256 cap = getMaxTradeFor(steps[i].tokenIn);
             if (effectiveAmountIn > cap) revert TradeTooLarge(effectiveAmountIn, cap);
+            if (!approvedRouter[steps[i].router]) revert RouterNotApproved(steps[i].router);
 
             DexType dt = steps[i].dexType;
             if (dt == DexType.UniswapV3) {
@@ -675,6 +682,13 @@ contract ZeusLiquidator is
     function setOperator(address operator, bool allowed) external override onlyOwner {
         _operators[operator] = allowed;
         emit OperatorSet(operator, allowed);
+    }
+
+    /// @notice Aprova/revoga um router DEX pra uso no _executeSwaps (whitelist on-chain).
+    function setApprovedRouter(address router, bool approved) external onlyOwner {
+        if (router == address(0)) revert NotAuthorized();
+        approvedRouter[router] = approved;
+        emit RouterApprovalSet(router, approved);
     }
 
     function isOperator(address account) external view override returns (bool) { return _operators[account]; }

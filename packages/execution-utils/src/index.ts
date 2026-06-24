@@ -219,6 +219,16 @@ export {
 // ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
 export { fetchEngineControlEnabled } from './engineControl';
 
+// ─── Bribe competitor-aware com teto de lucro (Motor 1 mainnet) ───
+export {
+  calculateCompetitiveBribe,
+  BribeTracker,
+  type CompetitiveBribeInput,
+  type CompetitiveBribeResult,
+  type BribeAdjustReason,
+  type BribeState,
+} from './competitiveBribe';
+
 // ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───
 export {
   Tracer,

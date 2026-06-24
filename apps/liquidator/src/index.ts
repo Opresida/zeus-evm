@@ -75,6 +75,7 @@ import {
   CompetitorResolver,
   BlockPositionTracker,
   LatencyTracker,
+  BribeTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -206,6 +207,8 @@ interface LiquidatorState {
   blockPositionTracker: BlockPositionTracker;
   /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
   latencyTracker: LatencyTracker;
+  /** Motor 1 — tracker do último bribe efetivo (auto-ajuste competitor-aware). */
+  bribeTracker: BribeTracker;
   /** Item 9 R2 — máquina de estado das tx (submitted→included→confirmed/orphaned). */
   txStateMachine: TxStateMachine;
   /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
@@ -720,6 +723,8 @@ export async function boot(): Promise<LiquidatorState> {
   });
   // Fase 2b — buffer de latência de dispatch (alimentado no dispatcher, lido no heartbeat).
   const latencyTracker = new LatencyTracker();
+  // Motor 1 — tracker do último bribe efetivo (auto-ajuste competitor-aware), lido no heartbeat.
+  const bribeTracker = new BribeTracker();
   const scannerTargets = {
     aave_v3_pool: ctx.chainConfig.aave?.pool,
     compound_comets: [
@@ -924,15 +929,22 @@ export async function boot(): Promise<LiquidatorState> {
           netPnl24hUsd: pnlStats.netPnlUsd,
           discovery: discoveryPulse.last,
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
-          intel: compactIntel({
-            marketBribeP50Gwei: mkt.p50Gwei,
-            marketBribeP75Gwei: mkt.p75Gwei,
-            marketBribeP95Gwei: mkt.p95Gwei,
-            competitorsActive: mkt.competitorsActive,
-            driftBps: drift.avg_drift_bps_all,
-            sustainedAlerts: drift.sustained_alerts_count,
-            ourBribeGwei: env.GAS_PRIORITY_FEE_GWEI, // nosso lance configurado (priority fee = bribe na Base)
-          }),
+          intel: {
+            ...(compactIntel({
+              marketBribeP50Gwei: mkt.p50Gwei,
+              marketBribeP75Gwei: mkt.p75Gwei,
+              marketBribeP95Gwei: mkt.p95Gwei,
+              competitorsActive: mkt.competitorsActive,
+              driftBps: drift.avg_drift_bps_all,
+              sustainedAlerts: drift.sustained_alerts_count,
+              // bribe EFETIVO (auto-ajustado) quando já houve dispatch; senão o lance-base configurado.
+              ourBribeGwei: bribeTracker.stats()?.lastGwei ?? env.GAS_PRIORITY_FEE_GWEI,
+            }) ?? {}),
+            // Flags de auto-ajuste (strings/bool não passam pelo compactIntel — entram por spread).
+            ...(bribeTracker.stats()?.autoRaised
+              ? { bribeAutoRaised: true, bribeReason: bribeTracker.stats()!.reason }
+              : {}),
+          },
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {
             components: [
@@ -1205,6 +1217,7 @@ export async function boot(): Promise<LiquidatorState> {
     competitorResolver,
     blockPositionTracker,
     latencyTracker,
+    bribeTracker,
     txStateMachine,
     orphanRecoveryManager,
     // Toggle remoto: sobe SEMPRE travado (fail-safe). O poll em main() liga quando o painel confirmar.
@@ -1545,6 +1558,11 @@ export async function processOpportunity(
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1585,6 +1603,11 @@ export async function processCompoundOpportunity(
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1622,6 +1645,11 @@ export async function processMorphoOpportunity(
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1659,6 +1687,11 @@ export async function processMoonwellOpportunity(
     txStateMachine: state.txStateMachine,
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,

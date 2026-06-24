@@ -40,6 +40,8 @@ import {
   type SenderRegistry,
   type TxStateMachine,
   type OrphanRecoveryManager,
+  type BribeTracker,
+  calculateCompetitiveBribe,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -122,6 +124,17 @@ export interface DispatchInput {
   /** Toggle remoto de execução (engine_control). Só `true` EXATO libera o ENVIO; ausente/false = travado
    *  (armado-mas-travado). Mesmo em testnet/mainnet, sem isto a tx não é submetida (só simula+observa). */
   liveExecutionEnabled?: boolean;
+  // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
+  /** Liga o auto-ajuste do priority fee (limitado pelo lucro). Default off = priority fee estático. */
+  competitiveBribeEnabled?: boolean;
+  /** Percentil de mercado alvo pra ganhar a corrida. */
+  bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
+  /** Teto RÍGIDO de priority fee (wei) — sanidade além do teto de lucro. */
+  maxBribeWei?: bigint;
+  /** Piso de lucro líquido (USD) que insistimos em manter — nunca prejuízo. */
+  minProfitUsd?: number;
+  /** Tracker do último bribe efetivo (pro heartbeat → painel). */
+  bribeTracker?: BribeTracker;
 }
 
 /**
@@ -220,12 +233,57 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       chain: wallet.chain ?? null,
     };
     if (fees) {
-      txParams.maxFeePerGas = fees.maxFeePerGas;
-      txParams.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+      let priorityFee = fees.maxPriorityFeePerGas;
+      let maxFee = fees.maxFeePerGas;
+
+      // Bribe competitor-aware (opt-in): sobe o priority fee pra ganhar a corrida, SEMPRE limitado pelo
+      // lucro (nunca prejuízo). O teto de lucro vem do EV da própria oportunidade.
+      if (
+        input.competitiveBribeEnabled &&
+        input.senderRegistry &&
+        simulationGas &&
+        simulationGas > 0n &&
+        ethUsdPrice > 0
+      ) {
+        const mkt = input.senderRegistry.marketBribeStats();
+        const pct = input.bribeTargetPercentile ?? 'p75';
+        const targetGwei = pct === 'p95' ? mkt.p95Gwei : pct === 'p50' ? mkt.p50Gwei : mkt.p75Gwei;
+        // Lucro do ativo → USD → ETH-wei (pra raciocinar em wei como o gás).
+        const profitUsd = estimateUsd(profitAssetSymbol, expectedProfitWei, profitAssetDecimals, ethUsdPrice);
+        const toEthWei = (usd: number) => BigInt(Math.max(0, Math.floor((usd / ethUsdPrice) * 1e18)));
+        const r = calculateCompetitiveBribe({
+          expectedProfitWei: toEthWei(profitUsd ?? 0),
+          gasUnits: simulationGas,
+          baseFeePerGasWei: fees.baseFeePerGas,
+          basePriorityFeeWei: fees.maxPriorityFeePerGas,
+          marketTargetPriorityFeeWei: BigInt(Math.floor((targetGwei || 0) * 1e9)),
+          minProfitWei: toEthWei(input.minProfitUsd ?? 0),
+          maxPriorityFeeWei: input.maxBribeWei,
+        });
+        priorityFee = r.priorityFeeWei;
+        // maxFee = (baseFee*multiplier do oracle) + novo priority. baseFee*mult = maxFee - basePriority.
+        maxFee = fees.maxFeePerGas - fees.maxPriorityFeePerGas + priorityFee;
+        input.bribeTracker?.observe(Number(priorityFee) / 1e9, r.autoRaised, r.reason);
+        if (r.autoRaised) {
+          logger.info(
+            {
+              ...summary,
+              deGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+              paraGwei: (Number(priorityFee) / 1e9).toFixed(4),
+              alvo: `${targetGwei} (${pct})`,
+              motivo: r.reason,
+            },
+            `⚡ BRIBE auto-ajustado pra ganhar a corrida (dentro do lucro): ${(Number(priorityFee) / 1e9).toFixed(4)} gwei`,
+          );
+        }
+      }
+
+      txParams.maxFeePerGas = maxFee;
+      txParams.maxPriorityFeePerGas = priorityFee;
       logger.debug(
         {
-          maxFeeGwei: (Number(fees.maxFeePerGas) / 1e9).toFixed(4),
-          priorityGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+          maxFeeGwei: (Number(maxFee) / 1e9).toFixed(4),
+          priorityGwei: (Number(priorityFee) / 1e9).toFixed(4),
           baseFeeGwei: (Number(fees.baseFeePerGas) / 1e9).toFixed(4),
         },
         `⛽ EIP-1559 fees aplicados`,

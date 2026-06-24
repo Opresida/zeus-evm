@@ -85,9 +85,10 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
  * Retorna `undefined` se nada sobrou (aí o heartbeat omite o bloco `intel`).
  */
 export function compactIntel(intel: HeartbeatIntel): HeartbeatIntel | undefined {
-  const out: HeartbeatIntel = {};
-  for (const [k, v] of Object.entries(intel) as [keyof HeartbeatIntel, number | undefined][]) {
-    if (v != null && Number.isFinite(v)) out[k] = v;
+  const out: Record<string, number> = {};
+  // Só campos NUMÉRICOS finitos (flags string/bool entram por spread fora daqui).
+  for (const [k, v] of Object.entries(intel)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return Object.keys(out).length > 0 ? (out as HeartbeatIntel) : undefined;
 }

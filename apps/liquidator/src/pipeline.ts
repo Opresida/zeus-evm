@@ -119,6 +119,12 @@ export interface PipelineDeps {
   orphanRecoveryManager?: import('@zeus-evm/execution-utils').OrphanRecoveryManager;
   /** Toggle remoto de execução (engine_control). false = armado-mas-travado (só coleta). */
   liveExecutionEnabled?: boolean;
+  // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
+  competitiveBribeEnabled?: boolean;
+  bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
+  maxBribeWei?: bigint;
+  minProfitUsd?: number;
+  bribeTracker?: import('@zeus-evm/execution-utils').BribeTracker;
 }
 
 /**
@@ -575,6 +581,11 @@ async function _runAavePipelineInner(
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -872,6 +883,11 @@ async function _runCompoundPipelineInner(
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -1098,6 +1114,11 @@ async function _runMorphoPipelineInner(
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1276,6 +1297,11 @@ async function _runMoonwellPipelineInner(
     txStateMachine: deps.txStateMachine,
     orphanRecoveryManager: deps.orphanRecoveryManager,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

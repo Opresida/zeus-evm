@@ -220,9 +220,18 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   // Nosso bribe (live do heartbeat ou mock no DEMO) + veredito dinâmico vs mercado (p50/p75/p95).
   const ourBribeGwei = intelLive?.ourBribeGwei;
   const ourBribe = demo ? M.ourBribe : ourBribeGwei != null ? `${ourBribeGwei} gwei` : "—";
+  // Se o ZEUS auto-ajustou o bribe (competição), a mensagem AVISA isso; senão, veredito vs mercado.
   const bribeNote = demo
     ? { text: "abaixo do p75. Considere subir em pares disputados.", color: "var(--gold)" }
-    : bribeVerdict(ourBribeGwei, intelLive?.marketBribeP50Gwei, intelLive?.marketBribeP75Gwei, intelLive?.marketBribeP95Gwei);
+    : intelLive?.bribeAutoRaised
+      ? {
+          text:
+            intelLive.bribeReason === "capped-by-profit"
+              ? "ZEUS subiu o bribe AUTOMATICAMENTE até o limite do lucro (não dá pra pagar mais sem prejuízo)."
+              : "ZEUS subiu o bribe AUTOMATICAMENTE pra ganhar a corrida — dentro do lucro.",
+          color: "var(--green)",
+        }
+      : bribeVerdict(ourBribeGwei, intelLive?.marketBribeP50Gwei, intelLive?.marketBribeP75Gwei, intelLive?.marketBribeP95Gwei);
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há

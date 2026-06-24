@@ -253,6 +253,15 @@ const envSchema = z.object({
    *  Default 50% — equilibrado entre competir e preservar profit. */
   BRIBE_DEFAULT_BPS: z.coerce.number().int().min(100).max(9_500).default(5_000),
 
+  // ─── Bribe competitor-aware com teto de lucro (Motor 1 — priority fee dinâmico) ───
+  /** Auto-ajusta o priority fee (o bribe na Base) pra ganhar corridas, SEMPRE limitado pelo lucro
+   *  da oportunidade (nunca prejuízo). Opt-in — default false (usa o priority fee estático). */
+  COMPETITIVE_BRIBE_ENABLED: z.coerce.boolean().default(false),
+  /** Percentil de mercado alvo pra ganhar a corrida. Default 'p75'. */
+  BRIBE_TARGET_PERCENTILE: z.enum(['p50', 'p75', 'p95']).default('p75'),
+  /** Teto RÍGIDO de priority fee (gwei) — sanidade extra além do teto de lucro. Default 5. */
+  MAX_BRIBE_GWEI: z.coerce.number().positive().default(5),
+
   // ─── Bundle relays (V7) ───
   /** URL Flashbots Protect (Ethereum L1 ou compatible). Vazio = sem Flashbots. */
   FLASHBOTS_RELAY_URL: optionalUrl(),

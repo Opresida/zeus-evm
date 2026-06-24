@@ -49,19 +49,46 @@ export async function POST(req: Request) {
   const sb = getServiceSupabase();
   if (!sb) return NextResponse.json({ error: "supabase not configured" }, { status: 503 });
 
-  const rows = events.map(toRow);
-  const { error } = await sb.from("events").insert(rows);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Heartbeats (~30s) NÃO vão pra `events` (inundariam) — viram UPSERT em service_status (1 linha/serviço).
+  const heartbeats = events.filter((e) => String(e.type) === "zeus.heartbeat");
+  const businessEvents = events.filter((e) => String(e.type) !== "zeus.heartbeat");
 
-  // fan-out de notificações (não bloqueia a resposta em caso de erro)
-  for (const e of events) {
+  if (heartbeats.length) {
+    const statusRows = heartbeats.map((e) => ({
+      service: String(e.service ?? "unknown"),
+      chain: e.chain ?? null,
+      mode: (e.mode as string) ?? null,
+      uptime_sec: e.uptimeSec ?? null,
+      gas_reserve_eth: e.gasReserveEth ?? null,
+      gas_reserve_usd: e.gasReserveUsd ?? null,
+      adaptive_min_ev_usd: e.adaptiveMinEvUsd ?? null,
+      auto_paused: e.autoPaused ?? null,
+      motor_stats: e.motorStats ?? null,
+      discovery: e.discovery ?? null, // pulso do radar (item 2)
+      intel: e.intel ?? null, // agregados de inteligência (item 3)
+      updated_at: e.timestamp ?? new Date().toISOString(),
+    }));
+    const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });
+    if (hbErr) return NextResponse.json({ error: hbErr.message }, { status: 500 });
+  }
+
+  let inserted = 0;
+  if (businessEvents.length) {
+    const rows = businessEvents.map(toRow);
+    const { error } = await sb.from("events").insert(rows);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    inserted = rows.length;
+  }
+
+  // fan-out de notificações (heartbeat nunca alerta) — não bloqueia a resposta em caso de erro
+  for (const e of businessEvents) {
     if (isAlertable(e)) {
       await fanoutPush(e);
       await sendEmail(e);
     }
   }
 
-  return NextResponse.json({ ok: true, inserted: rows.length });
+  return NextResponse.json({ ok: true, inserted, heartbeats: heartbeats.length });
 }
 
 export async function GET() {

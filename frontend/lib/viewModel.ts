@@ -78,8 +78,22 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     label: "D-" + (M.raw14.length - 1 - i) + ": " + usd(v),
   }));
 
-  // ---- motors ----
-  const motors = M.motors.map((m) => ({ ...m, pnl: usd(m.pnl) }));
+  // ---- motors (item 4: mini-cards por motor) ----
+  // Live derivado dos eventos tx.* quando há dados; senão o mock do design.
+  const motors = (() => {
+    if (!live?.motorCards) return M.motors.map((m) => ({ ...m, pnl: usd(m.pnl) }));
+    const total = live.motorCards.reduce((s, x) => s + Math.max(0, x.netUsd), 0) || 1;
+    const meta: Record<string, [string, string]> = {
+      motor1: ["M1", "Liquidações"],
+      motor2: ["M2", "Arbitragem"],
+      motor3: ["M3", "Backrun"],
+    };
+    return live.motorCards.map((c) => {
+      const [tag, name] = meta[c.tag] ?? [c.tag, c.tag];
+      const share = Math.round((Math.max(0, c.netUsd) / total) * 100);
+      return { tag, name, pnl: usd(c.netUsd), ops: c.ops, share: `${share}%`, barPct: String(share) };
+    });
+  })();
 
   // ---- ticker ----
   const ticker =
@@ -182,15 +196,21 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   // ---- intelligence ----
   const bribe = M.bribe;
   const ourBribe = M.ourBribe;
-  const driftAlarms = M.driftAlarms;
+  // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
+  const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   const competitors = M.competitors;
   const postmortem = M.postmortem;
   const calib = M.calib;
   const edgePairs = M.edgePairs;
+  // Inteligência AO VIVO (item 3): market-bribe/competidores/drift reais do heartbeat (null = só mock).
+  const intelLive = live?.intel ?? null;
 
   // ---- health ----
   const components = M.components;
   const cooldowns = M.cooldowns;
+  // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
+  const failures = live?.failures ?? [];
+  const discovery = live?.discovery ?? null;
   const latAll = M.latP50.concat(M.latP95);
   const lmin = Math.min(...latAll);
   const lmax = Math.max(...latAll);
@@ -268,6 +288,9 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     bribe,
     ourBribe,
     driftAlarms,
+    intelLive,
+    failures,
+    discovery,
     competitors,
     postmortem,
     calib,

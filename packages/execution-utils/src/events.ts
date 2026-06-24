@@ -35,7 +35,7 @@ export type ZeusEvent =
   | BackrunRejectedEvent
   | PnlReconciledEvent
   | FailureRecordedEvent
-  | HeartbeatEvent;
+  | ZeusHeartbeatEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -54,23 +54,6 @@ export interface LiquidatorBootEvent extends BaseEvent {
   account: Address | null;
 }
 
-/**
- * Sinal de vida periódico do bot → painel. O frontend usa pra mostrar "bot vivo" + o estado REAL
- * (armado-mas-travado) lado a lado com o estado desejado do toggle. Não é alerta — severidade info.
- */
-export interface HeartbeatEvent extends BaseEvent {
-  type: 'zeus.heartbeat';
-  severity: 'info';
-  /** Motor que emitiu (ex: 'motor2'). */
-  motor: string;
-  /** Execução ARMADA mas TRAVADA (toggle OFF) — espelha `/readyz` dispatchesPaused. */
-  executionLocked: boolean;
-  /** Nº de scans desde o boot (prova que o loop está girando). */
-  scanCount: number;
-  /** Uptime em segundos. */
-  uptimeSec: number;
-}
-
 export interface LiquidatorShutdownEvent extends BaseEvent {
   type: 'liquidator.shutdown';
   severity: 'info';
@@ -82,8 +65,10 @@ export interface TxConfirmedEvent extends BaseEvent {
   type: 'tx.confirmed';
   severity: 'info';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). Liquidações usam `borrower`. */
+  pair?: string;
   profitUsd: number | null;
   gasCostUsd: number;
   netProfitUsd: number | null;
@@ -95,8 +80,10 @@ export interface TxRevertedOnChainEvent extends BaseEvent {
   type: 'tx.reverted_on_chain';
   severity: 'warn';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). */
+  pair?: string;
   gasUsdLost: number;
   blockNumber: string;
 }
@@ -258,4 +245,74 @@ export interface FailureRecordedEvent extends BaseEvent {
   /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
   gasUsdLost?: number;
   reason?: string;
+  /** Post-mortem (Fase 5b): alias do competidor que nos ganhou, quando resolvido. */
+  competitorAlias?: string;
+}
+
+// ─── Heartbeat (estado ao vivo) ─────────────────────────────────────────
+// Os outros eventos são DELTAS (disparam num limiar). Pra gauges contínuos do painel
+// (gás-agora, uptime, EV adaptativo, estado REAL do toggle) precisa de um snapshot periódico.
+// Emitido a cada ~30s reusando valores já coletados no loop de métricas. No /api/ingest do
+// painel, NÃO entra na tabela `events` (inundaria) — vira UPSERT em `service_status` (1 linha/serviço).
+
+/** Stats resumidas por motor (pro mini-card do painel). */
+export interface MotorStat {
+  /** Identificador do motor ('motor1' | 'motor2' | 'motor3' ou nome do serviço). */
+  tag: string;
+  ops: number;
+  netPnl24hUsd: number;
+}
+
+/**
+ * Pulso do "radar" de descoberta (último tick de varredura). Vai no heartbeat (não como evento
+ * próprio) pra não inundar a tabela `events` — `discovery.tick_completed` dispara a cada varredura.
+ * Deixa o painel mostrar "scanner vivo · viu N posições · há Xs".
+ */
+export interface HeartbeatDiscovery {
+  /** Total de posições liquidáveis vistas no último tick (soma dos protocolos). */
+  positions: number;
+  /** Quantas foram despachadas (ou simuladas em dryrun) no último tick. */
+  dispatched: number;
+  /** Quantas foram rejeitadas pelos gates no último tick. */
+  rejected: number;
+  /** ISO do último tick de descoberta. */
+  atIso: string;
+}
+
+/**
+ * Agregados de inteligência que o bot JÁ computa no loop de métricas (market-bribe, competidores,
+ * calibração) — anexados ao heartbeat pra o painel mostrar os valores REAIS em vez de mock.
+ * Esses dados vivem no DuckDB/Prometheus local do bot; o heartbeat é a ponte pro Vercel.
+ */
+export interface HeartbeatIntel {
+  /** Lance de mercado mediano dos competidores (priority fee gwei). */
+  marketBribeP50Gwei?: number;
+  /** Lance de mercado agressivo (p95) — quanto custa ganhar a corrida. */
+  marketBribeP95Gwei?: number;
+  /** Competidores ativos na janela. */
+  competitorsActive?: number;
+  /** Drift médio realizado-vs-esperado (bps) — calibração. */
+  driftBps?: number;
+  /** Alertas de drift sustentado acumulados ("o bot está mentindo pra si mesmo"). */
+  sustainedAlerts?: number;
+}
+
+export interface ZeusHeartbeatEvent extends BaseEvent {
+  type: 'zeus.heartbeat';
+  severity: 'info';
+  /** Nome do serviço que emitiu (liquidator | backrun-engine | mis-scanner). */
+  service: string;
+  uptimeSec: number;
+  /** Reserva de gás da wallet ativa. */
+  gasReserveEth?: number;
+  gasReserveUsd?: number;
+  /** Threshold de EV adaptativo atual (USD), quando aplicável. */
+  adaptiveMinEvUsd?: number;
+  /** Estado REAL de execução: true = pausado/travado (no Motor 2 = toggle OFF). */
+  autoPaused: boolean;
+  motorStats?: MotorStat[];
+  /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
+  discovery?: HeartbeatDiscovery;
+  /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */
+  intel?: HeartbeatIntel;
 }

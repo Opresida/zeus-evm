@@ -84,12 +84,14 @@ const envSchema = z.object({
   /** A cada quantos ticks de scan reconsultar o toggle remoto. */
   ENGINE_CONTROL_POLL_EVERY: posInt(5),
 
-  // ─── Cola de eventos (bot → painel via /api/ingest) ───
-  /** URL do endpoint do painel: <frontend Vercel>/api/ingest. Vazio = não envia eventos. */
+  // ─── Alerting / ponte pro painel (ZEUS Command) ───
+  // Sem isso, NADA do Motor 2 chega ao painel (só M1/M3 mandavam). Aponta pra /api/ingest do Vercel.
   GENERIC_WEBHOOK_URL: optionalUrl(),
-  /** Segredo no header `x-zeus-secret`. DEVE bater com `ZEUS_WEBHOOK_SECRET` no painel. */
-  ZEUS_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
-  /** Intervalo do heartbeat (sinal de vida → painel) em segundos. */
+  /** Segredo do header x-zeus-secret (= ZEUS_WEBHOOK_SECRET no Vercel). */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Filtro de severidades (comma-separated). Default: tudo. */
+  GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+  /** Intervalo do heartbeat (snapshot ao vivo → painel/service_status) em segundos. */
   HEARTBEAT_EVERY_SEC: posInt(30),
 });
 

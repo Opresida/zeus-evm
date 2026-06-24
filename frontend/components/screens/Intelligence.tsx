@@ -6,7 +6,8 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, driftAlarms, competitors, postmortem, calib, edgePairs } = vm;
+  const { bribe, ourBribe, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs } = vm;
+  const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
       <div style={css("display:flex; align-items:center; gap:10px;")}>
@@ -18,6 +19,23 @@ export function Intelligence({ vm }: ScreenProps) {
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 20px;")}>
         Competidores, market-bribe, drift sustentado, post-mortem e auto-calibração
       </p>
+
+      {/* Faixa AO VIVO (item 3): agregados reais do heartbeat do bot. Os painéis abaixo seguem mock
+          enquanto não há ponte do DuckDB (perfis detalhados/post-mortem). */}
+      {intelLive && (
+        <div style={css(card + "margin-bottom:14px; border-color:var(--goldsoft);")}>
+          <div style={css("display:flex; align-items:center; gap:8px; margin-bottom:14px;")}>
+            <span style={css("width:7px;height:7px;border-radius:50%;background:var(--green);")} />
+            <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>Inteligência ao vivo (do bot)</span>
+          </div>
+          <div className="z-grid-4" style={css("display:grid; grid-template-columns:repeat(4,1fr); gap:14px;")}>
+            <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--text);")}>{fmt(intelLive.marketBribeP50Gwei)}<span style={css("font-size:11px;color:var(--muted);")}> gwei</span></div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>market-bribe p50</span></div>
+            <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--gold);")}>{fmt(intelLive.marketBribeP95Gwei)}<span style={css("font-size:11px;color:var(--muted);")}> gwei</span></div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>market-bribe p95</span></div>
+            <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--text);")}>{fmt(intelLive.competitorsActive)}</div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>competidores ativos</span></div>
+            <div><div style={{ ...css("font:600 22px/1 'IBM Plex Mono';"), color: Math.abs(intelLive.driftBps ?? 0) >= 100 ? "var(--red)" : "var(--text)" }}>{fmt(intelLive.driftBps, "bps")}</div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>drift médio</span></div>
+          </div>
+        </div>
+      )}
 
       <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;")}>
         <div style={css(card)}>

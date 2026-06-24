@@ -290,10 +290,11 @@ async function main() {
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
         severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
         logger,
       }),
     );
-    logger.info({ severities }, '🔔 Generic webhook sink registrado');
+    logger.info({ severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' }, '🔔 Generic webhook sink registrado');
   }
 
   // Bribe machinery (v7)
@@ -362,6 +363,7 @@ async function main() {
 
   // ── Sync de métricas Prometheus (Fase 7) — a cada 5s ──
   let lastBlocksProcessed = 0;
+  let hbTick = 0; // throttle do heartbeat (~30s)
   const chainName = chainCtx.chainName;
   const metricsSyncInterval = setInterval(() => {
     try {
@@ -393,6 +395,15 @@ async function main() {
       const drift = driftTracker.stats();
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain: chainName });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain: chainName });
+
+      // Heartbeat ~30s pro painel. Motor 3 está bloqueado em prod (mempool placeholder) → autoPaused=true.
+      if (hbTick++ % 6 === 0) {
+        eventBus.emit({
+          type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain: chainName, mode: env.BACKRUN_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          severity: 'info', service: 'backrun-engine', uptimeSec: Math.floor(proc.uptime_sec),
+          autoPaused: true, motorStats: [{ tag: 'motor3', ops: 0, netPnl24hUsd: pnlTracker.stats().netPnlUsd }],
+        });
+      }
     } catch (err) {
       logger.debug({ err: err instanceof Error ? err.message : err }, 'metrics sync backrun: erro (drop)');
     }

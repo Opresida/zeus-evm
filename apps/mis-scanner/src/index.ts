@@ -36,6 +36,7 @@ import {
   EventBus,
   EventIngester,
   createGenericWebhookSink,
+  type Severity,
   SenderRegistry,
   BlockHistoryScanner,
   CooccurrenceAnalyzer,
@@ -148,15 +149,19 @@ async function main(): Promise<void> {
   const eventBus = new EventBus(logger);
   const eventIngester = new EventIngester({ store, eventBus, logger, defaultChain: chainConfig.name });
   eventIngester.start();
-  const bootMs = Date.now();
-  // Cola de eventos: encaminha TODOS os eventos do bus pro painel (/api/ingest) com x-zeus-secret.
-  // O heartbeat (abaixo) vai DIRETO pelo sink (não pelo bus) pra não inflar o ledger DuckDB.
-  const webhookSink = env.GENERIC_WEBHOOK_URL
-    ? createGenericWebhookSink({ url: env.GENERIC_WEBHOOK_URL, secret: env.ZEUS_WEBHOOK_SECRET, logger })
-    : null;
-  if (webhookSink) {
-    eventBus.subscribe(webhookSink);
-    logger.info({ url: env.GENERIC_WEBHOOK_URL }, '📡 cola de eventos ativa (bot → painel /api/ingest)');
+
+  // ─── Ponte pro painel (ZEUS Command) — sem isto, NADA do Motor 2 chega ao front ───
+  if (env.GENERIC_WEBHOOK_URL) {
+    const severities = env.GENERIC_SEVERITIES.split(',').map((s) => s.trim()) as Severity[];
+    eventBus.subscribe(
+      createGenericWebhookSink({
+        url: env.GENERIC_WEBHOOK_URL,
+        severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
+        logger,
+      }),
+    );
+    logger.info({ severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' }, '📡 Generic webhook sink ativo (Motor 2 → painel)');
   }
   // Competidores (arb é competitivo — o motor TEM que ver o adversário).
   const senderRegistry = new SenderRegistry({ baseDir: resolve('logs', 'competitors'), logger });
@@ -368,6 +373,24 @@ async function main(): Promise<void> {
   const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
   adaptiveTimer.unref();
 
+  // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
+  // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
+  const emitHeartbeat = () => {
+    const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
+    const live = !!arbExec?.deps.liveExecutionEnabled;
+    eventBus.emit({
+      type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain: chainConfig.name,
+      mode: arbExec?.deps.mode ?? 'dryrun', severity: 'info', service: 'mis-scanner',
+      uptimeSec: Math.floor(process.uptime()),
+      adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
+      autoPaused: armed ? !live : false, // travado só conta quando está armado
+      motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+    });
+  };
+  emitHeartbeat();
+  const heartbeatTimer = setInterval(emitHeartbeat, env.HEARTBEAT_EVERY_SEC * 1000);
+  heartbeatTimer.unref();
+
   // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
   // Só faz sentido quando a execução está ARMADA (mode != dryrun). Em dryrun o toggle é irrelevante
   // (nunca submete de qualquer jeito). Fail-safe: erro/sem-config → mantém TRAVADO.
@@ -567,27 +590,6 @@ async function main(): Promise<void> {
   await tick();
   // SEM unref: o scanner deve varrer continuamente até SIGINT (padrão "deixa varrendo").
   setInterval(() => void tick(), SCAN_INTERVAL_MS);
-
-  // ─── Heartbeat → painel (sinal de vida + estado REAL armado-mas-travado) ───
-  // Vai DIRETO pelo sink (não pelo eventBus) pra não gravar no ledger DuckDB a cada 30s.
-  if (webhookSink) {
-    const heartbeat = setInterval(() => {
-      const live = !!arbExec && arbExec.deps.mode !== 'dryrun' && !!arbExec.deps.liveExecutionEnabled;
-      void webhookSink({
-        type: 'zeus.heartbeat',
-        severity: 'info',
-        timestamp: new Date().toISOString(),
-        chain: chainConfig.name,
-        mode: env.ARB_MODE,
-        motor: env.ENGINE_CONTROL_MOTOR,
-        executionLocked: !live,
-        scanCount,
-        uptimeSec: Math.floor((Date.now() - bootMs) / 1000),
-      });
-    }, env.HEARTBEAT_EVERY_SEC * 1000);
-    heartbeat.unref();
-    logger.info({ everySec: env.HEARTBEAT_EVERY_SEC }, '💓 heartbeat ativo (bot → painel)');
-  }
 }
 
 main().catch((err) => {

@@ -43,7 +43,7 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.rejected': '🟡',
   'pnl.reconciled': '📊',
   'failure.recorded': '🔴',
-  'zeus.heartbeat': '💓',
+  'zeus.heartbeat': '💓', // não vai pro Discord por default (filtrado em createDiscordSink) — anti-spam
 };
 
 interface DiscordEmbed {
@@ -68,16 +68,6 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
 
   // Switch por tipo pra montar embed específico
   switch (event.type) {
-    case 'zeus.heartbeat':
-      // Heartbeat normalmente vai só pro painel (não pelo eventBus). Embed simples por completude.
-      return {
-        title: `${emoji} Heartbeat`,
-        description: `Motor ${event.motor} vivo · ${event.executionLocked ? 'travado' : 'executando'} · uptime ${event.uptimeSec}s · scans ${event.scanCount}`,
-        color,
-        timestamp: event.timestamp,
-        footer,
-      };
-
     case 'liquidator.boot':
       return {
         title: `${emoji} ZEUS Liquidator ONLINE`,
@@ -289,6 +279,16 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
           { name: 'Protocolo', value: event.protocol, inline: true },
           ...(event.gasUsdLost !== undefined ? [{ name: 'Gás perdido', value: `$${event.gasUsdLost.toFixed(2)}`, inline: true }] : []),
         ],
+        footer,
+      };
+
+    // zeus.heartbeat (e qualquer tipo futuro) — embed genérico. Na prática não chega aqui:
+    // o createDiscordSink filtra heartbeat antes (anti-spam). Garante exaustividade do switch.
+    default:
+      return {
+        title: `${emoji} ${(event as ZeusEvent).type}`,
+        color,
+        timestamp: (event as ZeusEvent).timestamp,
         footer,
       };
   }

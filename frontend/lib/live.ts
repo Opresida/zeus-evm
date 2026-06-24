@@ -231,5 +231,94 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
     ops: acc[tag]?.ops ?? 0,
   }));
 
+  // ===== FASE 1: agregados de PnL / gás / relatórios (derivados dos events tx.*) =====
+  const txAgg = rows.filter((r) => r.type === "tx.confirmed" || r.type === "tx.reverted_on_chain");
+  const netOf = (r: EventRow) => r.net_profit_usd ?? (r.type === "tx.reverted_on_chain" ? -(r.gas_usd ?? 0) : 0);
+  if (txAgg.length) {
+    const nowMs = Date.now();
+    const DAY = 86_400_000;
+    const inWin = (ms: number) => txAgg.filter((r) => nowMs - new Date(r.ts).getTime() <= ms);
+    const sumNet = (rs: EventRow[]) => rs.reduce((a, r) => a + netOf(r), 0);
+    const sumGas = (rs: EventRow[]) => rs.reduce((a, r) => a + (r.gas_usd ?? 0), 0);
+
+    snap.kpi7d = sumNet(inWin(7 * DAY));
+    snap.kpi30d = sumNet(inWin(30 * DAY));
+    snap.kpiProj = snap.kpi30d; // mês-a-mês (MTD) — projeção simples e honesta
+    snap.gas24h = sumGas(inWin(DAY));
+    snap.gas30d = sumGas(inWin(30 * DAY));
+    const gross30 = inWin(30 * DAY).reduce((a, r) => a + (r.net_profit_usd != null ? r.net_profit_usd + (r.gas_usd ?? 0) : 0), 0);
+    snap.gas30dPct = gross30 > 0 ? Math.round((snap.gas30d / gross30) * 100) + "%" : "—";
+
+    // net por dia (p/ barras 14d + série cumulativa do gráfico de PnL)
+    const day0 = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+    const dayKey = (ts: string) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const byDay: Record<number, number> = {};
+    for (const r of txAgg) byDay[dayKey(r.ts)] = (byDay[dayKey(r.ts)] ?? 0) + netOf(r);
+    const raw14 = Array.from({ length: 14 }, (_, i) => byDay[day0 - (13 - i) * DAY] ?? 0);
+    snap.raw14 = raw14;
+    snap.kpiW14sum = raw14.reduce((a, b) => a + b, 0);
+
+    // série diária cumulativa (realizado) p/ o gráfico realizado-vs-esperado
+    let cum = 0;
+    const realized = Array.from({ length: 15 }, (_, i) => (cum += byDay[day0 - (14 - i) * DAY] ?? 0));
+    snap.pnlSeries = { daily: realized, weekly: [], monthly: [] };
+    // esperado (de pnl.reconciled), série diária cumulativa
+    const reconAll = rows.filter((r) => r.type === "pnl.reconciled");
+    if (reconAll.length) {
+      const expByDay: Record<number, number> = {};
+      for (const r of reconAll) {
+        const p = r.payload as Record<string, unknown>;
+        expByDay[dayKey(r.ts)] = (expByDay[dayKey(r.ts)] ?? 0) + Number(p.expectedUsd ?? p.netProfitUsd ?? 0);
+      }
+      let cumE = 0;
+      snap.expSeries = { daily: Array.from({ length: 15 }, (_, i) => (cumE += expByDay[day0 - (14 - i) * DAY] ?? 0)), weekly: [], monthly: [] };
+    }
+
+    // breakdown por motor / protocolo (net acumulado dos events carregados)
+    const motorNet: Record<string, number> = {};
+    const protoNet: Record<string, number> = {};
+    for (const r of txAgg) {
+      const n = netOf(r);
+      const m = motorOf(r.protocol);
+      if (m) motorNet[m] = (motorNet[m] ?? 0) + n;
+      if (r.protocol) protoNet[r.protocol] = (protoNet[r.protocol] ?? 0) + n;
+    }
+    const mkBreak = (obj: Record<string, number>, labelFn: (k: string) => string) => {
+      const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+      const max = Math.max(1, ...entries.map(([, v]) => Math.abs(v)));
+      return entries.map(([k, v]) => ({ name: labelFn(k), val: v, pct: String(Math.round((Math.abs(v) / max) * 100)) }));
+    };
+    if (Object.keys(motorNet).length) snap.motorBreak = mkBreak(motorNet, (k) => MOTOR_LABEL[k] ?? k);
+    if (Object.keys(protoNet).length) snap.protoBreak = mkBreak(protoNet, (k) => k);
+
+    // relatórios por período (net / win / ops / gás / drift)
+    const driftAvg = (rs: EventRow[]) => {
+      const ds = rs.map((r) => r.profit_delta_bps ?? 0).filter((x) => x !== 0);
+      return ds.length ? Math.round(ds.reduce((a, b) => a + b, 0) / ds.length) : 0;
+    };
+    const mkRep = (ms: number, label: string, range: string) => {
+      const rs = inWin(ms);
+      const ok = rs.filter((r) => r.type === "tx.confirmed").length;
+      const mb: Record<string, number> = {};
+      for (const r of rs) { const mm = motorOf(r.protocol); if (mm) mb[mm] = (mb[mm] ?? 0) + netOf(r); }
+      const top = Object.entries(mb).sort((a, b) => b[1] - a[1])[0];
+      return {
+        net: sumNet(rs),
+        win: rs.length ? ((ok / rs.length) * 100).toFixed(1) + "%" : "—",
+        ops: String(rs.length),
+        gas: sumGas(rs),
+        drift: rs.length ? `${driftAvg(rs)}bps` : "—",
+        bestMotor: top ? (MOTOR_LABEL[top[0]] ?? top[0]) : "—",
+        range,
+        label,
+      };
+    };
+    snap.repByPeriod = {
+      daily: mkRep(DAY, "Diário", "últimas 24h"),
+      weekly: mkRep(7 * DAY, "Semanal", "últimos 7d"),
+      monthly: mkRep(30 * DAY, "Mensal", "últimos 30d"),
+    };
+  }
+
   return snap;
 }

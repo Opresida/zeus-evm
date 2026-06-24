@@ -87,10 +87,30 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(byTag.motor3).toMatchObject({ netUsd: 0, ops: 0 }); // sempre mostra os 3 (honesto)
   });
 
+  it("Fase 1: agrega PnL/gás/relatórios por janela (7d/30d, 14d, breakdown, reports)", () => {
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    const rows = [
+      row({ type: "tx.confirmed", protocol: "arb", net_profit_usd: 100, gas_usd: 2, ts: daysAgo(0) }),
+      row({ type: "tx.confirmed", protocol: "aave-v3", net_profit_usd: 50, gas_usd: 1, ts: daysAgo(5) }),
+      row({ type: "tx.confirmed", protocol: "arb", net_profit_usd: 20, gas_usd: 1, ts: daysAgo(20) }),
+    ];
+    const snap = deriveSnapshot(rows);
+    expect(snap.kpi7d).toBeCloseTo(150); // hoje 100 + 5d 50
+    expect(snap.kpi30d).toBeCloseTo(170); // + 20d 20
+    expect(snap.gas24h).toBeCloseTo(2);
+    expect(snap.gas30d).toBeCloseTo(4);
+    expect(snap.raw14).toHaveLength(14);
+    expect(snap.raw14![13]).toBeCloseTo(100); // hoje = última barra
+    expect((snap.motorBreak ?? []).find((m) => m.name.includes("M2"))?.val).toBeCloseTo(120); // arb 100+20
+    expect(snap.repByPeriod?.weekly.ops).toBe("2");
+    expect(snap.repByPeriod?.monthly.ops).toBe("3");
+  });
+
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {
     const snap = deriveSnapshot([], []);
     expect(snap.failures).toBeUndefined();
     expect(snap.discovery).toBeUndefined();
     expect(snap.motorCards).toBeUndefined();
+    expect(snap.kpi7d).toBeUndefined();
   });
 });

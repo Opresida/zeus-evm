@@ -64,22 +64,23 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const k = {
     today: live?.kpiToday != null ? usd(live.kpiToday) : usd(M.k.today),
     todayTx: live?.kpiTodayTx ?? M.k.todayTx,
-    w7: usd(M.k.w7),
+    w7: usd(live?.kpi7d ?? M.k.w7),
     w7delta: M.k.w7delta,
-    m30: usd(M.k.m30),
-    proj: usd(M.k.proj),
+    m30: usd(live?.kpi30d ?? M.k.m30),
+    proj: usd(live?.kpiProj ?? M.k.proj),
     winRate: live?.kpiWinRate ?? M.k.winRate,
     ok: live?.kpiOk ?? M.k.ok,
     fail: live?.kpiFail ?? M.k.fail,
-    w14sum: usd(M.k.w14sum),
+    w14sum: usd(live?.kpiW14sum ?? M.k.w14sum),
   };
 
   // ---- 14d bars ----
-  const max14 = Math.max(...M.raw14.map(Math.abs));
-  const pnl14 = M.raw14.map((v, i) => ({
+  const raw14 = live?.raw14 ?? M.raw14;
+  const max14 = Math.max(1, ...raw14.map(Math.abs));
+  const pnl14 = raw14.map((v, i) => ({
     pct: ((Math.abs(v) / max14) * 100).toFixed(0),
-    color: v < 0 ? "var(--red)" : i === M.raw14.length - 1 ? "var(--gold)" : "var(--green)",
-    label: "D-" + (M.raw14.length - 1 - i) + ": " + usd(v),
+    color: v < 0 ? "var(--red)" : i === raw14.length - 1 ? "var(--gold)" : "var(--green)",
+    label: "D-" + (raw14.length - 1 - i) + ": " + usd(v),
   }));
 
   // ---- motors (item 4: mini-cards por motor) ----
@@ -170,8 +171,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     bg: ui.period === id ? "var(--gold)" : "transparent",
     fg: ui.period === id ? "var(--bg)" : "var(--muted)",
   }));
-  const ser = M.pnlSeries[ui.period];
-  const expSer = M.expSeries[ui.period];
+  const ser = (live?.pnlSeries ?? M.pnlSeries)[ui.period] ?? [];
+  const expSer = (live?.expSeries ?? M.expSeries)[ui.period] ?? [];
   const allV = ser.concat(expSer);
   const gmin = Math.min(...allV);
   const gmax = Math.max(...allV);
@@ -185,11 +186,16 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     drift: demo ? "−118 bps" : "—",
     gas: demo ? usdp(1420) : "—",
   };
-  const motorBreak = M.motorBreak.map((m) => ({ ...m, val: usd(m.val) }));
-  const protoBreak = M.protoBreak.map((p) => ({ ...p, val: usd(p.val) }));
+  const motorBreak = (live?.motorBreak ?? M.motorBreak).map((m) => ({ ...m, val: usd(m.val) }));
+  const protoBreak = (live?.protoBreak ?? M.protoBreak).map((p) => ({ ...p, val: usd(p.val) }));
 
   // ---- wallet ----
-  const wallet = { gas24h: usdp(M.wallet.gas24h), gas24hEth: M.wallet.gas24hEth, gas30d: usdp(M.wallet.gas30d), gas30dPct: M.wallet.gas30dPct };
+  const wallet = {
+    gas24h: usdp(live?.gas24h ?? M.wallet.gas24h),
+    gas24hEth: live?.gas24hEth ?? M.wallet.gas24hEth,
+    gas30d: usdp(live?.gas30d ?? M.wallet.gas30d),
+    gas30dPct: live?.gas30dPct ?? M.wallet.gas30dPct,
+  };
   const whMax = Math.max(...M.whRaw);
   const walletHist = M.whRaw.map((v, i) => ({
     pct: ((v / whMax) * 100).toFixed(0),
@@ -233,7 +239,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const eventLog = live?.eventLog ?? M.eventLog;
 
   // ---- reports ----
-  const rp = M.repByPeriod[ui.period];
+  const rp = (live?.repByPeriod ?? M.repByPeriod)[ui.period] ?? M.repByPeriod[ui.period];
   const rep = {
     net: usd(rp.net),
     win: rp.win,

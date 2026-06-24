@@ -161,6 +161,22 @@ export interface LiveSnapshot {
   intel?: { marketBribeP50Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
+
+  // ----- Fase 1: agregados de PnL / gás / relatórios (derivados de events tx.*) -----
+  kpi7d?: number;
+  kpi30d?: number;
+  kpiProj?: number;
+  kpiW14sum?: number;
+  raw14?: number[];
+  pnlSeries?: Record<string, number[]>;
+  expSeries?: Record<string, number[]>;
+  motorBreak?: { name: string; val: number; pct: string }[];
+  protoBreak?: { name: string; val: number; pct: string }[];
+  gas24h?: number;
+  gas24hEth?: string;
+  gas30d?: number;
+  gas30dPct?: string;
+  repByPeriod?: Record<string, { net: number; win: string; ops: string; gas: number; drift: string; bestMotor: string; range: string; label: string }>;
 }
 
 export interface TxRow {

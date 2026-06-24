@@ -81,6 +81,13 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-24 (resumo — detalhes em `CLAUDE.md`)
+- **Painel REAL fim-a-fim:** cobertura de dados Fases 1/2/2b + insights, toggle DEMO/LIVE, veredito de bribe dinâmico, responsividade mobile. Supabase: colunas jsonb em `service_status` + tabela `wallet_snapshots`. (`docs/FRONTEND_DATA_COVERAGE.md`)
+- **Motor 1 prontidão mainnet (v9 de contrato):** whitelist on-chain de routers + stale-check Morpho/Moonwell + OrphanRecoveryManager no dispatch. Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+- **Toggle remoto de execução do Motor 1** (engine_control, armado-mas-travado) + **bribe competitor-aware com teto de lucro** (opt-in, nunca prejuízo).
+- **Validação ABI on-chain (fork tests no CI, Alchemy archive):** liquidação Aave(+lucro)/Morpho/Compound/Moonwell + dex quoters + flashloan Aave/Morpho/Balancer no arb. `forge test` **147/0**. (Provam ABI/wiring, não lucro — exceto Aave/Dex.)
+- **Falta (operacional):** redeploy **v9** Sepolia (deployado é v8) + `revive()`/`setOperator()` Moonwell (`isKilled()=true`) · **DRY_RUN mainnet ~2 semanas** (VM Fly.io + `GENERIC_WEBHOOK_URL`). `BASE_RPC_ARCHIVE` no CI = feito.
+
 ### 🆕 Sessão 2026-06-23 (resumo — detalhes em `CLAUDE.md`)
 - **Motor 2 — expansão de DEX + toggle remoto MERGEADOS na `main`** (Slipstream + forks UniV3/UniV2 + adapter `PancakeV3Lib`/`DexType.PancakeV3`; Sushi V3 na Base também usa deadline). DexType unificado (fonte única + pin test).
 - **Endereços verificados on-chain** (Alchemy archive); dackie/rocket removidos. **RPC = Alchemy primário**.

@@ -73,6 +73,21 @@
 
 ---
 
+## 🆕 SESSÃO 2026-06-24 — Painel real + prontidão mainnet Motor 1/2 + validação ABI on-chain
+
+**Feito (tudo na `main`):**
+- **Painel**: cobertura de dados Fases 1/2/2b + insights + toggle DEMO/LIVE + veredito de bribe dinâmico + responsividade mobile. Supabase: colunas jsonb em `service_status` + tabela `wallet_snapshots`. Detalhes em `docs/FRONTEND_DATA_COVERAGE.md`.
+- **Motor 1 prontidão mainnet (v9 de contrato)**: whitelist on-chain de routers + stale-check Morpho/Moonwell + OrphanRecoveryManager no dispatch. Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+- **Toggle remoto de execução Motor 1** (engine_control(motor1), armado-mas-travado) + **bribe competitor-aware com teto de lucro** (opt-in).
+- **Validação on-chain (fork tests no CI, Alchemy archive)**: liquidação Aave(+lucro)/Morpho/Compound/Moonwell + dex quoters + flashloan Aave/Morpho/Balancer no arb. `forge test` **147/0**. Novos forks: ZeusMoonwell/ZeusCompound/ZeusMorpho-Liquidator.fork + dexQuotes.fork + arb Morpho/Balancer.
+
+**🔜 Falta (operacional, do Humberto):**
+- [ ] **Redeploy v9 na Sepolia** (whitelist + stale-check + OrphanRecovery) — o que está deployado é v8 (`approvedRouter` reverte no cast).
+- [ ] **Moonwell**: `revive()` + `setOperator()` (`isKilled()=true` confirmado on-chain).
+- [ ] **DRY_RUN mainnet ~2 semanas**: subir VM Fly.io + `GENERIC_WEBHOOK_URL` no `.env` do bot.
+- [x] ~~secret `BASE_RPC_ARCHIVE` no GitHub~~ — FEITO (CI de fork verde).
+- [ ] Amanhã: mesma varredura de validação no **Motor 2**.
+
 ## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel
 
 **✅ Concluído (na `main`, commits `fcfc7be`→`f57222d`; detalhes em `CLAUDE.md`):**

@@ -181,6 +181,33 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-24 — Painel real ponta-a-ponta + prontidão mainnet Motor 1/2 + validação ABI on-chain (tudo na `main`)
+
+**Painel (ZEUS Command) — dado REAL fim-a-fim:**
+- Cobertura de dados Fases 1/2/2b + insights (Fase 3): KPIs 7d/30d/projeção, barras 14d, PnL realizado×esperado, breakdown motor/protocolo, carteira+gás, relatórios, **saúde** (componentes/cooldowns/kill-switch/latência), **inteligência** (bribe P50/P75/P95, competidores, edge pairs, post-mortem, calibração, won/lost), **saldo 30d** (`wallet_snapshots`), **resiliência de reorg/órfã**. Detalhes em `docs/FRONTEND_DATA_COVERAGE.md`.
+- **Toggle DEMO/LIVE** (mock × real). **Veredito de bribe dinâmico** (nosso lance vs p50/p75/p95, com mensagem de auto-ajuste). **Responsividade mobile** (topbar quebra em 2 linhas; auditado via Playwright em 351–390px → 0 overflow).
+- Supabase: novas colunas jsonb em `service_status` (health/competitors/edge_pairs/cooldowns/kill_switch/latency/reorgs) + tabela `wallet_snapshots` + seed `engine_control(motor1)`.
+
+**Motor 1 — prontidão MAINNET (mudanças de contrato = v9, AINDA NÃO deployado):**
+- **Whitelist on-chain de routers** (`approvedRouter` + `setApprovedRouter` onlyOwner + check default-deny no `_executeSwaps`) nos 3 contratos. `Deploy.s.sol` aprova UniV3; demais routers via runbook.
+- **Stale-check** estendido a **Morpho** (re-read fresh da position) + **Moonwell** (`getAccountLiquidity`), antes só Aave/Compound.
+- **OrphanRecoveryManager + TxStateMachine** ligados no dispatch (re-submete tx órfã pós-reorg; dormente em DRY_RUN).
+- Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+
+**Toggle remoto de execução do Motor 1** (igual Motor 2): painel → `/api/control` → `engine_control(motor1)` → liquidator faz poll (15s) → gate "armado-mas-travado" no dispatcher (só `true` exato libera o envio). `fetchEngineControlEnabled` promovido pra `@zeus-evm/execution-utils` (compartilhado; mis-scanner re-exporta).
+
+**Bribe competitor-aware com TETO DE LUCRO** (opt-in, `COMPETITIVE_BRIBE_ENABLED=false` default): auto-ajusta o priority fee pra ganhar a corrida, **limitado pelo lucro da oportunidade (nunca prejuízo)**; painel avisa o auto-ajuste. `calculateCompetitiveBribe` + `BribeTracker` em execution-utils.
+
+**Validação ABI/contratos on-chain (Alchemy archive, FORK TESTS no CI — não script descartável):**
+- **Motor 1**: liquidação provada on-chain → Aave (+lucro end-to-end via `MotorsProfit`), Morpho Blue, Compound III, Moonwell. NOVOS forks: `ZeusMoonwellLiquidator.fork` (liquidateBorrow), `ZeusCompoundLiquidator.fork` (absorb), `ZeusMorphoLiquidator.fork` (liquidate → revert `"position is healthy"` = **edge Morpho fechado**). Cast Sepolia: contratos respondem (seletores v8 ok); **v9 NÃO deployado** (`approvedRouter` reverte); **Moonwell `isKilled()=true`**.
+- **Motor 2**: quoters off-chain validados (`dexQuotes.fork`: UniV3 1582 / Slipstream 1572 / BaseSwap 1333 USDC + Aero reserves) + flashloan **Aave/Morpho/Balancer** no arb (`ZeusArbExecutor.fork`) + execução de swap dos 4 DEX (+lucro, `ZeusArbExecutorDex.fork` 4/4).
+- **`forge test` FULL: 147 passed / 0 failed** (1 skip unit intencional). Os fork tests provam **ABI/wiring/segurança**, não lucro (round-trips revertem) — exceto Aave/Dex que provam lucro end-to-end.
+
+**🔜 Falta (operacional, do Humberto):**
+- Redeploy **v9** na Sepolia (whitelist + stale-check + OrphanRecovery) + `revive()`/`setOperator()` no **Moonwell**.
+- **DRY_RUN mainnet ~2 semanas** (subir VM Fly.io + `GENERIC_WEBHOOK_URL` no `.env` do bot) — onde o lucro se prova com dado real.
+- CI já **verde** com `BASE_RPC_ARCHIVE` setado (job de fork rodando). Próximo: mesma varredura de validação no **Motor 2** (amanhã).
+
 ## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel (tudo na `main`)
 
 **Mergeado + corrigido (commits `fcfc7be`→`f57222d`):**
@@ -258,7 +285,7 @@ O detector consome via `getTargetPairsForChain`.
 Moonwell MEV tax ~99%). **Morpho Blue ABERTO = único edge real** → liquidator prioriza Morpho.
 Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 
-- **Total**: contratos **78/79 unit Foundry** (1 skip) + fork verde · **~404 testes TS** (vitest; execution-utils
+- **Total** (pós-2026-06-24): **`forge test` 147 passed / 0 failed** (78 unit + fork suite ampliada — novos forks Moonwell/Compound/Morpho-liquidation + dexQuotes + arb Morpho/Balancer) · **~430 testes TS** (vitest; execution-utils
   **336/336**) · **typecheck 13/13** · 7 apps · 6 packages
 
 ### 🟡 Em andamento (próxima sessão)

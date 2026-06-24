@@ -27,6 +27,11 @@ Especificação detalhada dos smart contracts do bot. Incluindo padrões, audit 
 
 ZEUS EVM tem **4 contratos v8** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager) + libraries-adapter inline por DEX (UniV3, Aerodrome, **UniswapV2Lib, SlipstreamLib, PancakeV3Lib**). Toda a lógica hot-path passa por esses contratos atômicos.
 
+> **🆕 2026-06-24 — v9: whitelist de routers + cobertura de fork ampliada (NÃO redeployado):**
+> - **Whitelist on-chain de routers** nos 3 contratos: `mapping(address=>bool) approvedRouter` público + `setApprovedRouter(router,bool) onlyOwner` + check **default-deny** `if (!approvedRouter[step.router]) revert RouterNotApproved()` no `_executeSwaps`. `Deploy.s.sol` aprova o UniV3 SwapRouter; demais via runbook. EIP-170 ok (ZeusLiquidator 21.403 B / folga 3.173 B).
+> - **Cobertura ABI on-chain ampliada (fork tests Alchemy archive):** novos `ZeusMoonwellLiquidator.fork` (liquidateBorrow), `ZeusCompoundLiquidator.fork` (Comet.absorb), `ZeusMorphoLiquidator.fork` (Morpho.liquidate → `"position is healthy"`) + `ZeusArbExecutor.fork` com flashSource Morpho/Balancer. **`forge test` 147/0.** Provam ABI/wiring, não lucro (round-trips) — exceto Aave/Dex (lucro end-to-end).
+> - ⚠️ **A Sepolia ainda roda v8** (cast: `approvedRouter` reverte). **Falta redeploy v9** + `revive()`/`setOperator()` no Moonwell (`isKilled()=true`). Runbook em `docs/MAINNET_READINESS_MOTOR1.md`.
+>
 > **🆕 2026-06-23 — adapters de DEX (Motor 2) + redeploy testnet:**
 > - **`DexType`** ganhou `Slipstream=5` e `PancakeV3=6` (append; fonte única em `shared-types`, espelho no Solidity, guarda no pin test `dex-adapters/src/dexType.pin.test.ts`).
 > - **`PancakeV3Lib.sol`** (novo) — `exactInputSingle` COM `deadline` na struct. Pancake V3 **e Sushi V3 na Base** (verificado on-chain) usam essa trilha; UniV3 canônico/Sushi-fora-da-Base seguem `UniswapV3Lib` (sem deadline).

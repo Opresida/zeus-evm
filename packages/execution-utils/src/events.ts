@@ -334,6 +334,8 @@ export interface HeartbeatIntel {
   sustainedAlerts?: number;
   /** Lance de mercado p75 (priority fee gwei) — entre o mediano e o agressivo. */
   marketBribeP75Gwei?: number;
+  /** NOSSO lance atual (priority fee gwei) — na Base o priority fee É o bribe prático. */
+  ourBribeGwei?: number;
 }
 
 /**

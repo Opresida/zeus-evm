@@ -25,6 +25,31 @@ export interface Insight {
 }
 
 /**
+ * Veredito do NOSSO bribe vs o mercado (p50/p75/p95). Determinístico. Substitui a frase fixa do card
+ * de market-bribe — "conforme a realidade". Sem dado suficiente → neutro (não inventa).
+ */
+export function bribeVerdict(
+  our?: number,
+  p50?: number,
+  p75?: number,
+  p95?: number,
+): { text: string; color: string } {
+  if (our == null || !Number.isFinite(our) || p75 == null || !Number.isFinite(p75)) {
+    return { text: "sem dado de mercado suficiente ainda.", color: "var(--muted)" };
+  }
+  if (p95 != null && our >= p95) {
+    return { text: "no topo do mercado (≥ p95) — ganhando a maioria das corridas.", color: "var(--green)" };
+  }
+  if (our >= p75) {
+    return { text: "competitivo (entre p75 e p95).", color: "var(--green)" };
+  }
+  if (p50 != null && our >= p50) {
+    return { text: "mediano (entre p50 e p75) — pode subir em pares disputados.", color: "var(--gold)" };
+  }
+  return { text: "abaixo do p50 — provavelmente perdendo corridas; considere subir.", color: "var(--red)" };
+}
+
+/**
  * Gera os insights a partir dos sinais reais. Determinístico (mesma entrada → mesma saída) e sem
  * efeitos colaterais. Lista vazia = nenhum sinal cruzou o limiar (estado saudável / sem dados ainda).
  */

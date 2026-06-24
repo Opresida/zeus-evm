@@ -1,5 +1,5 @@
 import { MOCK, EMPTY } from "./mockData";
-import { generateInsights } from "./insights";
+import { generateInsights, bribeVerdict } from "./insights";
 import type { LiveSnapshot, UiState } from "./types";
 
 // ===== Helpers de formatação (portados do design) =====
@@ -217,7 +217,12 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
           { pct: "P95", gwei: (intelLive.marketBribeP95Gwei ?? 0).toFixed(2), note: "guerra de bribe" },
         ]
       : M.bribe;
-  const ourBribe = M.ourBribe;
+  // Nosso bribe (live do heartbeat ou mock no DEMO) + veredito dinâmico vs mercado (p50/p75/p95).
+  const ourBribeGwei = intelLive?.ourBribeGwei;
+  const ourBribe = demo ? M.ourBribe : ourBribeGwei != null ? `${ourBribeGwei} gwei` : "—";
+  const bribeNote = demo
+    ? { text: "abaixo do p75. Considere subir em pares disputados.", color: "var(--gold)" }
+    : bribeVerdict(ourBribeGwei, intelLive?.marketBribeP50Gwei, intelLive?.marketBribeP75Gwei, intelLive?.marketBribeP95Gwei);
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há
@@ -369,6 +374,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     gasAlerts,
     bribe,
     ourBribe,
+    bribeNote,
     driftAlarms,
     intelLive,
     failures,

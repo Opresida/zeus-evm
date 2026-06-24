@@ -931,6 +931,7 @@ export async function boot(): Promise<LiquidatorState> {
             competitorsActive: mkt.competitorsActive,
             driftBps: drift.avg_drift_bps_all,
             sustainedAlerts: drift.sustained_alerts_count,
+            ourBribeGwei: env.GAS_PRIORITY_FEE_GWEI, // nosso lance configurado (priority fee = bribe na Base)
           }),
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {

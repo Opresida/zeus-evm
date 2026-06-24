@@ -1,5 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { generateInsights } from "./insights";
+import { generateInsights, bribeVerdict } from "./insights";
+
+describe("bribeVerdict — nosso bribe vs mercado", () => {
+  // mercado: p50=0.18, p75=0.42, p95=1.30
+  it("sem dado → neutro", () => {
+    expect(bribeVerdict(undefined, 0.18, 0.42, 1.3).color).toBe("var(--muted)");
+    expect(bribeVerdict(0.2, undefined, undefined, undefined).color).toBe("var(--muted)");
+  });
+  it("abaixo do p50 → vermelho (perdendo corridas)", () => {
+    const r = bribeVerdict(0.1, 0.18, 0.42, 1.3);
+    expect(r.color).toBe("var(--red)");
+    expect(r.text).toContain("abaixo do p50");
+  });
+  it("entre p50 e p75 → gold (pode subir)", () => {
+    const r = bribeVerdict(0.3, 0.18, 0.42, 1.3);
+    expect(r.color).toBe("var(--gold)");
+    expect(r.text).toContain("mediano");
+  });
+  it("entre p75 e p95 → verde (competitivo)", () => {
+    expect(bribeVerdict(0.8, 0.18, 0.42, 1.3).color).toBe("var(--green)");
+  });
+  it(">= p95 → verde (topo do mercado)", () => {
+    expect(bribeVerdict(1.5, 0.18, 0.42, 1.3).text).toContain("topo do mercado");
+  });
+});
 
 describe("generateInsights — Fase 3 (regras sobre dados reais)", () => {
   it("sem sinais → lista vazia (card fica vazio em LIVE, não inventa)", () => {

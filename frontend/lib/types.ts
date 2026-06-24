@@ -126,6 +126,7 @@ export interface ServiceStatusRow {
     competitorsActive?: number;
     driftBps?: number;
     sustainedAlerts?: number;
+    ourBribeGwei?: number;
   } | null;
   // ----- Fase 2 — blocos extras (jsonb) -----
   /** Prontidão dos componentes (tela Saúde). */
@@ -193,7 +194,7 @@ export interface LiveSnapshot {
   /** Pulso do radar (item 2) — "scanner vivo · viu N posições · há Xs". */
   discovery?: { service: string; positions: number; dispatched: number; rejected: number; ago: string };
   /** Inteligência real (item 3) — market-bribe / competidores / drift (substitui mock quando presente). */
-  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number };
+  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
 

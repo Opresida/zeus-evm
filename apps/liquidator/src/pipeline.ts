@@ -105,6 +105,10 @@ export interface PipelineDeps {
   blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
   /** Endereço do bot (pra o resolver ignorar nossas txs). */
   botSender?: Address;
+  /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
+  latencyTracker?: import('@zeus-evm/execution-utils').LatencyTracker;
+  /** Fase 2b — registry de competidores (pra registrar win-against-us no post-mortem). */
+  senderRegistry?: import('@zeus-evm/execution-utils').SenderRegistry;
 }
 
 /**
@@ -556,6 +560,8 @@ async function _runAavePipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -848,6 +854,8 @@ async function _runCompoundPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -1065,6 +1073,8 @@ async function _runMorphoPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1225,6 +1235,8 @@ async function _runMoonwellPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

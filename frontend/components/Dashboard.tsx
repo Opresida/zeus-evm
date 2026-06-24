@@ -5,7 +5,7 @@ import { Hover } from "@/components/ui";
 import { buildViewModel } from "@/lib/viewModel";
 import { deriveSnapshot } from "@/lib/live";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import type { EventRow, ServiceStatusRow, UiState } from "@/lib/types";
+import type { EventRow, ServiceStatusRow, UiState, WalletSnapshotRow } from "@/lib/types";
 import { MOCK } from "@/lib/mockData";
 import type { Actions } from "@/components/screens/shared";
 import { Home } from "@/components/screens/Home";
@@ -41,6 +41,7 @@ export default function Dashboard() {
   });
   const [rows, setRows] = useState<EventRow[]>([]);
   const [serviceStatus, setServiceStatus] = useState<ServiceStatusRow[]>([]);
+  const [walletSnaps, setWalletSnaps] = useState<WalletSnapshotRow[]>([]);
   const live = isSupabaseConfigured();
   // Toggle Demo: ON = dados de mock (layout/apresentação); OFF = dados REAIS do Supabase
   // (cards sem dado real ficam vazios — útil pra ver o que ainda não está fiado ao backend).
@@ -93,6 +94,15 @@ export default function Dashboard() {
         if (active && data) setServiceStatus(data as ServiceStatusRow[]);
       });
 
+    // Fase 2b — histórico de saldo (snapshot diário) p/ o gráfico 30d
+    sb.from("wallet_snapshots")
+      .select("*")
+      .order("ts", { ascending: false })
+      .limit(60)
+      .then(({ data }) => {
+        if (active && data) setWalletSnaps(data as WalletSnapshotRow[]);
+      });
+
     const ch = sb
       .channel("events-stream")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events" }, (payload) => {
@@ -111,7 +121,10 @@ export default function Dashboard() {
     };
   }, []);
 
-  const snapshot = useMemo(() => (live ? deriveSnapshot(rows, serviceStatus) : null), [live, rows, serviceStatus]);
+  const snapshot = useMemo(
+    () => (live ? deriveSnapshot(rows, serviceStatus, walletSnaps) : null),
+    [live, rows, serviceStatus, walletSnaps],
+  );
   const vm = useMemo(() => buildViewModel(ui, demoMode ? null : snapshot), [ui, snapshot, demoMode]);
 
   const actions: Actions = useMemo(

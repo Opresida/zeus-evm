@@ -43,6 +43,8 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.rejected': '🟡',
   'pnl.reconciled': '📊',
   'failure.recorded': '🔴',
+  'calibration.applied': '📈',
+  'wallet.snapshot': '👛',
   'zeus.heartbeat': '💓', // não vai pro Discord por default (filtrado em createDiscordSink) — anti-spam
 };
 

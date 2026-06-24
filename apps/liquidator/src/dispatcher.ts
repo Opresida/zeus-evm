@@ -36,6 +36,8 @@ import {
   type CompetitorResolver,
   type BlockPositionTracker,
   type MetricRegistry,
+  type LatencyTracker,
+  type SenderRegistry,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -107,6 +109,10 @@ export interface DispatchInput {
   blockPositionTracker?: BlockPositionTracker;
   /** Endereço do nosso bot (pra o resolver ignorar nossas próprias txs). */
   botSender?: Address;
+  /** Fase 2b — buffer de latência de dispatch (alimenta p50/p95 do heartbeat). */
+  latencyTracker?: LatencyTracker;
+  /** Fase 2b — registry de competidores (pra registrar a vitória do competidor contra nós). */
+  senderRegistry?: SenderRegistry;
 }
 
 /**
@@ -220,10 +226,13 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
     // Histograma de latência dispatch (antes morto) — segundos do submit até 1 conf.
-    metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+    const dispatchMs = Date.now() - dispatchStart;
+    metricRegistry?.observe('zeus_dispatch_duration_seconds', dispatchMs / 1000, {
       chain: chainName,
       protocol: protocol ?? 'unknown',
     });
+    // Fase 2b — buffer pro p50/p95 que o heartbeat manda pro painel (Prometheus só guarda buckets).
+    input.latencyTracker?.observe(dispatchMs);
 
     if (receipt.status === 'reverted') {
       // Gas perdido em tx revertida = LOSS pra PnL tracker (em USD)
@@ -267,6 +276,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
               failureEvent.block_total_txs = pos.block_total_txs;
               (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
               (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+              // Fase 2b — índice da nossa tx no bloco (pro painel mostrar "pos #N" no post-mortem).
+              (failureEvent.payload as Record<string, unknown>).our_tx_index = pos.our_tx_index;
             }
           }
           if (input.competitorResolver && input.botSender) {
@@ -275,6 +286,17 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
               failureEvent.competitor_winner_sender = winner.winner_sender;
               failureEvent.competitor_winner_alias = winner.winner_alias;
               failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+              // Fase 2b — bribe do vencedor no payload (pro painel: "perdeu por X gwei").
+              if (winner.winner_priority_fee_wei != null) {
+                (failureEvent.payload as Record<string, unknown>).winner_priority_fee_gwei =
+                  Number(winner.winner_priority_fee_wei) / 1e9;
+              }
+              // Fase 2b — contabiliza a vitória do competidor contra nós (alimenta win_rate_vs_us).
+              input.senderRegistry?.recordWinAgainstUs(winner.winner_sender, {
+                txHash: winner.winner_tx_hash,
+                blockNumber: winner.winner_block_number,
+                priorityFeeWei: winner.winner_priority_fee_wei,
+              });
             }
           }
         } catch (err) {

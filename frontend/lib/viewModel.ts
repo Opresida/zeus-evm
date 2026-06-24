@@ -197,8 +197,9 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     gas30d: usdp(live?.gas30d ?? M.wallet.gas30d),
     gas30dPct: live?.gas30dPct ?? M.wallet.gas30dPct,
   };
-  const whMax = Math.max(...M.whRaw);
-  const walletHist = M.whRaw.map((v, i) => ({
+  const whRaw = live?.whRaw?.length ? live.whRaw : M.whRaw;
+  const whMax = Math.max(1e-9, ...whRaw);
+  const walletHist = whRaw.map((v, i) => ({
     pct: ((v / whMax) * 100).toFixed(0),
     color: i === 7 || i === 18 ? "var(--gold)" : v < 0.45 ? "var(--red)" : "var(--cyan)",
   }));
@@ -219,19 +220,19 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const ourBribe = M.ourBribe;
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
-  // competidores reais do heartbeat. won/lost por-corrida ainda não rastreado (Fase 2b via race.lost):
-  // "won" mostra txs observadas; bribe/kind/nome são reais.
+  // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há
+  // execução real; cai em txs observadas no DRY_RUN. "lost" (vezes que ganhamos dele) não é rastreado.
   const competitors = live?.competitors?.length
     ? live.competitors.map((c) => ({
         name: c.alias,
-        won: c.txs,
+        won: c.wonVsUs ?? c.txs,
         lost: 0,
         bribe: `${c.bribeGwei.toFixed(2)} gwei`,
         kind: c.category,
       }))
     : M.competitors;
-  const postmortem = M.postmortem;
-  const calib = M.calib;
+  const postmortem = live?.postmortem?.length ? live.postmortem : M.postmortem;
+  const calib = live?.calib?.length ? live.calib : M.calib;
   const edgePairs = live?.edgePairs?.length
     ? live.edgePairs.map((e) => ({
         pair: e.pair,
@@ -288,8 +289,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
       sub: ksLive ? `limite 24h: ${usdp(ksLive.limitUsd)}` : demo ? "limite 24h: −$2.000" : "",
     },
     { label: "Uptime", isStatus: false, isVal: true, dot: "", big: uptime, unit: "", color: "var(--text)", sub: demo ? "sem restart" : "" },
-    { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: demo ? "142" : "—", unit: demo ? "ms" : "", color: "var(--text)", sub: demo ? "alvo <200ms" : "" },
-    { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: demo ? "410" : "—", unit: demo ? "ms" : "", color: "var(--gold)", sub: demo ? "alvo <500ms" : "" },
+    { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p50Ms) : demo ? "142" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--text)", sub: live?.latency ? `${live.latency.samples} amostras` : demo ? "alvo <200ms" : "" },
+    { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p95Ms) : demo ? "410" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--gold)", sub: live?.latency ? "alvo <500ms" : demo ? "alvo <500ms" : "" },
     { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: demo ? "3" : "—", unit: "", color: "var(--text2)", sub: demo ? "prof. máx. 2" : "" },
     { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: demo ? "1.3%" : "—", unit: "", color: "var(--cyan)", sub: demo ? "6 de 477 ops" : "" },
   ];

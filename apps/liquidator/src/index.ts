@@ -73,6 +73,7 @@ import {
   BuilderAttributionTracker,
   CompetitorResolver,
   BlockPositionTracker,
+  LatencyTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -201,6 +202,8 @@ interface LiquidatorState {
   /** Post-mortem de falhas (Fase 5b). */
   competitorResolver: CompetitorResolver;
   blockPositionTracker: BlockPositionTracker;
+  /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
+  latencyTracker: LatencyTracker;
 }
 
 /**
@@ -701,6 +704,8 @@ export async function boot(): Promise<LiquidatorState> {
     baseDir: resolvePath('logs', 'competitors'),
     logger,
   });
+  // Fase 2b — buffer de latência de dispatch (alimentado no dispatcher, lido no heartbeat).
+  const latencyTracker = new LatencyTracker();
   const scannerTargets = {
     aave_v3_pool: ctx.chainConfig.aave?.pool,
     compound_comets: [
@@ -824,6 +829,7 @@ export async function boot(): Promise<LiquidatorState> {
   // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
   let lastBlocksProcessed = 0;
   let hbTick = 0; // throttle do heartbeat (loop é 5s → emite a cada 6 = ~30s)
+  let lastSnapshotDay = ''; // Fase 2b — dia UTC do último snapshot de saldo (1×/dia)
   // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
   const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   const metricsSyncInterval = setInterval(() => {
@@ -927,6 +933,7 @@ export async function boot(): Promise<LiquidatorState> {
             txs: p.total_txs,
             bribeGwei: Number((p.gas.avg_priority_fee_gwei ?? 0).toFixed(3)),
             threat: Number((p.threat?.overall_score ?? 0).toFixed(2)),
+            wonVsUs: p.threat?.wins_against_us ?? 0,
           })),
           cooldowns: pauseStatus.reasons.map((r) => ({ label: r.source, reason: r.message, active: true })),
           killSwitch: {
@@ -934,8 +941,27 @@ export async function boot(): Promise<LiquidatorState> {
             limitUsd: env.DAILY_LOSS_LIMIT_USD,
             triggered: pnlStats.killSwitchTriggered,
           },
+          // Fase 2b — latência p50/p95 de dispatch (omitida enquanto samples===0 = sem execução real).
+          latency: latencyTracker.stats(),
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
+      }
+
+      // Fase 2b — snapshot diário do saldo da wallet (virada de dia UTC) → tabela wallet_snapshots.
+      // Robusto a restart: emite no 1º tick de cada dia. Alimenta o gráfico de saldo 30d do painel.
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      if (todayUtc !== lastSnapshotDay) {
+        lastSnapshotDay = todayUtc;
+        eventBus.emit({
+          type: 'wallet.snapshot',
+          timestamp: new Date().toISOString(),
+          chain,
+          mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          severity: 'info',
+          service: 'liquidator',
+          balanceEth: Number(gasStats.balanceEth ?? 0),
+          balanceUsd: gasStats.balanceUsd ?? undefined,
+        });
       }
     } catch (err) {
       logger.debug(
@@ -1157,6 +1183,7 @@ export async function boot(): Promise<LiquidatorState> {
     metricRegistry,
     competitorResolver,
     blockPositionTracker,
+    latencyTracker,
   };
 }
 
@@ -1488,6 +1515,8 @@ export async function processOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1523,6 +1552,8 @@ export async function processCompoundOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1555,6 +1586,8 @@ export async function processMorphoOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1587,6 +1620,8 @@ export async function processMoonwellOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -2051,8 +2086,24 @@ async function main() {
       });
       const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
       if (applied) {
+        const oldThresholdUsd = state.env.MIN_OPPORTUNITY_EV_USD;
         // Injeção opt-in: liquidationEdgeGate lê deps.env.MIN_OPPORTUNITY_EV_USD (= state.env).
         state.env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+        // Fase 2b — registra a calibração aplicada no painel (só quando muda de fato + foi aplicada).
+        if (adaptive.MIN_OPPORTUNITY_EV_USD !== oldThresholdUsd) {
+          state.eventBus.emit({
+            type: 'calibration.applied',
+            timestamp: new Date().toISOString(),
+            chain: state.ctx.chainConfig.name,
+            mode: state.env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+            severity: 'info',
+            dimension: 'global',
+            oldThresholdUsd: oldThresholdUsd ?? 0,
+            newThresholdUsd: adaptive.MIN_OPPORTUNITY_EV_USD,
+            topProtocol: adaptive.topProtocol,
+            reason: `MIN_EV recalculado dos sinais do ledger (${state.env.ADAPTIVE_WINDOW_DAYS}d)`,
+          });
+        }
       }
       logger.info(
         { applied, ...adaptive },

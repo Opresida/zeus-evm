@@ -35,6 +35,8 @@ export type ZeusEvent =
   | BackrunRejectedEvent
   | PnlReconciledEvent
   | FailureRecordedEvent
+  | CalibrationAppliedEvent
+  | WalletSnapshotEvent
   | ZeusHeartbeatEvent;
 
 interface BaseEvent {
@@ -249,6 +251,41 @@ export interface FailureRecordedEvent extends BaseEvent {
   competitorAlias?: string;
 }
 
+/**
+ * Auto-calibração aplicada (Fase 2b): emitido SÓ quando `ADAPTIVE_THRESHOLDS_ENABLED=true` e o
+ * threshold de EV mudou de fato (honesto — não emite quando é só log). Alimenta o card de
+ * auto-calibração do painel via a tabela `events` (payload jsonb).
+ */
+export interface CalibrationAppliedEvent extends BaseEvent {
+  type: 'calibration.applied';
+  severity: 'info';
+  /** Dimensão calibrada (hoje 'global' — o threshold é único; por-protocolo no futuro). */
+  dimension: string;
+  /** Threshold de EV antigo (USD), antes da injeção. */
+  oldThresholdUsd: number;
+  /** Threshold de EV novo (USD), recém-calculado. */
+  newThresholdUsd: number;
+  /** Protocolo top do ranking que motivou (quando disponível). */
+  topProtocol?: string | null;
+  /** Motivo curto/legível. */
+  reason?: string;
+}
+
+/**
+ * Snapshot diário do saldo da wallet (Fase 2b): emitido 1×/dia (virada de dia UTC) pra desenhar o
+ * gráfico de saldo 30d. Vai pra tabela própria `wallet_snapshots` (série temporal), não pra `events`.
+ */
+export interface WalletSnapshotEvent extends BaseEvent {
+  type: 'wallet.snapshot';
+  severity: 'info';
+  /** Serviço que emitiu (liquidator | ...). */
+  service: string;
+  /** Saldo em ETH no momento do snapshot. */
+  balanceEth: number;
+  /** Saldo em USD no momento do snapshot (quando há preço). */
+  balanceUsd?: number;
+}
+
 // ─── Heartbeat (estado ao vivo) ─────────────────────────────────────────
 // Os outros eventos são DELTAS (disparam num limiar). Pra gauges contínuos do painel
 // (gás-agora, uptime, EV adaptativo, estado REAL do toggle) precisa de um snapshot periódico.
@@ -319,6 +356,8 @@ export interface HeartbeatCompetitor {
   bribeGwei: number;
   /** Score de ameaça [0..1]. */
   threat: number;
+  /** Fase 2b — nº de corridas que ele nos ganhou (head-to-head); 0/omitido até a execução rodar. */
+  wonVsUs?: number;
 }
 export interface HeartbeatCooldown {
   /** Rótulo curto (ex.: "auto-pause"). */
@@ -335,6 +374,14 @@ export interface HeartbeatKillSwitch {
   limitUsd: number;
   /** Já disparou? */
   triggered: boolean;
+}
+export interface HeartbeatLatency {
+  /** Latência mediana de dispatch (submit→confirmação), em ms. */
+  p50Ms: number;
+  /** Latência p95 de dispatch, em ms. */
+  p95Ms: number;
+  /** Nº de amostras na janela (0 = ainda não despachou nada; bloco é omitido). */
+  samples: number;
 }
 export interface HeartbeatEdgePair {
   /** Par/grupo (ex.: "WETH/USDC"). */
@@ -378,4 +425,6 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   killSwitch?: HeartbeatKillSwitch;
   /** Ranking de pares com edge persistente (Motor 2 / tela Inteligência). */
   edgePairs?: HeartbeatEdgePair[];
+  /** Latência de dispatch p50/p95 (Fase 2b) — omitido enquanto não há dispatch real. */
+  latency?: HeartbeatLatency;
 }

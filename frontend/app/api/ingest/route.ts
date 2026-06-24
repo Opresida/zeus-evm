@@ -51,7 +51,11 @@ export async function POST(req: Request) {
 
   // Heartbeats (~30s) NÃO vão pra `events` (inundariam) — viram UPSERT em service_status (1 linha/serviço).
   const heartbeats = events.filter((e) => String(e.type) === "zeus.heartbeat");
-  const businessEvents = events.filter((e) => String(e.type) !== "zeus.heartbeat");
+  // wallet.snapshot (Fase 2b) → tabela própria `wallet_snapshots` (série temporal, fora do event-log).
+  const walletSnaps = events.filter((e) => String(e.type) === "wallet.snapshot");
+  const businessEvents = events.filter(
+    (e) => String(e.type) !== "zeus.heartbeat" && String(e.type) !== "wallet.snapshot",
+  );
 
   if (heartbeats.length) {
     const statusRows = heartbeats.map((e) => ({
@@ -72,10 +76,23 @@ export async function POST(req: Request) {
       edge_pairs: e.edgePairs ?? null,
       cooldowns: e.cooldowns ?? null,
       kill_switch: e.killSwitch ?? null,
+      latency: e.latency ?? null, // Fase 2b — p50/p95 de dispatch
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });
     if (hbErr) return NextResponse.json({ error: hbErr.message }, { status: 500 });
+  }
+
+  if (walletSnaps.length) {
+    const snapRows = walletSnaps.map((e) => ({
+      service: String(e.service ?? "liquidator"),
+      chain: e.chain ?? null,
+      ts: e.timestamp ?? new Date().toISOString(),
+      balance_eth: (e.balanceEth as number) ?? null,
+      balance_usd: (e.balanceUsd as number) ?? null,
+    }));
+    const { error: wsErr } = await sb.from("wallet_snapshots").insert(snapRows);
+    if (wsErr) return NextResponse.json({ error: wsErr.message }, { status: 500 });
   }
 
   let inserted = 0;

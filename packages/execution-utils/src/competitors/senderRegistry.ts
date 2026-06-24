@@ -163,6 +163,27 @@ export class SenderRegistry {
   }
 
   /**
+   * Fase 2b — registra que ESTE sender nos ganhou numa corrida (head-to-head, descoberto pelo
+   * CompetitorResolver no post-mortem). Incrementa o contador bruto `wins_against_us` e marca o
+   * último horário. Cria o perfil se ainda não existe. A taxa exata `win_rate_vs_us` exige o total
+   * de head-to-head (quantas NÓS ganhamos contra ele) que não é rastreado — expomos o bruto.
+   */
+  recordWinAgainstUs(
+    winner: Address,
+    info?: { txHash?: string; blockNumber?: bigint; priorityFeeWei?: bigint | null },
+  ): void {
+    const key = winner.toLowerCase();
+    let profile = this.profiles.get(key);
+    if (!profile) {
+      profile = this._createProfile(winner, Date.now());
+      this.profiles.set(key, profile);
+    }
+    profile.threat.wins_against_us = (profile.threat.wins_against_us ?? 0) + 1;
+    profile.threat.last_win_against_us_at = Date.now();
+    void info; // reservado pra enriquecer avg_gas_premium_over_us no futuro
+  }
+
+  /**
    * Lookup direto. Retorna undefined se sender não está no registry.
    */
   get(sender: Address): CompetitorProfile | undefined {

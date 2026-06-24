@@ -1,6 +1,6 @@
 import { usd } from "./viewModel";
 import { uptimeFromSec } from "./viewModel";
-import type { EventRow, LiveSnapshot, ServiceStatusRow, TxRow, ZeusEvent } from "./types";
+import type { EventRow, LiveSnapshot, ServiceStatusRow, TxRow, WalletSnapshotRow, ZeusEvent } from "./types";
 
 const TX_TYPES = new Set(["tx.confirmed", "tx.reverted_on_chain", "tx.reverted_pre_dispatch"]);
 
@@ -66,7 +66,11 @@ function tickerText(r: EventRow): string {
 }
 
 /** Deriva o snapshot ao vivo a partir dos eventos (mais recente primeiro) + status dos serviços. */
-export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = []): LiveSnapshot {
+export function deriveSnapshot(
+  rows: EventRow[],
+  statuses: ServiceStatusRow[] = [],
+  walletSnaps: WalletSnapshotRow[] = [],
+): LiveSnapshot {
   if (!rows.length && !statuses.length) return {};
   const snap: LiveSnapshot = {};
 
@@ -191,6 +195,37 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
     });
   }
 
+  // ----- Fase 2b: post-mortem (corridas perdidas) — failure.recorded COM vencedor resolvido -----
+  const lostRows = rows.filter((r) => r.type === "failure.recorded" && (r.payload as ZeusEvent)?.competitorAlias).slice(0, 6);
+  if (lostRows.length) {
+    snap.postmortem = lostRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const alias = (p.competitorAlias as string) || "—";
+      const gwei = p.winner_priority_fee_gwei != null ? ` · ${Number(p.winner_priority_fee_gwei).toFixed(2)} gwei` : "";
+      const idx = p.our_tx_index != null ? `pos #${p.our_tx_index}` : p.is_bottom_10pct ? "fim do bloco" : "—";
+      return {
+        time: hhmm(r.ts),
+        text: `${r.protocol || (p.protocol as string) || "—"} · perdemos para ${alias}${gwei}`,
+        pos: idx,
+      };
+    });
+  }
+
+  // ----- Fase 2b: log de auto-calibração — calibration.applied -----
+  const calibRows = rows.filter((r) => r.type === "calibration.applied").slice(0, 6);
+  if (calibRows.length) {
+    snap.calib = calibRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const oldV = Number(p.oldThresholdUsd ?? 0);
+      const newV = Number(p.newThresholdUsd ?? 0);
+      return {
+        time: hhmm(r.ts),
+        effect: `min EV $${oldV.toFixed(2)} → $${newV.toFixed(2)}`,
+        text: (p.reason as string) || "calibração aplicada",
+      };
+    });
+  }
+
   // ----- item 2: pulso do radar (discovery, do heartbeat em service_status) -----
   // Prioriza o liquidator (motor que faz discovery); fallback = qualquer serviço com discovery.
   const discSvc = (byService("liquidator")?.discovery ? byService("liquidator") : statuses.find((s) => s.discovery))!;
@@ -228,6 +263,19 @@ export function deriveSnapshot(rows: EventRow[], statuses: ServiceStatusRow[] = 
 
   const edgeSvc = byService("mis-scanner")?.edge_pairs ? byService("mis-scanner") : statuses.find((s) => s.edge_pairs);
   if (edgeSvc?.edge_pairs?.length) snap.edgePairs = edgeSvc.edge_pairs;
+
+  // Fase 2b — latência de dispatch (do liquidator; omitida enquanto não há dispatch real).
+  const latSvc = liq?.latency ? liq : statuses.find((s) => s.latency);
+  if (latSvc?.latency && latSvc.latency.samples > 0) snap.latency = latSvc.latency;
+
+  // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
+  // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
+  if (walletSnaps.length) {
+    snap.whRaw = [...walletSnaps]
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+      .slice(-30)
+      .map((w) => Number(w.balance_eth ?? 0));
+  }
 
   // ----- item 4: mini-cards por motor (PnL + ops 24h, derivado dos eventos tx.*) -----
   const startMs = startOfDay.getTime() - 23 * 60 * 60 * 1000; // janela ~24h

@@ -43,6 +43,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     edge_pairs: partial.edge_pairs ?? null,
     cooldowns: partial.cooldowns ?? null,
     kill_switch: partial.kill_switch ?? null,
+    latency: partial.latency ?? null,
     updated_at: partial.updated_at ?? now(),
   };
 }
@@ -130,6 +131,45 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.cooldowns?.[0]).toMatchObject({ active: true });
     expect(snap.killSwitch).toMatchObject({ loss24hUsd: 40, limitUsd: 100 });
     expect(snap.edgePairs?.[0]).toMatchObject({ pair: "WETH/USDC", samples: 30 });
+  });
+
+  it("Fase 2b: post-mortem de failure.recorded COM vencedor + log de calibration.applied", () => {
+    const snap = deriveSnapshot([
+      row({
+        type: "failure.recorded",
+        protocol: "morpho-blue",
+        payload: { competitorAlias: "bob.eth", winner_priority_fee_gwei: 0.51, our_tx_index: 3 } as ZeusEvent,
+      }),
+      row({ type: "failure.recorded", protocol: "aave-v3", payload: { failureCategory: "reverted_on_chain" } as ZeusEvent }), // sem vencedor → não vira post-mortem
+      row({
+        type: "calibration.applied",
+        payload: { oldThresholdUsd: 3.6, newThresholdUsd: 4.2, reason: "sequência de reverts" } as ZeusEvent,
+      }),
+    ]);
+    expect(snap.postmortem).toHaveLength(1);
+    expect(snap.postmortem![0].text).toContain("bob.eth");
+    expect(snap.postmortem![0].pos).toBe("pos #3");
+    expect(snap.calib).toHaveLength(1);
+    expect(snap.calib![0].effect).toContain("3.60");
+    expect(snap.calib![0].effect).toContain("4.20");
+  });
+
+  it("Fase 2b: latência (service_status) + histórico de saldo (wallet_snapshots)", () => {
+    const snap = deriveSnapshot(
+      [],
+      [status({ service: "liquidator", latency: { p50Ms: 142, p95Ms: 410, samples: 50 } })],
+      [
+        { id: 1, service: "liquidator", chain: "Base", ts: "2026-06-22T00:00:00Z", balance_eth: 0.5, balance_usd: 1600 },
+        { id: 2, service: "liquidator", chain: "Base", ts: "2026-06-23T00:00:00Z", balance_eth: 0.42, balance_usd: 1340 },
+      ],
+    );
+    expect(snap.latency).toMatchObject({ p50Ms: 142, p95Ms: 410, samples: 50 });
+    expect(snap.whRaw).toEqual([0.5, 0.42]); // ordenado asc por ts, em ETH
+  });
+
+  it("Fase 2b: latência com samples=0 é ignorada (omite o bloco)", () => {
+    const snap = deriveSnapshot([], [status({ service: "liquidator", latency: { p50Ms: 0, p95Ms: 0, samples: 0 } })]);
+    expect(snap.latency).toBeUndefined();
   });
 
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {

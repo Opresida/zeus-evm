@@ -85,6 +85,9 @@ export type {
   HeartbeatCooldown,
   HeartbeatKillSwitch,
   HeartbeatEdgePair,
+  HeartbeatLatency,
+  CalibrationAppliedEvent,
+  WalletSnapshotEvent,
 } from './events';
 
 // ─── Event Decoder ───
@@ -181,6 +184,8 @@ export {
   type DriftStats,
   type FailureDigestOptions,
   generateFailureId,
+  LatencyTracker,
+  type LatencyStats,
 } from './analytics';
 
 // ─── Finality + Reorg Protection (Item 9 R1+R2+R3+R5+R7) ───

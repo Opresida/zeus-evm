@@ -92,14 +92,23 @@ KPIs 7d/30d/projeção/w14sum, barras 14d, série PnL realizado vs esperado, bre
 - `/api/ingest` roteia os blocos novos → colunas de `service_status`.
 **Frontend:** `live.ts` consome os blocos; `viewModel` fia os cards (bribe P50/P75/P95, competidores, edge pairs, componentes de saúde, cooldowns, kill switch). Testes: frontend 7/7 + typecheck 0 · bot heartbeat 6/6 + typecheck 13/13.
 
-**Fase 2b (deferido — precisa de pontos de emissão novos no bot, não só reuso):**
-- `race.lost` (post-mortem de corridas perdidas) + `calibration.applied` (log de auto-calibração) como **events**.
-- `competitors`: won/lost real por-corrida (hoje "won" mostra txs observadas; bribe/kind/nome já são reais).
-- Latência dispatch p50/p95 (extrair dos histogramas Prometheus) + acúmulo do chart no front.
-- `wallet_snapshots` (tabela) + writer diário de saldo → chart de saldo 30d.
+### Fase 2b — FEITA (pipeline armado; 3 itens só populam com execução real ligada)
+- **Post-mortem** (corridas perdidas): REUSO — `failure.recorded` já carrega `competitorAlias` + posição;
+  `live.ts` deriva `snap.postmortem`. Enriquecido com `our_tx_index` + bribe do vencedor.
+- **Auto-calibração**: novo evento `calibration.applied` emitido no `runAdaptiveRecalc` (só quando
+  `ADAPTIVE_THRESHOLDS_ENABLED=true` e muda de fato) → `snap.calib`.
+- **Won/lost real**: `senderRegistry.recordWinAgainstUs()` (alimenta `wins_against_us`), chamado no
+  dispatcher ao resolver o vencedor; heartbeat `competitors.wonVsUs` → painel mostra "won" real.
+- **Latência p50/p95**: novo `LatencyTracker` (ring buffer + percentil), alimentado no dispatcher,
+  bloco `latency` no heartbeat → `service_status.latency` → KPIs Dispatch p50/p95.
+- **Saldo 30d**: novo evento diário `wallet.snapshot` (virada de dia UTC) → tabela `wallet_snapshots`
+  → `snap.whRaw` → gráfico de saldo.
+
+> Latência/won-lost/post-mortem ficam **dormentes em DRY_RUN** (não há dispatch/revert real). Saldo
+> diário e calibração já fluem antes. Testes: bot 345+45 + frontend 19/19 + typecheck 0/13.
 
 ### Fase 3 — FEITA (esta sessão)
 `insights` (anomalias) gerados por regras determinísticas em `lib/insights.ts` sobre os dados reais das Fases 1/2: concentração de motor (≥55%), drift sustentado (≥150 bps), kill switch (disparado / ≥50% do limite), runway de gás (<3d), competidor dominante (ameaça ≥0,7) e win-rate baixo (<50%). Fiado no `viewModel` (LIVE = gerado, DEMO = narrativa do design). Testes: 9/9 + frontend 16/16 total + typecheck 0.
 
 ## Resultado final
-Com o bot rodando + Vercel configurado, no modo **LIVE** o painel mostra dado real em: Home (KPIs/14d/motores/insights), PnL (realizado vs esperado/breakdowns), Carteira (gás), Inteligência (bribe P50/P75/P95/competidores/edge pairs/drift), Saúde (componentes/cooldowns/kill switch) e Relatórios. Cards ainda vazios em LIVE = Fase 2b (post-mortem, calib, latência p50/p95, saldo 30d).
+Com o bot rodando + Vercel configurado, no modo **LIVE** o painel mostra dado real em: Home (KPIs/14d/motores/insights), PnL (realizado vs esperado/breakdowns), Carteira (gás + saldo 30d), Inteligência (bribe P50/P75/P95/competidores+won/edge pairs/drift/post-mortem/calibração), Saúde (componentes/cooldowns/kill switch/latência p50-p95) e Relatórios. **Todos os cards estão fiados** — os que dependem de execução real (post-mortem, won/lost, latência) ficam vazios até o bot despachar de fato.

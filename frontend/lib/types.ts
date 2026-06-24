@@ -52,6 +52,15 @@ export interface ZeusEvent {
   failureCategory?: string;
   gasUsdLost?: number;
   competitorAlias?: string;
+  // Fase 2b — post-mortem (no payload do failure.recorded)
+  winner_priority_fee_gwei?: number;
+  our_tx_index?: number;
+  is_bottom_10pct?: boolean;
+  relative_position?: number;
+  // Fase 2b — calibration.applied
+  oldThresholdUsd?: number;
+  newThresholdUsd?: number;
+  topProtocol?: string | null;
   // gas.*
   account?: string;
   balanceEth?: number;
@@ -129,7 +138,19 @@ export interface ServiceStatusRow {
   cooldowns: { label: string; reason: string; active: boolean }[] | null;
   /** Kill switch (perda 24h vs limite). */
   kill_switch: { loss24hUsd: number; limitUsd: number; triggered: boolean } | null;
+  /** Fase 2b — latência de dispatch p50/p95 (ms). */
+  latency: { p50Ms: number; p95Ms: number; samples: number } | null;
   updated_at: string;
+}
+
+/** Linha de `wallet_snapshots` (Fase 2b — snapshot diário de saldo p/ o gráfico 30d). */
+export interface WalletSnapshotRow {
+  id: number;
+  service: string;
+  chain: string | null;
+  ts: string;
+  balance_eth: number | null;
+  balance_usd: number | null;
 }
 
 /** Estado de UI controlado pelo painel. */
@@ -191,8 +212,8 @@ export interface LiveSnapshot {
   repByPeriod?: Record<string, { net: number; win: string; ops: string; gas: number; drift: string; bestMotor: string; range: string; label: string }>;
 
   // ----- Fase 2 — blocos do heartbeat (service_status) -----
-  /** Competidores reais (won/lost não disponível; mostra alias/categoria/txs/bribe/threat). */
-  competitors?: { alias: string; category: string; txs: number; bribeGwei: number; threat: number }[];
+  /** Competidores reais. `wonVsUs` (Fase 2b) = corridas que ele nos ganhou (head-to-head). */
+  competitors?: { alias: string; category: string; txs: number; bribeGwei: number; threat: number; wonVsUs?: number }[];
   /** Ranking de pares com edge persistente (Motor 2). */
   edgePairs?: { pair: string; score: number; persistPct: string; avgBps: number; samples: number }[];
   /** Prontidão dos componentes (tela Saúde). */
@@ -201,6 +222,16 @@ export interface LiveSnapshot {
   cooldowns?: { label: string; reason: string; active: boolean }[];
   /** Kill switch (perda 24h vs limite). */
   killSwitch?: { loss24hUsd: number; limitUsd: number; triggered: boolean };
+
+  // ----- Fase 2b -----
+  /** Post-mortem (corridas perdidas) — derivado de failure.recorded com vencedor. */
+  postmortem?: { time: string; text: string; pos: string }[];
+  /** Log de auto-calibração — de calibration.applied. */
+  calib?: { time: string; effect: string; text: string }[];
+  /** Latência de dispatch p50/p95 (ms) — do service_status. */
+  latency?: { p50Ms: number; p95Ms: number; samples: number };
+  /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
+  whRaw?: number[];
 }
 
 export interface TxRow {

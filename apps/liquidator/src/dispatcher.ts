@@ -38,6 +38,8 @@ import {
   type MetricRegistry,
   type LatencyTracker,
   type SenderRegistry,
+  type TxStateMachine,
+  type OrphanRecoveryManager,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -113,6 +115,10 @@ export interface DispatchInput {
   latencyTracker?: LatencyTracker;
   /** Fase 2b — registry de competidores (pra registrar a vitória do competidor contra nós). */
   senderRegistry?: SenderRegistry;
+  /** Item 9 R2 — máquina de estado das tx (submitted→included→orphaned). */
+  txStateMachine?: TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet; dormente em DRY_RUN). */
+  orphanRecoveryManager?: OrphanRecoveryManager;
 }
 
 /**
@@ -218,6 +224,30 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
 
+    // Item 9 R2/R5 — registra a tx pra recovery de órfã pós-reorg. Re-simula (eth_call) pra
+    // revalidar e reenvia com nonce fresh. Genérico (independe de protocolo). Dormente em DRY_RUN.
+    const opKey = positionKey ?? txHash;
+    input.txStateMachine?.recordSubmitted({ txHash, operationKey: opKey });
+    input.orphanRecoveryManager?.registerSubmission(txHash, {
+      operationKey: opKey,
+      submittedAt: Date.now(),
+      validateOpportunity: async () => {
+        try {
+          await client.call({ to, data, account } as any);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      resubmit: async () => {
+        try {
+          return await wallet.sendTransaction({ ...txParams, nonce: undefined } as any);
+        } catch {
+          return null;
+        }
+      },
+    });
+
     // Dedup: marca position como pending durante await
     if (dedupTracker && positionKey) {
       dedupTracker.markPending(positionKey, txHash);
@@ -225,6 +255,9 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    // Item 9 R2 — registra inclusão (includedBlockNumber é o que o OrphanRecovery usa pra achar órfãs).
+    input.txStateMachine?.recordIncluded(txHash, receipt.blockNumber, receipt.blockHash);
+    input.txStateMachine?.recordConfirmations(txHash, receipt.blockNumber);
     // Histograma de latência dispatch (antes morto) — segundos do submit até 1 conf.
     const dispatchMs = Date.now() - dispatchStart;
     metricRegistry?.observe('zeus_dispatch_duration_seconds', dispatchMs / 1000, {

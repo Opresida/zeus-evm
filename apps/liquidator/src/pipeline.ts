@@ -113,6 +113,10 @@ export interface PipelineDeps {
   latencyTracker?: import('@zeus-evm/execution-utils').LatencyTracker;
   /** Fase 2b — registry de competidores (pra registrar win-against-us no post-mortem). */
   senderRegistry?: import('@zeus-evm/execution-utils').SenderRegistry;
+  /** Item 9 R2 — máquina de estado das tx (pro recovery de órfã pós-reorg). */
+  txStateMachine?: import('@zeus-evm/execution-utils').TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
+  orphanRecoveryManager?: import('@zeus-evm/execution-utils').OrphanRecoveryManager;
 }
 
 /**
@@ -566,6 +570,8 @@ async function _runAavePipelineInner(
     botSender: deps.botSender,
     latencyTracker: deps.latencyTracker,
     senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
@@ -860,6 +866,8 @@ async function _runCompoundPipelineInner(
     botSender: deps.botSender,
     latencyTracker: deps.latencyTracker,
     senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
   });
@@ -1083,6 +1091,8 @@ async function _runMorphoPipelineInner(
     botSender: deps.botSender,
     latencyTracker: deps.latencyTracker,
     senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
@@ -1258,6 +1268,8 @@ async function _runMoonwellPipelineInner(
     botSender: deps.botSender,
     latencyTracker: deps.latencyTracker,
     senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',

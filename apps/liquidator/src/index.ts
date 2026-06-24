@@ -64,6 +64,7 @@ import {
   CacheInvalidator,
   ReorgAnalytics,
   TxStateMachine,
+  OrphanRecoveryManager,
   BlockStalenessCheck,
   ProcessCheck,
   AutoPauseManager,
@@ -204,6 +205,10 @@ interface LiquidatorState {
   blockPositionTracker: BlockPositionTracker;
   /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
   latencyTracker: LatencyTracker;
+  /** Item 9 R2 — máquina de estado das tx (submitted→included→confirmed/orphaned). */
+  txStateMachine: TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
+  orphanRecoveryManager: OrphanRecoveryManager;
 }
 
 /**
@@ -634,6 +639,9 @@ export async function boot(): Promise<LiquidatorState> {
   // ── TxStateMachine (Item 9 R2) ──
   const txStateMachine = new TxStateMachine({ logger });
 
+  // ── OrphanRecoveryManager (Item 9 R5 / Motor 1 mainnet) — re-submete tx órfã pós-reorg ──
+  const orphanRecoveryManager = new OrphanRecoveryManager({ txStateMachine, logger });
+
   // ── ReorgAnalytics (Item 9 R7) — rolling 30d ──
   const reorgAnalytics = new ReorgAnalytics({ logger });
 
@@ -666,6 +674,8 @@ export async function boot(): Promise<LiquidatorState> {
     await cacheInvalidator.flushAll(ev.commonAncestorBlock);
     // Item 9 R7: registra sample no analytics rolling 30d
     reorgAnalytics.observe(ev);
+    // Item 9 R5: re-submete nossas tx que ficaram órfãs no reorg (dormente em DRY_RUN — sem tx real).
+    await orphanRecoveryManager.onReorg(ev);
   });
   finalityTracker.start();
   logger.info('🔗 FinalityTracker iniciado');
@@ -1184,6 +1194,8 @@ export async function boot(): Promise<LiquidatorState> {
     competitorResolver,
     blockPositionTracker,
     latencyTracker,
+    txStateMachine,
+    orphanRecoveryManager,
   };
 }
 
@@ -1517,6 +1529,8 @@ export async function processOpportunity(
     botSender: state.callerAddress,
     latencyTracker: state.latencyTracker,
     senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1554,6 +1568,8 @@ export async function processCompoundOpportunity(
     botSender: state.callerAddress,
     latencyTracker: state.latencyTracker,
     senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1588,6 +1604,8 @@ export async function processMorphoOpportunity(
     botSender: state.callerAddress,
     latencyTracker: state.latencyTracker,
     senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
@@ -1622,6 +1640,8 @@ export async function processMoonwellOpportunity(
     botSender: state.callerAddress,
     latencyTracker: state.latencyTracker,
     senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,

@@ -25,8 +25,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
         />
-        <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icons/icon.svg" />
+        <link rel="icon" type="image/png" href="/icons/zeus-favicon.png" />
+        <link rel="apple-touch-icon" href="/icons/zeus-app-icon.png" />
       </head>
       <body style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
         {children}

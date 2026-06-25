@@ -17,8 +17,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: "/icons/icon.svg",
-      badge: "/icons/icon.svg",
+      icon: "/icons/zeus-app-icon.png",
+      badge: "/icons/zeus-favicon.png",
       tag: data.type || "zeus",
       data: { url: "/" },
       vibrate: [120, 60, 120],

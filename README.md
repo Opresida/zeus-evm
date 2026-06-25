@@ -18,6 +18,8 @@
 - **Testes:** 78/79 unit Foundry (1 skip) + fork verde contra Base mainnet via Alchemy · ~404 testes TS (execution-utils 336/336) · typecheck 13/13
 - Contratos deployados em **Sepolia (testnet), NÃO mainnet**
 
+**🆕 2026-06-25 parte 2 (detalhes em `CLAUDE.md`):** reuso cross-motor — **gorjeta competitiva auto-ligável no Motor 2** (OFF default; ZEUS liga em `gas_outbid`, avisa no painel; ganho modesto na Base FCFS) · **paridade defensiva M2 ↔ M1** (reorg awareness + auto-pause de saúde + latência, reuso de `execution-utils`, dormente em DRY_RUN) · **plano + gatilho da arb triangular** (`docs/TRIANGULAR_EXECUTION_PLAN.md` + banner "Lucro provado…" na Home). **Estado:** M1+M2 maduros **como software**; **falta DRY_RUN** (que é PORTÃO — precisa PROVAR o edge) + blindagem mainnet (deploy mainnet + multisig + re-audit v9).
+
 **🆕 2026-06-23 (detalhes em `CLAUDE.md`):** expansão de DEX do Motor 2 (Slipstream + forks UniV3/UniV2 + adapter `PancakeV3Lib`/`DexType.PancakeV3`) + toggle remoto + cola do painel (Supabase + `x-zeus-secret` + `zeus.heartbeat`) — tudo na `main`. Endereços verificados on-chain (dackie/rocket removidos). **RPC = Alchemy primário.** Redeploy testnet v8. **Falta:** envs da Vercel + `GENERIC_WEBHOOK_URL` + Fly.io + 2 semanas DRY_RUN.
 
 > ⚠️ **Lucro real até agora: US$ 0.** A lógica dos 3 motores está provada (fork tests com lucro), mas o bot

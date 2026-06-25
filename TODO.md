@@ -73,6 +73,18 @@
 
 ---
 
+## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular
+
+**Feito (tudo na `main`):**
+- **Gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (`20c2a2e`): `calculateCompetitiveBribe` (teto de lucro) wireada no arbDispatcher, OFF por default; ZEUS auto-liga em evidência `gas_outbid` e avisa no painel. Helper `shouldAutoEnableCompetitiveBribe` + detector 5min + heartbeat. Ganho **modesto na Base (FCFS)**.
+- **Paridade defensiva M2 ↔ M1** (`57f5ebf`): reorg awareness (`FinalityTracker`/`OrphanRecoveryManager`/`TxStateMachine`/`ReorgAnalytics`) + auto-pause de saúde (`AutoPauseManager`/`BlockStalenessCheck`/`ProcessCheck` — health server antes "vazio") + latência (`LatencyTracker`). Reuso de `execution-utils`, dormente em DRY_RUN, guard opcional (zero regressão). 4 testes novos.
+- **Plano + gatilho da arb TRIANGULAR** (`d1bee82`): detecção segue read-only; `docs/TRIANGULAR_EXECUTION_PLAN.md` descreve a cola off-chain que falta (atrás do MESMO toggle, sub-flag `TRIANGULAR_EXECUTION_ENABLED` default OFF). Banner na Home "Lucro provado, hora de implementar a ligação da arb triangular" (dispara: net M2 ≥ $50 E ops ≥ 20, ao vivo).
+
+**🔜 Falta (próximo passo combinado):**
+- [ ] **Checklist de subida do DRY_RUN** (VM Fly.io + `GENERIC_WEBHOOK_URL` + envs Vercel) — pra tirar o DRY_RUN do papel.
+- [ ] (M2) Ligar `GasReserveTracker` (lacuna pequena restante vs Motor 1).
+- [ ] **DRY_RUN é PORTÃO, não checkbox**: precisa PROVAR o edge (M1 fino = só Morpho; M2 não-provado). Só depois: deploy mainnet (hoje Sepolia) + owner=multisig + operador + re-audit v9.
+
 ## 🆕 SESSÃO 2026-06-24 — Painel real + prontidão mainnet Motor 1/2 + validação ABI on-chain
 
 **Feito (tudo na `main`):**

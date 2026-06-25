@@ -81,6 +81,10 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-25 parte 2 (resumo — detalhes em `CLAUDE.md`)
+- **Reuso cross-motor** (sem código novo de lógica; tudo de `execution-utils`): **gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (OFF default; ZEUS liga em evidência `gas_outbid` e avisa no painel — ganho **modesto na Base FCFS**) · **paridade defensiva M2 ↔ M1** (reorg awareness + auto-pause de saúde + latência; o health server do M2 antes era "vazio") · **plano + gatilho da arb triangular** (`docs/TRIANGULAR_EXECUTION_PLAN.md` + banner "Lucro provado, hora de implementar a ligação da arb triangular" na Home).
+- **Estado honesto M1+M2:** maduros **como software** e no mesmo nível de defesa. **"Falta só DRY_RUN" é otimista:** o DRY_RUN ainda não roda (VM/webhook/Vercel), é **PORTÃO** que precisa PROVAR o edge (M1 fino = só Morpho; M2 não-provado), e mainnet exige deploy mainnet + multisig + operador + re-audit v9. Próximo: **checklist de subida do DRY_RUN**.
+
 ### 🆕 Sessão 2026-06-24 (resumo — detalhes em `CLAUDE.md`)
 - **Painel REAL fim-a-fim:** cobertura de dados Fases 1/2/2b + insights, toggle DEMO/LIVE, veredito de bribe dinâmico, responsividade mobile. Supabase: colunas jsonb em `service_status` + tabela `wallet_snapshots`. (`docs/FRONTEND_DATA_COVERAGE.md`)
 - **Motor 1 prontidão mainnet (v9 de contrato):** whitelist on-chain de routers + stale-check Morpho/Moonwell + OrphanRecoveryManager no dispatch. Runbook `docs/MAINNET_READINESS_MOTOR1.md`.

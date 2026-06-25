@@ -181,6 +181,48 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular (tudo na `main`)
+
+Foco: aproveitar funções que já existiam em um motor pra reforçar o outro (reuso barato de `execution-utils`),
+sem código novo de lógica. Três entregas, todas com testes + typecheck 13/13 verdes:
+
+**1. Gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (commit `20c2a2e`):
+- A `calculateCompetitiveBribe` (teto de lucro — nunca prejuízo) foi wireada no `arbDispatcher` do M2,
+  **desligada por padrão**. O ZEUS **auto-liga sozinho** quando detecta evidência REAL de perda por gás
+  (falhas `gas_outbid` ≥ limiar na janela) e **avisa no painel** (banner verde na tela Inteligência).
+- Novo helper puro `shouldAutoEnableCompetitiveBribe` + `bribeAutoState` mutável + detector periódico (5min)
+  no `index.ts`. Heartbeat ganhou `competitiveBribeAutoEnabled`/`bribeAutoEnableReason`. Sem mudança de schema.
+- Honesto: na Base (FCFS) o ganho é **modesto** (inclusão, não fura-fila); vira arma em chains de leilão.
+
+**2. Paridade defensiva do Motor 2 com o Motor 1** (commit `57f5ebf`):
+- O M2 (indo pro DRY_RUN mainnet) **não herdara** as defesas que o M1 já tinha, mesmo prontas no
+  `execution-utils`. Ligadas (dormentes em DRY_RUN): **reorg awareness** (`FinalityTracker` +
+  `OrphanRecoveryManager` + `TxStateMachine` + `ReorgAnalytics`, mesmo encadeamento `onReorg` do M1) +
+  **auto-pause de saúde** (`AutoPauseManager` + `BlockStalenessCheck` + `ProcessCheck` — o health server
+  do M2 antes era "vazio"; agora pausa de verdade + gate pré-simulação no dispatcher) + **latência**
+  (`LatencyTracker` → heartbeat p50/p95). Tudo sob guard opcional → zero regressão. 4 testes novos.
+- **Lacuna pequena restante:** `GasReserveTracker` ainda não ligado no M2 (M1 tem). Outras defesas do M1
+  (dedup de posição, Chainlink staleness, PauseDetector) **não se aplicam** ao arb (são de lending).
+
+**3. Arb TRIANGULAR — plano + gatilho no painel** (commit `d1bee82`):
+- A detecção triangular (`findTriangularCycles`) segue **read-only** (loga + grava `arb_triangular_observed`;
+  NÃO vai pro dispatch). Ligar o toggle do frontend **NÃO** executa triangular — o toggle só libera a arb de
+  **2 pernas** (que tem pipeline completo). Triangular precisa do **caminho de execução** (cola off-chain).
+- `docs/TRIANGULAR_EXECUTION_PLAN.md`: plano da cola que falta (builder calldata multi-hop + sizing + EV gate
+  tri + dispatch atrás do MESMO gate). Contrato on-chain **já suporta multi-hop**. Recomendado sub-toggle
+  `TRIANGULAR_EXECUTION_ENABLED` (default OFF) sob a chave-mestra remota (validar antes de escalar).
+- Painel: banner verde na Home **"Lucro provado, hora de implementar a ligação da arb triangular"** — dispara
+  quando o lucro líquido ACUMULADO do M2 (arb) ≥ $50 E ops ≥ 20, no modo AO VIVO (em DRY_RUN fica 0 → quieto).
+
+**Estado honesto pós-sessão (M1 + M2):** maduros **como software** e agora no mesmo nível de defesa. Mas
+**"falta só o DRY_RUN" é otimista**: (a) o DRY_RUN ainda não está rodando (falta VM Fly.io + `GENERIC_WEBHOOK_URL`
++ envs Vercel); (b) o DRY_RUN é um **PORTÃO** que precisa PROVAR o edge — e o edge do M1 na Base é fino
+(só Morpho; resto capturado por OEV) e o do M2 é **não-provado**; (c) mesmo provando, mainnet exige deploy
+mainnet (hoje só Sepolia) + owner=multisig + operador separado + re-audit do v9 + 2 semanas testnet. Próximo
+passo combinado: montar o **checklist de subida do DRY_RUN**.
+
+---
+
 ## 🆕 SESSÃO 2026-06-24 — Painel real ponta-a-ponta + prontidão mainnet Motor 1/2 + validação ABI on-chain (tudo na `main`)
 
 **Painel (ZEUS Command) — dado REAL fim-a-fim:**

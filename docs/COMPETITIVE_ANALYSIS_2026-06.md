@@ -31,15 +31,33 @@ No doc interno de 15/06 isso era "se espalhando". Agora é fato consumado:
 - **Implicação:** Aave e Compound III na Base viraram **terra arrasada** pro liquidador externo.
   Nosso pipeline cobre os dois, mas o edge lá hoje ≈ **zero**.
 
-### 1.2 🟡 O Morpho — nosso "único edge real" — está mais disputado do que assumíamos
+### 1.2 🟡 O Morpho — nosso "único edge real" — mudou de forma (ameaça OU oportunidade)
 - O Morpho **abriu o código do liquidation bot oficial** (`morpho-blue-liquidation-bot`): multi-chain,
   modular, com "pluggable data providers, liquidity venues e pricers". Roda em qualquer EVM onde o
-  Morpho existe — inclui a Base.
-- Existem bots community maduros (`crisog/morpho-liquidator`, etc.).
-- O mais relevante: o Morpho lançou **Pre-Liquidations** — o tomador configura uma liquidação suave
-  *antes* de ficar unhealthy, **desviando parte do fluxo do leilão clássico** que disputaríamos.
-- **Implicação:** o edge ainda existe (Morpho não captura o bônus pra si), mas o adversário é um
-  **bot oficial bem-feito + um mecanismo novo que come parte do bolo** — não mais "mercado aberto".
+  Morpho existe — inclui a Base. Existem bots community maduros (`crisog/morpho-liquidator`, etc.).
+- **Pre-Liquidations (a novidade que mais importa):** o tomador *opta* por um contrato que permite
+  liquidá-lo **mais cedo** (num limite apertado `preLltv`, *antes* de furar o LLTV), **aos poucos**
+  (parcial/gradual: ~10% no começo, subindo a 100% perto do LLTV) e com **bônus menor** (`preLIF` <
+  bônus normal). **~30% dos borrows do Morpho já optaram** (abril/2026) → um terço do fluxo de
+  liquidação agora passa por esse canal, que o nosso bot clássico **não toca**.
+
+**Achado decisivo (do contrato oficial `morpho-org/pre-liquidation`):**
+1. **`preLiquidate` é PERMISSIONLESS** — qualquer searcher pode chamar. **Nós inclusive.** Não é
+   reservado a um liquidador autorizado.
+2. **Tem callback `onPreLiquidate`** — o contrato entrega o colateral *antes* de cobrar a dívida; você
+   troca colateral→dívida no meio (atômico). O Morpho diz: *"elimina a necessidade de flashloan."*
+
+**Implicação corrigida** (a versão anterior deste doc tratava como pura ameaça — estava impreciso):
+
+| Cenário | Consequência |
+|---|---|
+| **Se ignorarmos** (só `liquidate` clássico) | 🔴 **Ameaça.** Os ~30% opt-in são pré-liquidados por outros (incl. o bot oficial) **antes** de virarem nosso alvo, e chegam já raspados. Mercado endereçável encolhe ~30%. |
+| **Se construirmos o caminho** | 🟢 **Oportunidade.** Permissionless + callback (até *mais simples* que a liquidação normal — sem flashloan). Reusa a skill que já temos (detectar + swap colateral→dívida com nosso multi-DEX). Bônus menor = **menos elite competindo** = terreno *menos* latency-sensitive → **mais favorável ao nosso stack TS** que a corrida clássica grande. |
+
+> **Decisão estratégica (Humberto, jun/2026):** vale mexer em código **antes** do DRY_RUN, não depois.
+> Se Morpho é o único edge, entramos no mercado cobrindo clássico **+** pre-liquidation — senão a gente
+> queima 14 dias sabendo que está endereçando só parte do fluxo. Viabilidade técnica em
+> `docs/PRE_LIQUIDATION_FEASIBILITY.md`.
 
 ### 1.3 Apareceu feed premium de Flashblocks na Base (que não temos)
 - A **bloXroute agora streama os Flashblocks via WebSocket/gRPC** (~200ms): "act earlier on MEV, arbs,
@@ -128,8 +146,9 @@ exóticos que os bots grandes ignoram).
 
 ## 6. Pontos pra discutir (gancho pra conversa)
 
-1. **Pre-Liquidations do Morpho** — quão real é a ameaça? Quanto do fluxo de liquidação ela
-   realmente desvia do leilão clássico que disputamos? Precisamos medir/pesquisar a fundo.
+1. **Pre-Liquidations do Morpho** — ✅ **aprofundado (jun/2026).** É permissionless + callback (sem
+   flashloan); ~30% opt-in. Decisão: virar **feature do Motor 1 antes do DRY_RUN** (cobrir clássico +
+   pre-liq). Viabilidade técnica/EIP-170 em `docs/PRE_LIQUIDATION_FEASIBILITY.md`.
 2. **Feed Flashblocks (bloXroute)** — vale o custo? Qual o ganho esperado de latência vs. preço
    mensal? (Definir se cotamos antes ou depois do DRY_RUN.)
 3. **Foco do Motor 1** — dado que Aave/Compound fecharam por SVR, faz sentido manter os runners

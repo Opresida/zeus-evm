@@ -127,6 +127,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     statusColor: stMeta[r.st].color,
     protocol: r.protocol,
     pair: r.pair,
+    venue: r.venue, // DEX da troca (multi-DEX Motor 1) — só liquidações confirmadas têm
     net: r.st === "pre" ? "—" : usd(r.net),
     netColor: r.st === "pre" ? "var(--muted)" : col(r.net),
     gas: r.st === "pre" ? "—" : usdp(r.gas),

@@ -76,6 +76,8 @@ export interface TxConfirmedEvent extends BaseEvent {
   netProfitUsd: number | null;
   profitDeltaBps: number;
   blockNumber: string;
+  /** DEX usada na troca colateral→dívida (multi-DEX do Motor 1): 'uniswap-v3' | 'aerodrome' | 'slipstream'. */
+  swapVenue?: string;
 }
 
 export interface TxRevertedOnChainEvent extends BaseEvent {

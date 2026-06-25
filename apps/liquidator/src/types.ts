@@ -6,7 +6,23 @@
 // Re-export pra preservar imports relativos `from './types'`
 export type { AaveLiquidatablePosition } from '@zeus-evm/aave-discovery';
 
-import type { Address } from 'viem';
+import type { Address, Hex } from 'viem';
+
+/**
+ * Plano de swap colateral→dívida escolhido pelo calculator (melhor DEX entre UniV3/Aero/Slipstream).
+ * Carrega o que o builder precisa pra montar o `SwapStep` — mesmo formato do `Quote` do Motor 2.
+ * Quando ausente na decision, o builder cai no default UniV3 (backward-compatible).
+ */
+export interface SwapPlan {
+  /** DexType (uint8) — UniswapV3=1, Aerodrome=2, Slipstream=5. */
+  dexType: number;
+  /** SwapRouter de execução do venue escolhido. */
+  router: Address;
+  /** extraData do venue (fee uint24 / stable+factory / int24 tickSpacing). */
+  extraData: Hex;
+  /** Output esperado do swap (wei do debtAsset) — vira o minAmountOut (com slippage) no builder. */
+  expectedOutput: bigint;
+}
 
 /**
  * Fonte do flashloan (deve bater com `enum FlashSource` no Solidity e em @zeus-evm/shared-types).
@@ -116,6 +132,12 @@ export interface LiquidationDecision {
   flashSource: FlashSource;
   /** Premium da fonte em bps (0 pra Morpho/Balancer, 5 pra Aave) — usado no profit math. */
   flashPremiumBps: bigint;
+  /**
+   * Plano de swap escolhido (melhor DEX entre UniV3/Aero/Slipstream) pra a troca colateral→dívida.
+   * Quando presente, o builder monta o `SwapStep` a partir dele (router/dexType/extraData/minAmountOut).
+   * Ausente = fallback UniV3 (comportamento legado).
+   */
+  swapPlan?: SwapPlan;
   /** Razão se decision = null (descarte). */
   rejectReason?: string;
 }

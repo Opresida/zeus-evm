@@ -180,6 +180,16 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.reorgs).toMatchObject({ window24h: 2, orphansRecovered: 1 });
   });
 
+  it("venue do swap (multi-DEX Motor 1) entra no TxRow a partir do payload", () => {
+    const rows = [
+      row({ type: "tx.confirmed", protocol: "morpho-blue", net_profit_usd: 80, payload: { swapVenue: "slipstream" } as ZeusEvent }),
+      row({ type: "tx.confirmed", protocol: "aave-v3", net_profit_usd: 50 }), // sem venue → undefined
+    ];
+    const snap = deriveSnapshot(rows);
+    expect(snap.txRows?.[0].venue).toBe("slipstream");
+    expect(snap.txRows?.[1].venue).toBeUndefined();
+  });
+
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {
     const snap = deriveSnapshot([], []);
     expect(snap.failures).toBeUndefined();

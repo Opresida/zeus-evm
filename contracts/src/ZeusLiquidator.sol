@@ -21,6 +21,7 @@ import {IMorpho, MarketParams, IMorphoFlashLoanCallback} from "./interfaces/morp
 import {IBalancerVault, IFlashLoanRecipient} from "./interfaces/balancer/IBalancerVault.sol";
 import {UniswapV3Lib} from "./libraries/UniswapV3Lib.sol";
 import {AerodromeLib} from "./libraries/AerodromeLib.sol";
+import {SlipstreamLib} from "./libraries/SlipstreamLib.sol";
 import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
 
 /// @title ZeusLiquidator — contrato dedicado a liquidations (Aave V3 + Compound III + Morpho Blue).
@@ -643,6 +644,8 @@ contract ZeusLiquidator is
                 UniswapV3Lib.swap(steps[i]);
             } else if (dt == DexType.Aerodrome) {
                 AerodromeLib.swap(steps[i]);
+            } else if (dt == DexType.Slipstream) {
+                SlipstreamLib.swap(steps[i]);
             } else {
                 revert InvalidDexType(uint8(dt));
             }

@@ -37,6 +37,7 @@ export interface ZeusEvent {
   protocol?: string;
   borrower?: string;
   pair?: string;
+  swapVenue?: string;
   profitUsd?: number;
   gasCostUsd?: number;
   netProfitUsd?: number;
@@ -252,4 +253,6 @@ export interface TxRow {
   mode: string;
   time: string;
   reason?: string;
+  /** DEX da troca colateral→dívida (multi-DEX do Motor 1): uniswap-v3 | aerodrome | slipstream. */
+  venue?: string;
 }

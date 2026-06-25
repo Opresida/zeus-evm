@@ -28,6 +28,7 @@ import { AavePriceOracle } from './protocols/aave/oracle';
 import { buildLiquidationTx } from './protocols/aave/builder';
 import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
+import { swapVenueLabel } from './protocols/bestSwapPlan';
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator';
@@ -423,6 +424,7 @@ async function _runAavePipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     contractCapWei: cap,
     oracle: deps.aaveOracle,
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED
@@ -589,6 +591,7 @@ async function _runAavePipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -724,6 +727,7 @@ async function _runCompoundPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     contractCapWei: cap,
     oracle: deps.aaveOracle,
   });
@@ -890,6 +894,7 @@ async function _runCompoundPipelineInner(
     bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -970,6 +975,7 @@ async function _runMorphoPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
   });
   observeCalc(deps, 'morpho-blue', calcStart);
@@ -1122,6 +1128,7 @@ async function _runMorphoPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -1305,5 +1312,6 @@ async function _runMoonwellPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }

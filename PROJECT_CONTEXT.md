@@ -81,6 +81,17 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-25 parte 3 (resumo — detalhes em `CLAUDE.md`)
+- **Painel (ZEUS Command) com login real + marca MAZARI** (deployado na Vercel): **Supabase Auth** com
+  **cadastro por indicação** (só admin gera) + **aprovação do admin**; membro **só vê**, **armar o bot = admin-only**
+  (UI + `requireAdmin` no servidor). Supabase configurado ao vivo (tabelas/RLS/conta admin). Branding: **logo
+  oficial ZEUS FLASHLOAN** no login (rodapé "Tecnologia exclusiva do Grupo MAZARI CORP"), **app icon** (PWA) +
+  favicon. UX: **ZeusLoader** + **splash ≥4s** + **crossfade** splash→login + **botão Sair** + **selo de MODO
+  real** (DRY-RUN/ARMADO/LIVE, substitui o "MAINNET" hardcoded).
+- **DRY_RUN esclarecido:** liga **subindo a VM** (`ARB_MODE=dryrun`), não por botão; o toggle do painel arma o
+  **live** (só em mainnet). Próximo: **checklist de subida da VM**. Pendências do Humberto: trocar senha admin;
+  (opcional) VAPID na Vercel + reinstalar PWA.
+
 ### 🆕 Sessão 2026-06-25 parte 2 (resumo — detalhes em `CLAUDE.md`)
 - **Reuso cross-motor** (sem código novo de lógica; tudo de `execution-utils`): **gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (OFF default; ZEUS liga em evidência `gas_outbid` e avisa no painel — ganho **modesto na Base FCFS**) · **paridade defensiva M2 ↔ M1** (reorg awareness + auto-pause de saúde + latência; o health server do M2 antes era "vazio") · **plano + gatilho da arb triangular** (`docs/TRIANGULAR_EXECUTION_PLAN.md` + banner "Lucro provado, hora de implementar a ligação da arb triangular" na Home).
 - **Estado honesto M1+M2:** maduros **como software** e no mesmo nível de defesa. **"Falta só DRY_RUN" é otimista:** o DRY_RUN ainda não roda (VM/webhook/Vercel), é **PORTÃO** que precisa PROVAR o edge (M1 fino = só Morpho; M2 não-provado), e mainnet exige deploy mainnet + multisig + operador + re-audit v9. Próximo: **checklist de subida do DRY_RUN**.

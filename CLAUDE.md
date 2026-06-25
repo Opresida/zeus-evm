@@ -181,6 +181,52 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-25 (parte 3) — Painel: login MAZARI + branding + UX (tudo na `main`, deployado na Vercel)
+
+Sessão focada no **ZEUS Command (frontend)**: autenticação real + identidade visual MAZARI + acabamento.
+Tudo commitado, **pushed e deployado** (Vercel auto-deploy na `main`). Frontend: `tsc` limpo · `next build` OK ·
+vitest **35/35** (8 testes novos de auth/invite).
+
+**1. Login completo (Supabase Auth) + cadastro por indicação com aprovação do admin:**
+- Painel inteiro atrás de **login obrigatório** (em produção). Sem Supabase (dev/local) → modo demo sem login.
+- **Papéis:** membro aprovado **só VÊ**; **armar o bot = admin-only** em 2 níveis (UI esconde o toggle **+**
+  `/api/control` valida `requireAdmin` no servidor via Bearer). Conta-raiz = `humbertodeassuncao@gmail.com`.
+- **Cadastro por LINK DE INDICAÇÃO** (só o admin gera) → conta nasce `pending` → **admin aprova** no painel.
+  **Sem verificação de e-mail** (aprovação humana é o portão; sem SMTP).
+- Tabelas `profiles` + `invites` + `is_admin()` + RLS (leitura de events/service_status/wallet apertada p/
+  `authenticated`; `engine_control` segue anon p/ o bot ler). Rotas: `/api/auth/signup`, `/api/admin/invite`,
+  `/api/admin/approve`, `/api/control` (admin). Helpers `lib/authClient.ts` + `lib/authServer.ts`. Guia em
+  `frontend/AUTH_SETUP.md`.
+- **Supabase JÁ CONFIGURADO ao vivo** (via Management API): tabelas+RLS criadas, conta admin criada+approved.
+  O Personal Access Token do Humberto foi **revogado por ele** após o setup (higiene).
+
+**2. Identidade visual MAZARI / ZEUS:**
+- **Logo oficial ZEUS FLASHLOAN** (lockup, fundo transparente) na tela de login + rodapé **"Tecnologia
+  exclusiva do Grupo MAZARI CORP"**. `public/brand/mazari-logo.png`.
+- **App icon** (tile navy + raio) → ícone da home no PWA (manifest 192/512 any+maskable) + apple-touch +
+  ícone das notificações. **Favicon** (monograma circular) → aba + badge. `public/icons/zeus-*.png`.
+  _Sem resize (ImageMagick ausente; o `convert` do Windows é utilitário de DISCO — NÃO usar); PNGs 1080²
+  escalam nativamente._
+
+**3. UX de abertura + acabamento:**
+- **ZeusLoader** (spinner dual-ring, ~1KB, sem libs) em `components/ZeusLoader.tsx` + keyframes no globals.css
+  (respeita `prefers-reduced-motion`). `app/loading.tsx` (splash da rota).
+- **Splash de entrada por NO MÍNIMO 4s** (`MIN_SPLASH_MS`) em paralelo à checagem de sessão (não soma atraso).
+- **Crossfade suave** splash → login (`FADE_MS=500`, `@keyframes zfadein`).
+- **Botão "Sair"** na topbar (1 clique, volta pro login; só com sessão real).
+- **Selo de MODO real** na topbar (substitui o "MAINNET" hardcoded): **DRY-RUN/TESTNET/ARMADO/LIVE** vindo do
+  heartbeat (cor por estado) + chain real. Read-only.
+
+**Esclarecimento importante (DRY_RUN):** DRY_RUN **não se liga por botão** — é o modo padrão do bot
+(`ARB_MODE=dryrun`) quando se **sobe a VM**. O toggle do painel **arma execução REAL** (só efetivo em modo
+mainnet); em dryrun é irrelevante (nunca envia). Ir pra mainnet = decisão de **deploy**, não botão. O selo de
+modo deixa isso visível. Próximo passo combinado: **checklist de subida da VM (Fly.io)** pra ligar o dry-run.
+
+**Pendências de operação (Humberto):** trocar a senha do admin (passou pelo chat); (opcional) setar as 3 chaves
+VAPID na Vercel pra push no celular; reinstalar o PWA no celular pra pegar o ícone novo.
+
+---
+
 ## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular (tudo na `main`)
 
 Foco: aproveitar funções que já existiam em um motor pra reforçar o outro (reuso barato de `execution-utils`),

@@ -73,6 +73,24 @@
 
 ---
 
+## 🆕 SESSÃO 2026-06-25 (parte 3) — Painel: login MAZARI + branding + UX (deployado na Vercel)
+
+**Feito (tudo na `main`, pushed + deployado):**
+- **Login completo (Supabase Auth)** + cadastro por **link de indicação** (só admin gera) + **aprovação do admin**.
+  Membro = só vê; **armar o bot = admin-only** (UI + `requireAdmin` no servidor). Tabelas `profiles`/`invites` +
+  RLS + rotas `/api/auth/signup`, `/api/admin/invite|approve`, `/api/control`. Guia `frontend/AUTH_SETUP.md`.
+- **Supabase configurado ao vivo** (tabelas+RLS+conta admin `humbertodeassuncao@gmail.com` approved). Token do
+  Humberto **revogado** após o setup.
+- **Branding:** logo oficial ZEUS FLASHLOAN no login + rodapé MAZARI · app icon (PWA home) + favicon.
+- **UX:** ZeusLoader (spinner) + `app/loading.tsx` · **splash de entrada ≥4s** · **crossfade** splash→login ·
+  **botão Sair** na topbar · **selo de MODO real** (DRY-RUN/ARMADO/LIVE, substitui o "MAINNET" hardcoded).
+- Frontend: `tsc` limpo · `next build` OK · vitest **35/35**.
+
+**🔜 Pendências (operação do Humberto):**
+- [ ] **Trocar a senha do admin** (passou pelo chat).
+- [ ] (opcional) 3 chaves **VAPID** na Vercel → push no celular. Reinstalar o PWA → ícone novo.
+- [ ] **Checklist de subida da VM (Fly.io)** pra ligar o **DRY_RUN** (próximo passo combinado).
+
 ## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular
 
 **Feito (tudo na `main`):**

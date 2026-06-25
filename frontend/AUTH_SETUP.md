@@ -43,5 +43,5 @@ Nenhuma env NOVA obrigatória — usa as 4 do Supabase que já existem:
    reforçado no servidor por `requireAdmin` em `/api/control`).
 
 ## 6. Marca
-A tela de login/cadastro mostra a logo de `frontend/public/brand/mazari-logo.svg` (hoje um **placeholder**) +
-o rodapé **"Tecnologia exclusiva do Grupo MAZARI CORP"**. Para a logo final, substitua o arquivo no mesmo caminho.
+A tela de login/cadastro mostra a logo oficial **ZEUS FLASHLOAN** (`frontend/public/brand/mazari-logo.png`,
+lockup completo, fundo transparente) + o rodapé **"Tecnologia exclusiva do Grupo MAZARI CORP"**.

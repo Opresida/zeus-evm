@@ -16,13 +16,13 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
           "width:100%; max-width:380px; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:32px 28px; display:flex; flex-direction:column; align-items:center; gap:6px;",
         )}
       >
-        {/* Logo MAZARI (placeholder até o arquivo final em /brand/mazari-logo.svg) */}
+        {/* Logo oficial ZEUS FLASHLOAN (lockup completo, fundo transparente) */}
         <img
-          src="/brand/mazari-logo.svg"
-          alt="MAZARI CORP"
-          style={{ height: 48, width: "auto", marginBottom: 6 }}
+          src="/brand/mazari-logo.png"
+          alt="ZEUS FLASHLOAN — Control Panel"
+          style={{ width: 196, height: "auto", marginTop: 2, marginBottom: 2 }}
         />
-        <h1 style={css("font:700 19px/1.2 'IBM Plex Sans'; margin:6px 0 0; letter-spacing:-.01em; text-align:center;")}>{title}</h1>
+        <h1 style={css("font:700 18px/1.2 'IBM Plex Sans'; margin:4px 0 0; letter-spacing:-.01em; text-align:center;")}>{title}</h1>
         {subtitle && (
           <p style={css("font:400 12.5px/1.5 'IBM Plex Sans'; color:var(--muted); margin:2px 0 10px; text-align:center;")}>{subtitle}</p>
         )}
@@ -30,8 +30,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
       </div>
 
       <div style={css("margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:4px;")}>
-        <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.16em; color:var(--gold);")}>ZEUS COMMAND</span>
-        <span style={css("font:500 10px/1.4 'IBM Plex Mono'; letter-spacing:.05em; color:var(--muted); text-align:center;")}>
+        <span style={css("font:500 10px/1.4 'IBM Plex Mono'; letter-spacing:.08em; color:var(--muted); text-align:center;")}>
           Tecnologia exclusiva do Grupo MAZARI CORP
         </span>
       </div>

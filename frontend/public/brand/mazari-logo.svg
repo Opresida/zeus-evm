@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="48" viewBox="0 0 200 48" role="img" aria-label="MAZARI CORP">
+  <!-- PLACEHOLDER — substituir pelo arquivo final da logo MAZARI (mesmo caminho/nome). -->
+  <rect x="1" y="1" width="46" height="46" rx="10" fill="none" stroke="#d6b25e" stroke-width="2"/>
+  <path d="M13 34 L24 14 L35 34 M18 28 H30" fill="none" stroke="#d6b25e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="58" y="23" font-family="'IBM Plex Sans',system-ui,sans-serif" font-size="17" font-weight="700" letter-spacing="2" fill="#e7ecf6">MAZARI</text>
+  <text x="58" y="38" font-family="'IBM Plex Mono',monospace" font-size="9" letter-spacing="3" fill="#8a93a6">CORP</text>
+</svg>

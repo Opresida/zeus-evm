@@ -164,7 +164,7 @@ export interface WalletSnapshotRow {
 
 /** Estado de UI controlado pelo painel. */
 export interface UiState {
-  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "reports" | "settings";
+  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "reports" | "settings" | "admin";
   theme: "navy" | "black";
   txFilter: "all" | "ok" | "rev" | "pre";
   period: "daily" | "weekly" | "monthly";

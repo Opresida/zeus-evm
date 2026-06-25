@@ -16,6 +16,8 @@ import { Intelligence } from "@/components/screens/Intelligence";
 import { Health } from "@/components/screens/Health";
 import { Reports } from "@/components/screens/Reports";
 import { Settings } from "@/components/screens/Settings";
+import { Admin } from "@/components/screens/Admin";
+import type { Profile } from "@/lib/authClient";
 
 const NAV: { id: UiState["screen"]; label: string; icon: string }[] = [
   { id: "home", label: "Visão geral", icon: "◉" },
@@ -28,7 +30,9 @@ const NAV: { id: UiState["screen"]; label: string; icon: string }[] = [
   { id: "settings", label: "Configurações", icon: "⚙" },
 ];
 
-export default function Dashboard() {
+export default function Dashboard({ profile }: { profile?: Profile | null }) {
+  const isAdmin = profile?.role === "admin";
+  const nav = isAdmin ? [...NAV, { id: "admin" as const, label: "Admin", icon: "⚿" }] : NAV;
   const [ui, setUi] = useState<UiState>({
     screen: "home",
     theme: "navy",
@@ -242,7 +246,7 @@ export default function Dashboard() {
             "width:230px; flex:none; border-right:1px solid var(--border); background:var(--bg2); padding:16px 12px; display:flex; flex-direction:column; gap:3px; position:sticky; top:60px; height:calc(100vh - 60px); overflow-y:auto;",
           )}
         >
-          {NAV.map((n) => {
+          {nav.map((n) => {
             const activeSel = ui.screen === n.id;
             return (
               <Hover
@@ -285,7 +289,8 @@ export default function Dashboard() {
             {ui.screen === "intel" && <Intelligence {...screenProps} />}
             {ui.screen === "health" && <Health {...screenProps} />}
             {ui.screen === "reports" && <Reports {...screenProps} />}
-            {ui.screen === "settings" && <Settings {...screenProps} />}
+            {ui.screen === "settings" && <Settings {...screenProps} isAdmin={isAdmin} />}
+            {ui.screen === "admin" && isAdmin && <Admin />}
           </div>
         </main>
       </div>

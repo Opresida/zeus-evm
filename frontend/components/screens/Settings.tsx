@@ -3,7 +3,17 @@ import { useEffect, useState } from "react";
 import { css } from "@/lib/css";
 import { Hover } from "@/components/ui";
 import { enablePush } from "@/lib/push";
+import { getAccessToken } from "@/lib/authClient";
 import type { ScreenProps } from "./shared";
+
+/** fetch com o token de sessão (Bearer) — as rotas /api/control são admin-only. */
+async function authedFetch(url: string, init?: RequestInit) {
+  const token = await getAccessToken();
+  return fetch(url, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  });
+}
 
 const card = "background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:20px 22px;";
 const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);";
@@ -23,7 +33,7 @@ function ExecutionControl({ motor, label }: { motor: string; label: string }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/control?motor=${motor}`)
+    authedFetch(`/api/control?motor=${motor}`)
       .then((r) => r.json())
       .then((j) => {
         if (!alive) return;
@@ -44,7 +54,7 @@ function ExecutionControl({ motor, label }: { motor: string; label: string }) {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/control", {
+      const res = await authedFetch("/api/control", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ motor, execution_enabled: next }),
@@ -104,7 +114,7 @@ function Toggle({ on, trackBg, knobLeft, onClick }: { on: boolean; trackBg: stri
   );
 }
 
-export function Settings({ vm, ui, actions }: ScreenProps) {
+export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
   const { notifRules, channels } = vm;
   const [pushMsg, setPushMsg] = useState<string | null>(null);
 
@@ -121,10 +131,12 @@ export function Settings({ vm, ui, actions }: ScreenProps) {
       <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Configurações</h1>
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 20px;")}>Execução, notificações, canais, tema e conta</p>
 
-      <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:0;")}>
-        <ExecutionControl motor="motor1" label="Motor 1 (liquidações)" />
-        <ExecutionControl motor="motor2" label="Motor 2 (arbitragem)" />
-      </div>
+      {isAdmin && (
+        <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:0;")}>
+          <ExecutionControl motor="motor1" label="Motor 1 (liquidações)" />
+          <ExecutionControl motor="motor2" label="Motor 2 (arbitragem)" />
+        </div>
+      )}
 
       <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px;")}>
         <div style={css(card)}>

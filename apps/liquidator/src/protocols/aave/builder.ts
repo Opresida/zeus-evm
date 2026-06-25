@@ -60,14 +60,16 @@ export function buildLiquidationTx(
 ): BuiltLiquidationTx {
   const { executorAddress, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput, bribe } = opts;
 
-  const swapRouter = chainConfig.uniswapV3.swapRouter02;
-
-  // minAmountOut com slippage protection
+  // Multi-DEX: usa o swapPlan escolhido pelo calculator (melhor entre UniV3/Aero/Slipstream).
+  // Ausente = fallback legado UniV3 single-hop com o fee tier preferido.
+  const plan = decision.swapPlan;
+  const swapRouter = plan?.router ?? chainConfig.uniswapV3.swapRouter02;
+  const dexType = plan?.dexType ?? (DexType.UniswapV3 as number);
+  const extraData = plan?.extraData ?? encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  // minAmountOut do output do venue REAL escolhido (mais apertado que a estimativa crua da pipeline).
+  const baseOutput = plan?.expectedOutput ?? expectedSwapOutput;
   const slippageNumerator = 10_000n - BigInt(slippageBps);
-  const minAmountOut = (expectedSwapOutput * slippageNumerator) / 10_000n;
-
-  // extraData = abi.encode(uint24 fee) pro UniswapV3Lib decode
-  const extraData = encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  const minAmountOut = (baseOutput * slippageNumerator) / 10_000n;
 
   const swapSteps = [
     {
@@ -76,7 +78,7 @@ export function buildLiquidationTx(
       tokenOut: position.debtAsset,
       amountIn: 0n, // 0 = use saldo atual (= collateralReceived após liquidationCall)
       minAmountOut,
-      dexType: DexType.UniswapV3 as number,
+      dexType,
       extraData,
     },
   ];

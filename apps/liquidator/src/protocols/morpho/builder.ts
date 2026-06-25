@@ -54,9 +54,13 @@ export function buildMorphoLiquidationTx(
 ): BuiltMorphoLiquidationTx {
   const { executorAddress, morpho, chainConfig, profitReceiver, slippageBps, preferredFeeTier, expectedSwapOutput, bribe } = opts;
 
-  const swapRouter = chainConfig.uniswapV3.swapRouter02;
-  const minAmountOut = (expectedSwapOutput * (10_000n - BigInt(slippageBps))) / 10_000n;
-  const extraData = encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  // Multi-DEX: swapPlan do calculator (UniV3/Aero/Slipstream) ou fallback UniV3 legado.
+  const sp = decision.swapPlan;
+  const swapRouter = sp?.router ?? chainConfig.uniswapV3.swapRouter02;
+  const dexType = sp?.dexType ?? (DexType.UniswapV3 as number);
+  const extraData = sp?.extraData ?? encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  const baseOutput = sp?.expectedOutput ?? expectedSwapOutput;
+  const minAmountOut = (baseOutput * (10_000n - BigInt(slippageBps))) / 10_000n;
 
   const swapSteps = [
     {
@@ -65,7 +69,7 @@ export function buildMorphoLiquidationTx(
       tokenOut: position.loanToken,
       amountIn: 0n, // 0 = usa saldo (colateral seizado pós-liquidate)
       minAmountOut,
-      dexType: DexType.UniswapV3 as number,
+      dexType,
       extraData,
     },
   ];

@@ -25,16 +25,20 @@ import {
   quoteUniswapV3,
   quoteUniswapV3MultiHop,
   buildCandidateRoutes,
+  bestSwapAcrossDexes,
   isQuote,
   type Quote,
 } from '@zeus-evm/dex-adapters';
+import type { ChainConfig } from '@zeus-evm/chain-config';
 
 import type { LiquidatorEnv } from '../../config';
 import type {
   AaveLiquidatablePosition,
   LiquidationOutcome,
   LiquidationDecision,
+  SwapPlan,
 } from '../../types';
+import { resolveBestSwapPlan } from '../bestSwapPlan';
 import { logger } from '../../logger';
 import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
 import { FlashSource } from '../../types';
@@ -57,6 +61,8 @@ export interface AaveCalculatorOpts {
   env: LiquidatorEnv;
   client: AnyPublicClient;
   quoterAddress: Address;
+  /** Chain config — habilita o swap multi-DEX (UniV3/Aero/Slipstream). Ausente = só UniV3. */
+  chainConfig?: ChainConfig;
   /** Cap on-chain via getMaxTradeFor(debtAsset). Override do protocolCap se menor. */
   contractCapWei: bigint;
   /** Aave PriceOracle pra conversões USD-corretas (debt/collateral/gas). */
@@ -159,6 +165,37 @@ export async function calculateOptimalLiquidation(
     }
   }
 
+  // Multi-DEX: no tamanho ótimo, escolhe o melhor venue (UniV3/Aero/Slipstream) pra a troca
+  // colateral→dívida. Antes a pipeline chumbava UniV3 fee 500; agora executa o de melhor preço.
+  // Roda ANTES do gate → o gate também ganha o melhor preço (não rejeita liquidação só-lucrativa-na-Aero).
+  let chosenSwapPlan: SwapPlan | undefined;
+  {
+    const bonusFactor = BPS_DENOMINATOR + BigInt(position.liquidationBonusBps);
+    const collateralAtBest = convertWeiByPrice(
+      (best.L * bonusFactor) / BPS_DENOMINATOR,
+      debtPrice,
+      position.debtAssetDecimals,
+      collateralPrice,
+      position.collateralAssetDecimals,
+    );
+    const flashloanFee = (best.L * AAVE_FLASHLOAN_PREMIUM_BPS) / BPS_DENOMINATOR;
+    const gasCostWei = usdToWei(env.GAS_COST_USD_ESTIMATE, debtPrice, position.debtAssetDecimals);
+    const swap = await resolveBestSwapPlan({
+      client,
+      chainConfig: opts.chainConfig,
+      collateralAsset: position.collateralAsset,
+      debtAsset: position.debtAsset,
+      collateralDecimals: position.collateralAssetDecimals,
+      debtDecimals: position.debtAssetDecimals,
+      collateralAmount: collateralAtBest,
+      repayAmount: best.L + flashloanFee,
+      gasCostWei,
+      priorProfit: best.profit,
+    });
+    chosenSwapPlan = swap.swapPlan;
+    best = { ...best, profit: swap.profit };
+  }
+
   // 5) Sanity: profit cobre MIN_LIQUIDATION_PROFIT_USD?
   // Converte threshold USD → debt wei via oracle (B-3 fix, era assume stable).
   const minProfitWei = usdToWei(env.MIN_LIQUIDATION_PROFIT_USD, debtPrice, position.debtAssetDecimals);
@@ -182,6 +219,7 @@ export async function calculateOptimalLiquidation(
     // (Morpho/Balancer) quando há liquidez — o profit estimado fica 5bps conservador, errando a favor.
     flashSource: FlashSource.Aave,
     flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
+    swapPlan: chosenSwapPlan,
   };
 
   logger.info(

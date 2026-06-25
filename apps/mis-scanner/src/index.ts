@@ -51,6 +51,8 @@ import {
   BlockPositionTracker,
   computeAdaptiveThresholds,
   findTriangularCycles,
+  BribeTracker,
+  shouldAutoEnableCompetitiveBribe,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -197,6 +199,11 @@ async function main(): Promise<void> {
   // Post-mortem: alvo = routers DEX (a corrida do arb é por quem inclui primeiro).
   const competitorResolver = new CompetitorResolver({ client, senderRegistry, targets: intelTargets.uniswap_v3_routers.concat(intelTargets.aerodrome_router ? [intelTargets.aerodrome_router] : []), logger });
   const blockPositionTracker = new BlockPositionTracker({ client, logger });
+  // Gorjeta competitiva (Motor 2): tracker do último bribe + estado mutável do auto-liga.
+  // `bribeAutoState` é a MESMA referência passada ao dispatcher — o detector periódico abaixo
+  // seta `.enabled=true` quando há evidência de gas_outbid, e o dispatch passa a usar a gorjeta.
+  const bribeTracker = new BribeTracker();
+  const bribeAutoState = { enabled: false, reason: '', sinceIso: '', outbidCount: 0 };
   logger.info('🧠 Camada de inteligência do Motor 2 pronta (competidores + PnL + calibração + post-mortem)');
 
   // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
@@ -320,6 +327,11 @@ async function main(): Promise<void> {
         // Inteligência (Parte B): reconciliação, falhas, post-mortem, eventos.
         pnlTracker, failureTracker, pnlReconciler, failureCollector, eventBus,
         competitorResolver, blockPositionTracker,
+        // Gorjeta competitiva (limitada por lucro) — opt-in OU auto-ligada pelo detector abaixo.
+        competitiveBribeEnabled: env.COMPETITIVE_BRIBE_ENABLED,
+        bribeTargetPercentile: env.BRIBE_TARGET_PERCENTILE,
+        maxBribeWei: BigInt(Math.floor(env.MAX_BRIBE_GWEI * 1e9)),
+        senderRegistry, bribeTracker, bribeAutoState,
       },
     };
     const remoteControlled = mode !== 'dryrun' && !!env.SUPABASE_URL;
@@ -354,6 +366,42 @@ async function main(): Promise<void> {
   }, 5_000);
   intelMetricsInterval.unref();
 
+  // ─── Detector do auto-liga da gorjeta competitiva (Motor 2) ───
+  // A cada 5 min: conta quantas corridas perdemos por gás (gas_outbid) na janela. Se passar do
+  // limiar e a feature ainda estiver desligada, o ZEUS LIGA sozinho a gorjeta competitiva — que já é
+  // LIMITADA POR LUCRO (nunca prejuízo). Sticky na sessão; o operador é avisado no painel (heartbeat
+  // + evento). Não persiste em engine_control; opt-in via config (COMPETITIVE_BRIBE_ENABLED) continua valendo.
+  const bribeAutoDetector = setInterval(() => {
+    try {
+      if (!arbExec || bribeAutoState.enabled || env.COMPETITIVE_BRIBE_ENABLED) return; // já ligado/forçado
+      const windowMs = env.BRIBE_AUTO_ENABLE_WINDOW_MIN * 60_000;
+      const cutoff = Date.now() - windowMs;
+      const outbidCount = failureCollector
+        .recent(500)
+        .filter((f) => f.category === 'gas_outbid' && f.timestamp >= cutoff).length;
+      if (!shouldAutoEnableCompetitiveBribe({ outbidCount, threshold: env.BRIBE_AUTO_ENABLE_THRESHOLD })) return;
+
+      const reason = `${outbidCount} corridas perdidas no gás na última ${env.BRIBE_AUTO_ENABLE_WINDOW_MIN} min`;
+      bribeAutoState.enabled = true;
+      bribeAutoState.reason = reason;
+      bribeAutoState.sinceIso = new Date().toISOString();
+      bribeAutoState.outbidCount = outbidCount;
+      logger.warn(
+        { outbidCount, threshold: env.BRIBE_AUTO_ENABLE_THRESHOLD, windowMin: env.BRIBE_AUTO_ENABLE_WINDOW_MIN },
+        `⚡ ZEUS LIGOU a gorjeta competitiva sozinho — ${reason} (dentro do lucro, nunca no vermelho)`,
+      );
+      eventBus.emit({
+        type: 'calibration.applied', timestamp: new Date().toISOString(), chain: chainConfig.name,
+        mode: arbExec.deps.mode ?? 'dryrun', severity: 'info', dimension: 'bribe-competitivo',
+        oldThresholdUsd: 0, newThresholdUsd: 0,
+        reason: `gorjeta competitiva auto-ligada: ${reason}`,
+      });
+    } catch (err) {
+      logger.debug?.({ err: err instanceof Error ? err.message : err }, 'bribe auto-detector: erro (drop)');
+    }
+  }, 5 * 60_000);
+  bribeAutoDetector.unref();
+
   // ─── Auto-calibração (Etapa C) — recalcula o gate de EV do arb a partir do ledger ───
   const runAdaptive = async () => {
     try {
@@ -385,6 +433,22 @@ async function main(): Promise<void> {
       adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
       autoPaused: armed ? !live : false, // travado só conta quando está armado
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+      // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
+      intel: (() => {
+        const mkt = senderRegistry.marketBribeStats();
+        const bs = bribeTracker.stats();
+        return {
+          marketBribeP50Gwei: mkt.p50Gwei,
+          marketBribeP75Gwei: mkt.p75Gwei,
+          marketBribeP95Gwei: mkt.p95Gwei,
+          competitorsActive: mkt.competitorsActive,
+          ourBribeGwei: bs?.lastGwei ?? env.GAS_PRIORITY_FEE_GWEI,
+          ...(bs?.autoRaised ? { bribeAutoRaised: true, bribeReason: bs.reason } : {}),
+          ...(bribeAutoState.enabled
+            ? { competitiveBribeAutoEnabled: true, bribeAutoEnableReason: bribeAutoState.reason }
+            : {}),
+        };
+      })(),
       // Fase 2 — ranking de pares com edge persistente (reusa o mesmo mis.ranking() do loop de scan).
       edgePairs: mis.ranking().slice(0, 8).map((r) => ({
         pair: r.groupLabel,

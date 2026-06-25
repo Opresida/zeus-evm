@@ -114,3 +114,19 @@ export class BribeTracker {
     return this.state ? { ...this.state } : null;
   }
 }
+
+/**
+ * Decide se o ZEUS deve AUTO-LIGAR o bribe competitivo: liga quando há evidência REAL de que estamos
+ * perdendo corridas por gás (categoria `gas_outbid` — competidor pagou priority fee maior que o nosso)
+ * acima de um limiar na janela. Determinístico/puro. Não desliga nada — só decide o "ligar".
+ */
+export function shouldAutoEnableCompetitiveBribe(opts: {
+  /** Nº de falhas categorizadas como `gas_outbid` na janela. */
+  outbidCount: number;
+  /** Limiar pra ligar (default 3). */
+  threshold: number;
+}): boolean {
+  const { outbidCount, threshold } = opts;
+  if (!Number.isFinite(outbidCount) || !Number.isFinite(threshold) || threshold <= 0) return false;
+  return outbidCount >= threshold;
+}

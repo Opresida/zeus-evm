@@ -246,6 +246,16 @@ export function deriveSnapshot(
   if (intelSvc?.intel) {
     snap.intel = { ...intelSvc.intel };
   }
+  // O auto-liga da gorjeta competitiva é sinal do Motor 2 (mis-scanner). Se o intel exibido veio do
+  // liquidator, ainda assim sobrepomos esse flag de qualquer serviço que o tenha ligado.
+  const autoEnabledSvc = statuses.find((s) => s.intel?.competitiveBribeAutoEnabled);
+  if (autoEnabledSvc?.intel?.competitiveBribeAutoEnabled) {
+    snap.intel = {
+      ...(snap.intel ?? {}),
+      competitiveBribeAutoEnabled: true,
+      bribeAutoEnableReason: autoEnabledSvc.intel.bribeAutoEnableReason,
+    };
+  }
 
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.

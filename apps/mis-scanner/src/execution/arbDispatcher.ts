@@ -31,6 +31,9 @@ import {
   type EventBus,
   type CompetitorResolver,
   type BlockPositionTracker,
+  calculateCompetitiveBribe,
+  type SenderRegistry,
+  type BribeTracker,
 } from '@zeus-evm/execution-utils';
 import { flashloanAssetOf } from './arbOpportunity';
 
@@ -72,6 +75,18 @@ export interface ArbDispatchDeps {
   eventBus?: EventBus;
   competitorResolver?: CompetitorResolver;
   blockPositionTracker?: BlockPositionTracker;
+  // ── Bribe (gorjeta do gás) competitivo auto-ligável (Motor 2) ──
+  /** Liga o auto-ajuste do priority fee (limitado por lucro). */
+  competitiveBribeEnabled?: boolean;
+  bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
+  /** Teto rígido de priority fee (wei). */
+  maxBribeWei?: bigint;
+  /** Registry de competidores (p50/p75/p95 do mercado). */
+  senderRegistry?: SenderRegistry;
+  /** Tracker do último bribe efetivo (pro heartbeat). */
+  bribeTracker?: BribeTracker;
+  /** Estado mutável do auto-liga — o detector no index seta `.enabled=true` quando há gas_outbid. */
+  bribeAutoState?: { enabled: boolean; reason: string };
   /** Hook pós-dispatch (extensibilidade). */
   onResult?: (r: ArbDispatchResult, ctx: { opp: CrossDexOpportunity; calldata: Hex }) => void | Promise<void>;
 }
@@ -156,13 +171,44 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
 
   try {
     const fees = await deps.gasOracle.getFees(client);
+    let priorityFee = fees.maxPriorityFeePerGas;
+    let maxFee = fees.maxFeePerGas;
+
+    // Bribe competitivo (gorjeta do gás): liga por config OU quando o ZEUS auto-ligou (gas_outbid).
+    // Sobe o priority fee pra ganhar a corrida, SEMPRE limitado pelo lucro da própria oportunidade.
+    const bribeActive = deps.competitiveBribeEnabled || deps.bribeAutoState?.enabled;
+    if (bribeActive && deps.senderRegistry && sim.gasUsed && sim.gasUsed > 0n && deps.ethUsdPrice > 0) {
+      const mkt = deps.senderRegistry.marketBribeStats();
+      const pct = deps.bribeTargetPercentile ?? 'p75';
+      const targetGwei = pct === 'p95' ? mkt.p95Gwei : pct === 'p50' ? mkt.p50Gwei : mkt.p75Gwei;
+      const toEthWei = (usd: number) => BigInt(Math.max(0, Math.floor((usd / deps.ethUsdPrice) * 1e18)));
+      const r = calculateCompetitiveBribe({
+        expectedProfitWei: toEthWei(opp.profitUsd ?? 0),
+        gasUnits: sim.gasUsed,
+        baseFeePerGasWei: fees.baseFeePerGas,
+        basePriorityFeeWei: fees.maxPriorityFeePerGas,
+        marketTargetPriorityFeeWei: BigInt(Math.floor((targetGwei || 0) * 1e9)),
+        minProfitWei: toEthWei(deps.minProfitUsd ?? 0),
+        maxPriorityFeeWei: deps.maxBribeWei,
+      });
+      priorityFee = r.priorityFeeWei;
+      maxFee = fees.maxFeePerGas - fees.maxPriorityFeePerGas + priorityFee;
+      deps.bribeTracker?.observe(Number(priorityFee) / 1e9, r.autoRaised, r.reason);
+      if (r.autoRaised) {
+        logger.info(
+          { pair: opp.pair.id, paraGwei: (Number(priorityFee) / 1e9).toFixed(4), alvo: `${targetGwei} (${pct})`, motivo: r.reason },
+          `⚡ arb BRIBE auto-ajustado (dentro do lucro): ${(Number(priorityFee) / 1e9).toFixed(4)} gwei`,
+        );
+      }
+    }
+
     const txParams: Record<string, unknown> = {
       account: deps.account,
       to: deps.executorAddress,
       data: calldata,
       chain: deps.wallet.chain ?? null,
-      maxFeePerGas: fees.maxFeePerGas,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      maxFeePerGas: maxFee,
+      maxPriorityFeePerGas: priorityFee,
     };
     logger.info({ pair: opp.pair.id, mode }, `🚀 arb SUBMETENDO (${mode}) — ${opp.pair.id}`);
     const txHash = await deps.wallet.sendTransaction(txParams as any);
@@ -190,7 +236,17 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
           }
           if (deps.competitorResolver && deps.account) {
             const w = await deps.competitorResolver.resolve(fe, deps.account);
-            if (w) { fe.competitor_winner_sender = w.winner_sender; fe.competitor_winner_alias = w.winner_alias; fe.competitor_winner_priority_fee_wei = w.winner_priority_fee_wei?.toString(); }
+            if (w) {
+              fe.competitor_winner_sender = w.winner_sender;
+              fe.competitor_winner_alias = w.winner_alias;
+              fe.competitor_winner_priority_fee_wei = w.winner_priority_fee_wei?.toString();
+              // Evidência REAL de perda por gás: o vencedor pagou priority fee MAIOR que o nosso.
+              // Vira o sinal `gas_outbid` que dispara o auto-liga do bribe competitivo.
+              if (w.winner_priority_fee_wei != null && w.winner_priority_fee_wei > priorityFee) {
+                fe.category = 'gas_outbid';
+                fe.category_confidence = 0.9;
+              }
+            }
           }
         } catch { /* post-mortem nunca quebra o fluxo */ }
         deps.failureCollector.record(fe);

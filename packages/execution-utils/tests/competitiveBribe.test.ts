@@ -3,7 +3,22 @@
  * Invariante crítica: o líquido (lucro − baseFee*gas − priority*gas) NUNCA cai abaixo do piso.
  */
 import { describe, expect, it } from 'vitest';
-import { calculateCompetitiveBribe, BribeTracker } from '../src/competitiveBribe';
+import { calculateCompetitiveBribe, BribeTracker, shouldAutoEnableCompetitiveBribe } from '../src/competitiveBribe';
+
+describe('shouldAutoEnableCompetitiveBribe — gatilho do auto-liga (Motor 2)', () => {
+  it('liga quando gas_outbid >= limiar', () => {
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: 3, threshold: 3 })).toBe(true);
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: 5, threshold: 3 })).toBe(true);
+  });
+  it('NÃO liga abaixo do limiar', () => {
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: 2, threshold: 3 })).toBe(false);
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: 0, threshold: 3 })).toBe(false);
+  });
+  it('valores inválidos → não liga (fail-safe)', () => {
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: NaN, threshold: 3 })).toBe(false);
+    expect(shouldAutoEnableCompetitiveBribe({ outbidCount: 5, threshold: 0 })).toBe(false);
+  });
+});
 
 const gwei = (n: number) => BigInt(Math.floor(n * 1e9));
 const GAS = 300_000n;

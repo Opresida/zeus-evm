@@ -338,10 +338,14 @@ export interface HeartbeatIntel {
   marketBribeP75Gwei?: number;
   /** NOSSO lance atual (priority fee gwei) — na Base o priority fee É o bribe prático. */
   ourBribeGwei?: number;
-  /** true se o ZEUS auto-ajustou o bribe pra cima por competição (dentro do lucro). */
+  /** true se o ZEUS auto-ajustou o bribe pra cima por competição (dentro do lucro) — POR DISPATCH. */
   bribeAutoRaised?: boolean;
   /** Motivo do auto-ajuste ('raised-to-market' | 'capped-by-profit'). */
   bribeReason?: string;
+  /** Motor 2: true quando o ZEUS LIGOU sozinho a feature de bribe competitivo (nível-feature). */
+  competitiveBribeAutoEnabled?: boolean;
+  /** Por que ligou (ex.: "N corridas perdidas no gás na última hora"). */
+  bribeAutoEnableReason?: string;
 }
 
 /**

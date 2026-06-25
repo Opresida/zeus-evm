@@ -222,6 +222,7 @@ export { fetchEngineControlEnabled } from './engineControl';
 // ─── Bribe competitor-aware com teto de lucro (Motor 1 mainnet) ───
 export {
   calculateCompetitiveBribe,
+  shouldAutoEnableCompetitiveBribe,
   BribeTracker,
   type CompetitiveBribeInput,
   type CompetitiveBribeResult,

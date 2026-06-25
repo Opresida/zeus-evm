@@ -6,7 +6,7 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, bribeNote, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs } = vm;
+  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs } = vm;
   const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
@@ -55,6 +55,11 @@ export function Intelligence({ vm }: ScreenProps) {
           <div style={css(`margin-top:16px; padding:12px 14px; background:var(--goldsoft); border-radius:9px; font:500 12px/1.4 'IBM Plex Sans'; color:${bribeNote.color};`)}>
             Nosso bribe atual: {ourBribe} — {bribeNote.text}
           </div>
+          {bribeAutoEnabled && (
+            <div style={css(`margin-top:10px; padding:12px 14px; background:var(--greensoft, rgba(34,197,94,.12)); border:1px solid ${bribeAutoEnabled.color}; border-radius:9px; font:600 12px/1.4 'IBM Plex Sans'; color:${bribeAutoEnabled.color};`)}>
+              {bribeAutoEnabled.text}
+            </div>
+          )}
         </div>
         <div style={css(card)}>
           <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--red);")}>Alarme · drift sustentado</span>

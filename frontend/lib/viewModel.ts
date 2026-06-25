@@ -233,6 +233,16 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
           color: "var(--green)",
         }
       : bribeVerdict(ourBribeGwei, intelLive?.marketBribeP50Gwei, intelLive?.marketBribeP75Gwei, intelLive?.marketBribeP95Gwei);
+  // Banner "o ZEUS ligou sozinho" (nível-feature): só ao vivo, quando o detector ativou por gas_outbid.
+  const bribeAutoEnabled =
+    !demo && intelLive?.competitiveBribeAutoEnabled
+      ? {
+          text: `⚡ ZEUS ligou o bribe competitivo automaticamente — ${
+            intelLive.bribeAutoEnableReason ?? "superados no gás"
+          } (dentro do lucro, nunca no vermelho).`,
+          color: "var(--green)",
+        }
+      : null;
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há
@@ -385,6 +395,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     bribe,
     ourBribe,
     bribeNote,
+    bribeAutoEnabled,
     driftAlarms,
     intelLive,
     failures,

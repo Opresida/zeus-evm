@@ -80,6 +80,18 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.intel).toMatchObject({ marketBribeP50Gwei: 0.01, competitorsActive: 4, driftBps: -118 });
   });
 
+  it("auto-liga da gorjeta (Motor 2): sobrepõe competitiveBribeAutoEnabled mesmo com intel do liquidator", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "liquidator", intel: { marketBribeP50Gwei: 0.01, competitorsActive: 4 } }),
+      status({ service: "mis-scanner", intel: { competitiveBribeAutoEnabled: true, bribeAutoEnableReason: "5 corridas perdidas no gás na última 60 min" } }),
+    ]);
+    expect(snap.intel).toMatchObject({
+      marketBribeP50Gwei: 0.01, // segue vindo do liquidator
+      competitiveBribeAutoEnabled: true, // sobreposto do mis-scanner
+      bribeAutoEnableReason: "5 corridas perdidas no gás na última 60 min",
+    });
+  });
+
   it("item 4: motorCards somam PnL/ops por motor a partir dos eventos tx.*", () => {
     const rows = [
       row({ type: "tx.confirmed", protocol: "aave-v3", net_profit_usd: 100 }),

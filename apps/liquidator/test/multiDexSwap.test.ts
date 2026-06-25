@@ -11,6 +11,7 @@ import { DexType } from '@zeus-evm/dex-adapters';
 import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
 import { buildLiquidationTx } from '../src/protocols/aave/builder';
 import { buildCompoundLiquidationTx } from '../src/protocols/compound/builder';
+import { buildMorphoLiquidationTx } from '../src/protocols/morpho/builder';
 import { FlashSource, type LiquidationDecision, type SwapPlan } from '../src/types';
 
 const WETH = '0x4200000000000000000000000000000000000006' as Address;
@@ -103,5 +104,37 @@ describe('Motor 1 — swap multi-DEX no builder do Compound', () => {
     const step = firstSwapStep(tx.data);
     expect(step.dexType).toBe(DexType.Aerodrome);
     expect(step.router.toLowerCase()).toBe(aeroRouter.toLowerCase());
+  });
+});
+
+describe('Motor 1 — swap multi-DEX no builder do Morpho (o edge)', () => {
+  const ADDR = (n: string) => n as Address;
+  const morphoPosition = {
+    collateralToken: WETH,
+    loanToken: USDC,
+    oracle: ADDR('0x4444444444444444444444444444444444444444'),
+    irm: ADDR('0x5555555555555555555555555555555555555555'),
+    lltv: 860000000000000000n,
+    borrower: ADDR('0x3333333333333333333333333333333333333333'),
+  } as never;
+  const liqPlan = { seizedAssets: 1n * 10n ** 18n, repaidShares: 0n } as never;
+  const morphoOpts = { ...opts, morpho: BASE_MAINNET.morpho!.morphoBlue };
+
+  it('SEM swapPlan → fallback UniswapV3', () => {
+    const tx = buildMorphoLiquidationTx(morphoPosition, baseDecision(), liqPlan, morphoOpts);
+    const step = firstSwapStep(tx.data);
+    expect(step.dexType).toBe(DexType.UniswapV3);
+    expect(step.router.toLowerCase()).toBe(BASE_MAINNET.uniswapV3.swapRouter02.toLowerCase());
+  });
+
+  it('COM swapPlan (Slipstream) → usa router/dexType/extraData do plano', () => {
+    const slipRouter = BASE_MAINNET.slipstream!.swapRouter;
+    const extraData = encodeAbiParameters([{ type: 'int24' }], [100]);
+    const plan: SwapPlan = { dexType: DexType.Slipstream, router: slipRouter, extraData, expectedOutput: 1020n * 10n ** 6n };
+    const tx = buildMorphoLiquidationTx(morphoPosition, baseDecision(plan), liqPlan, morphoOpts);
+    const step = firstSwapStep(tx.data);
+    expect(step.dexType).toBe(DexType.Slipstream);
+    expect(step.router.toLowerCase()).toBe(slipRouter.toLowerCase());
+    expect(step.extraData).toBe(extraData);
   });
 });

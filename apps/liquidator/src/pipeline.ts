@@ -972,6 +972,7 @@ async function _runMorphoPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
   });
   observeCalc(deps, 'morpho-blue', calcStart);

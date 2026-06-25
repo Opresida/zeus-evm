@@ -10,6 +10,7 @@ import { BASE_MAINNET } from '@zeus-evm/chain-config';
 import { DexType } from '@zeus-evm/dex-adapters';
 import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
 import { buildLiquidationTx } from '../src/protocols/aave/builder';
+import { buildCompoundLiquidationTx } from '../src/protocols/compound/builder';
 import { FlashSource, type LiquidationDecision, type SwapPlan } from '../src/types';
 
 const WETH = '0x4200000000000000000000000000000000000006' as Address;
@@ -74,5 +75,33 @@ describe('Motor 1 — swap multi-DEX no builder', () => {
     expect(step.dexType).toBe(DexType.Slipstream);
     expect(step.router.toLowerCase()).toBe(slipRouter.toLowerCase());
     expect(step.extraData).toBe(extraData);
+  });
+});
+
+describe('Motor 1 — swap multi-DEX no builder do Compound', () => {
+  const compoundPosition = {
+    comet: '0xb125E6687d4313864e53df431d5425969c15Eb2F' as Address,
+    borrower: '0x3333333333333333333333333333333333333333' as Address,
+    collateralAsset: WETH,
+    baseToken: USDC,
+    cometName: 'cUSDCv3',
+  } as never;
+  const compoundOpts = { ...opts, minCollateralReceivedWei: 1n };
+
+  it('SEM swapPlan → fallback UniswapV3', () => {
+    const tx = buildCompoundLiquidationTx(compoundPosition, baseDecision(), compoundOpts);
+    const step = firstSwapStep(tx.data);
+    expect(step.dexType).toBe(DexType.UniswapV3);
+    expect(step.router.toLowerCase()).toBe(BASE_MAINNET.uniswapV3.swapRouter02.toLowerCase());
+  });
+
+  it('COM swapPlan (Aerodrome) → usa router/dexType do plano', () => {
+    const aeroRouter = BASE_MAINNET.aerodrome!.router;
+    const extraData = encodeAbiParameters([{ type: 'bool' }, { type: 'address' }], [false, BASE_MAINNET.aerodrome!.factory]);
+    const plan: SwapPlan = { dexType: DexType.Aerodrome, router: aeroRouter, extraData, expectedOutput: 1020n * 10n ** 6n };
+    const tx = buildCompoundLiquidationTx(compoundPosition, baseDecision(plan), compoundOpts);
+    const step = firstSwapStep(tx.data);
+    expect(step.dexType).toBe(DexType.Aerodrome);
+    expect(step.router.toLowerCase()).toBe(aeroRouter.toLowerCase());
   });
 });

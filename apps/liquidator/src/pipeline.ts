@@ -725,6 +725,7 @@ async function _runCompoundPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     contractCapWei: cap,
     oracle: deps.aaveOracle,
   });

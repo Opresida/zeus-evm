@@ -21,13 +21,16 @@
 import type { Address, PublicClient } from 'viem';
 import { quoteUniswapV3, isQuote } from '@zeus-evm/dex-adapters';
 import type { Quote } from '@zeus-evm/dex-adapters';
+import type { ChainConfig } from '@zeus-evm/chain-config';
 
 import type { LiquidatorEnv } from '../../config';
 import type {
   CompoundLiquidatablePosition,
   LiquidationOutcome,
   LiquidationDecision,
+  SwapPlan,
 } from '../../types';
+import { resolveBestSwapPlan } from '../bestSwapPlan';
 import { logger } from '../../logger';
 import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
 import { FlashSource } from '../../types';
@@ -52,6 +55,8 @@ export interface CompoundCalculatorOpts {
   env: LiquidatorEnv;
   client: AnyPublicClient;
   quoterAddress: Address;
+  /** Chain config — habilita o swap multi-DEX (UniV3/Aero/Slipstream). Ausente = só UniV3. */
+  chainConfig?: ChainConfig;
   contractCapWei: bigint;
   /** Oracle pra converter USD ↔ base token wei (gas, threshold, profit). */
   oracle: AavePriceOracle;
@@ -121,6 +126,36 @@ export async function calculateOptimalCompoundLiquidation(
     }
   }
 
+  // Multi-DEX: no tamanho ótimo, escolhe o melhor venue (UniV3/Aero/Slipstream) pra a troca
+  // colateral→base. Roda ANTES do gate → o gate também ganha o melhor preço. Mesmo padrão do Aave.
+  let chosenSwapPlan: SwapPlan | undefined;
+  try {
+    const collateralAtBest = (await client.readContract({
+      address: position.comet,
+      abi: COMET_ABI,
+      functionName: 'quoteCollateral',
+      args: [position.collateralAsset, best.L],
+    })) as bigint;
+    const flashloanFee = (best.L * AAVE_FLASHLOAN_PREMIUM_BPS) / BPS_DENOMINATOR;
+    const gasCostWei = usdToWei(env.GAS_COST_USD_ESTIMATE, basePrice, position.baseTokenDecimals);
+    const swap = await resolveBestSwapPlan({
+      client,
+      chainConfig: opts.chainConfig,
+      collateralAsset: position.collateralAsset,
+      debtAsset: position.baseToken,
+      collateralDecimals: position.collateralAssetDecimals,
+      debtDecimals: position.baseTokenDecimals,
+      collateralAmount: collateralAtBest,
+      repayAmount: best.L + flashloanFee,
+      gasCostWei,
+      priorProfit: best.profit,
+    });
+    chosenSwapPlan = swap.swapPlan;
+    best = { ...best, profit: swap.profit };
+  } catch {
+    // quoteCollateral/fan-out falhou → fallback UniV3 (swapPlan undefined), profit do sizing.
+  }
+
   // 4) Sanity profit threshold via oracle (B-1 + B-3 fix)
   const minProfitWei = usdToWei(env.MIN_LIQUIDATION_PROFIT_USD, basePrice, position.baseTokenDecimals);
   if (best.profit < minProfitWei) {
@@ -141,6 +176,7 @@ export async function calculateOptimalCompoundLiquidation(
     // Default Aave; pipeline sobrescreve via seletor de fonte 0% quando há liquidez.
     flashSource: FlashSource.Aave,
     flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
+    swapPlan: chosenSwapPlan,
   };
 
   logger.info(

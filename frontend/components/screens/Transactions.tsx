@@ -66,7 +66,14 @@ export function Transactions({ vm, ui, actions }: ScreenProps) {
               <span style={{ ...css("width:6px;height:6px;border-radius:50%;"), background: t.statusColor }} />
               {t.statusLabel}
             </span>
-            <span data-label="Protocolo" style={css("font:500 12.5px/1 'IBM Plex Sans'; color:var(--text);")}>{t.protocol}</span>
+            <span data-label="Protocolo" style={css("display:flex; flex-direction:column; gap:3px;")}>
+              <span style={css("font:500 12.5px/1 'IBM Plex Sans'; color:var(--text);")}>{t.protocol}</span>
+              {t.venue && (
+                <span style={css(`font:500 9.5px/1 'IBM Plex Mono'; color:${t.venue === "uniswap-v3" ? "var(--muted)" : "var(--gold)"};`)}>
+                  via {t.venue === "uniswap-v3" ? "UniV3" : t.venue === "aerodrome" ? "Aerodrome" : t.venue === "slipstream" ? "Slipstream" : t.venue}
+                </span>
+              )}
+            </span>
             <span data-label="Par" style={css("font:500 12px/1 'IBM Plex Mono'; color:var(--text2);")}>{t.pair}</span>
             <span data-label="Net" style={{ ...css("font:600 12.5px/1 'IBM Plex Mono';"), color: t.netColor }}>{t.net}</span>
             <span data-label="Gás" style={css("font:500 11.5px/1 'IBM Plex Mono'; color:var(--muted);")}>{t.gas}</span>

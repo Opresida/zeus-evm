@@ -52,6 +52,7 @@ function rowToTx(r: EventRow): TxRow {
     mode: (r.mode || "main").slice(0, 4),
     time: hhmm(r.ts),
     reason: (r.payload?.reason as string) || undefined,
+    venue: (r.payload?.swapVenue as string) || undefined,
   };
 }
 

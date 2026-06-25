@@ -196,10 +196,18 @@ export default function Dashboard({ profile }: { profile?: Profile | null }) {
           <span style={css("font:600 11px/1 'IBM Plex Mono'; letter-spacing:.06em; color:var(--text);")}>{vm.botStatus}</span>
         </div>
 
-        <div className="z-topmeta" style={css("display:flex; align-items:center; gap:7px; padding:6px 12px; border:1px solid var(--border); border-radius:8px;")}>
-          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--gold);")}>MAINNET</span>
+        <div
+          className="z-topmeta"
+          style={css(`display:flex; align-items:center; gap:7px; padding:6px 12px; border:1px solid ${vm.modeBadge.color}; border-radius:8px;`)}
+          title={vm.modeBadge.sub ? `Modo: ${vm.modeBadge.label} (${vm.modeBadge.sub})` : `Modo: ${vm.modeBadge.label}`}
+        >
+          <span style={{ ...css("width:6px; height:6px; border-radius:50%; flex:none;"), background: vm.modeBadge.color }} />
+          <span style={{ ...css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em;"), color: vm.modeBadge.color }}>{vm.modeBadge.label}</span>
+          {vm.modeBadge.sub && (
+            <span style={css("font:500 9px/1 'IBM Plex Mono'; letter-spacing:.04em; color:var(--muted);")}>{vm.modeBadge.sub}</span>
+          )}
           <span style={css("width:1px; height:11px; background:var(--border2);")} />
-          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--text2);")}>BASE</span>
+          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--text2);")}>{vm.chainLabel}</span>
         </div>
 
         <div className="z-topmeta" style={css("display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--border); border-radius:8px;")}>

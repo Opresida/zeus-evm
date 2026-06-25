@@ -180,6 +180,10 @@ export interface UiState {
  */
 export interface LiveSnapshot {
   botStatus?: string;
+  /** Modo real do bot (dryrun | testnet | mainnet) vindo do heartbeat. */
+  mode?: string;
+  /** Chain real do bot (ex.: "Base") vinda do heartbeat. */
+  chain?: string;
   gasEth?: string;
   gasUsd?: string;
   runwayDays?: string;

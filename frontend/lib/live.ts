@@ -124,6 +124,11 @@ export function deriveSnapshot(
   if (mis?.auto_paused != null) snap.botStatus = mis.auto_paused ? "TRAVADO" : "RUNNING";
   else if (statuses.some((s) => s.auto_paused)) snap.botStatus = "PAUSED";
 
+  // Modo + chain REAIS (pro selo de modo na topbar): prefere o Motor 2 (arb), senão liquidator/qualquer.
+  const primary = mis ?? byService("liquidator") ?? statuses.find((s) => s.mode);
+  if (primary?.mode) snap.mode = primary.mode;
+  if (primary?.chain) snap.chain = primary.chain;
+
   const gasEvt = rows.find((r) => r.type === "gas.alert" || r.type === "gas.recovered");
   if (gasEvt) {
     const p = gasEvt.payload as ZeusEvent;

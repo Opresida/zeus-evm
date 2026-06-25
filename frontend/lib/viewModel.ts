@@ -57,6 +57,19 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
 
   // ---- topbar / status ----
   const botStatus = live?.botStatus ?? M.botStatus;
+  // Selo de MODO real (do heartbeat): DRY-RUN (observando) · ARMADO (travado) · LIVE (executando).
+  const modeBadge = (() => {
+    const m = (live?.mode || "").toLowerCase();
+    const travado = live?.botStatus === "TRAVADO" || live?.botStatus === "PAUSED";
+    if (m === "dryrun") return { label: "DRY-RUN", sub: "observando", color: "var(--cyan)" };
+    if (m === "testnet") return { label: "TESTNET", sub: travado ? "travado" : "ativo", color: "var(--gold)" };
+    if (m === "mainnet")
+      return travado
+        ? { label: "ARMADO", sub: "travado", color: "var(--gold)" }
+        : { label: "LIVE", sub: "executando", color: "var(--green)" };
+    return { label: demo ? "DEMO" : m ? m.toUpperCase() : "—", sub: "", color: "var(--muted)" };
+  })();
+  const chainLabel = (live?.chain || (demo ? "Base" : "—")).toUpperCase();
   const runwayDays = live?.runwayDays ?? M.runwayDays;
   const adaptiveEv = live?.adaptiveEv ?? M.adaptiveEv;
   const gas = { eth: live?.gasEth ?? M.gas.eth, usd: live?.gasUsd ?? usdp(M.gas.usd) };
@@ -387,6 +400,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     uptime,
     clock,
     botStatus,
+    modeBadge,
+    chainLabel,
     runwayDays,
     adaptiveEv,
     triangularReady,

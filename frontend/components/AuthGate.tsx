@@ -6,6 +6,7 @@ import { loadAuthState, onAuthChange, type AuthState } from "@/lib/authClient";
 import { Login } from "@/components/auth/Login";
 import { Pending } from "@/components/auth/Pending";
 import Dashboard from "@/components/Dashboard";
+import ZeusLoader from "@/components/ZeusLoader";
 
 /**
  * Portão de autenticação do painel. Em produção (Supabase configurado) o login é OBRIGATÓRIO e só
@@ -42,9 +43,9 @@ function Gated() {
     return (
       <div
         data-theme="navy"
-        style={css("min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg); color:var(--muted); font:500 13px/1 'IBM Plex Mono';")}
+        style={css("min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);")}
       >
-        Carregando…
+        <ZeusLoader size={84} />
       </div>
     );
   }

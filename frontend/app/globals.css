@@ -23,6 +23,13 @@ body { background: #07090f; }
 @keyframes zpulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes zfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* ZeusLoader (dual-ring) */
+@keyframes zeus-spin { to { transform: rotate(360deg); } }
+@keyframes zeus-pulse { 0%,100% { opacity: 1; } 50% { opacity: .78; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-zeus-loader-root] circle, [data-zeus-loader-root] path { animation: none !important; }
+}
+
 input::placeholder { color: var(--muted); }
 a { color: inherit; }
 

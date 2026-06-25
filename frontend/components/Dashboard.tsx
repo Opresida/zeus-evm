@@ -235,6 +235,23 @@ export default function Dashboard({ profile }: { profile?: Profile | null }) {
             <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
           </svg>
         </Hover>
+
+        {/* Sair → volta pra tela de login (só quando há sessão real). */}
+        {profile && (
+          <Hover
+            as="button"
+            onClick={actions.logout}
+            base="display:flex; align-items:center; gap:7px; height:34px; padding:0 12px; border-radius:8px; border:1px solid var(--border2); background:var(--panel); color:var(--text2); cursor:pointer; font:600 11px/1 'IBM Plex Sans';"
+            hover="border-color:var(--red); color:var(--red);"
+            title={`Sair${profile.email ? ` (${profile.email})` : ""}`}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="M16 17l5-5-5-5M21 12H9" />
+            </svg>
+            <span className="z-navlabel">Sair</span>
+          </Hover>
+        )}
       </header>
 
       {/* ===== BODY ===== */}

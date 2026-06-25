@@ -12,6 +12,7 @@ import { ZEUS_EXECUTOR_ABI } from '@zeus-evm/strategy';
 import { buildLiquidationTx } from '../src/protocols/aave/builder';
 import { buildCompoundLiquidationTx } from '../src/protocols/compound/builder';
 import { buildMorphoLiquidationTx } from '../src/protocols/morpho/builder';
+import { swapVenueLabel } from '../src/protocols/bestSwapPlan';
 import { FlashSource, type LiquidationDecision, type SwapPlan } from '../src/types';
 
 const WETH = '0x4200000000000000000000000000000000000006' as Address;
@@ -104,6 +105,15 @@ describe('Motor 1 — swap multi-DEX no builder do Compound', () => {
     const step = firstSwapStep(tx.data);
     expect(step.dexType).toBe(DexType.Aerodrome);
     expect(step.router.toLowerCase()).toBe(aeroRouter.toLowerCase());
+  });
+});
+
+describe('swapVenueLabel (observabilidade do venue)', () => {
+  it('mapeia dexType → nome da DEX; ausente/UniV3 → uniswap-v3', () => {
+    expect(swapVenueLabel(DexType.UniswapV3)).toBe('uniswap-v3');
+    expect(swapVenueLabel(DexType.Aerodrome)).toBe('aerodrome');
+    expect(swapVenueLabel(DexType.Slipstream)).toBe('slipstream');
+    expect(swapVenueLabel(undefined)).toBe('uniswap-v3'); // fallback legado
   });
 });
 

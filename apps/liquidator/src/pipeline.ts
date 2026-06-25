@@ -28,6 +28,7 @@ import { AavePriceOracle } from './protocols/aave/oracle';
 import { buildLiquidationTx } from './protocols/aave/builder';
 import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
+import { swapVenueLabel } from './protocols/bestSwapPlan';
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator';
@@ -590,6 +591,7 @@ async function _runAavePipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -892,6 +894,7 @@ async function _runCompoundPipelineInner(
     bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -1125,6 +1128,7 @@ async function _runMorphoPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -1308,5 +1312,6 @@ async function _runMoonwellPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }

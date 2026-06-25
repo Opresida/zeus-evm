@@ -105,6 +105,8 @@ export interface DispatchInput {
   opportunityId?: string;
   /** Venue/market label (ex: 'seamless') pra distinguir forks Aave no reconciler. */
   venue?: string;
+  /** DEX da troca colateral→dívida (multi-DEX): 'uniswap-v3'|'aerodrome'|'slipstream'. Observabilidade. */
+  swapVenue?: string;
   /** MetricRegistry opcional — pra cronometrar dispatch (histograma zeus_dispatch_duration_seconds). */
   metricRegistry?: MetricRegistry;
   /** Fase 5b — post-mortem: descobre QUEM nos ganhou numa falha (só com tx real). */
@@ -615,6 +617,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         netProfitUsd: netProfitUsd ?? null,
         profitDeltaBps: deltaBps,
         blockNumber: receipt.blockNumber.toString(),
+        swapVenue: input.swapVenue,
       });
     }
 

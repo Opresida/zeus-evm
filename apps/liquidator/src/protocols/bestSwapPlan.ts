@@ -41,6 +41,21 @@ export interface BestSwapPlanResult {
   profit: bigint;
 }
 
+/**
+ * Nome legível da DEX a partir do `dexType` do swapPlan — pra observabilidade (evento tx.confirmed
+ * → painel "trocou via X"). Sem swapPlan (fallback) = uniswap-v3.
+ */
+export function swapVenueLabel(dexType?: number): string {
+  switch (dexType) {
+    case 2:
+      return 'aerodrome';
+    case 5:
+      return 'slipstream';
+    default:
+      return 'uniswap-v3'; // 1 (UniV3) ou ausente (fallback legado)
+  }
+}
+
 export async function resolveBestSwapPlan(input: BestSwapPlanInput): Promise<BestSwapPlanResult> {
   const { client, chainConfig, collateralAmount, repayAmount, gasCostWei, priorProfit } = input;
   if (!chainConfig || collateralAmount <= 0n) return { profit: priorProfit };

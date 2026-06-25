@@ -23,6 +23,9 @@ body { background: #07090f; }
 @keyframes zpulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes zfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* fade-in puro (sem slide) — usado no crossfade splash → login */
+@keyframes zfadein { from { opacity: 0; } to { opacity: 1; } }
+
 /* ZeusLoader (dual-ring) */
 @keyframes zeus-spin { to { transform: rotate(360deg); } }
 @keyframes zeus-pulse { 0%,100% { opacity: 1; } 50% { opacity: .78; } }

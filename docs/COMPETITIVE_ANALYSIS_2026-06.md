@@ -139,7 +139,10 @@ exóticos que os bots grandes ignoram).
    latência sem reescrever em Rust. Vale cotar o custo/integração.
 3. **Caçar long-tail / markets novos do Morpho** onde os bots grandes ainda não chegaram — nosso
    scoring de persistência (OIE) é justamente a ferramenta pra achar esses nichos antes deles.
-4. **Rust só no hot-path do backrun** — caro; só se o DRY_RUN mostrar que vale. E o Motor 3 ainda
+4. **Pivô do Motor 2 → filler UniswapX na Base** — em vez de brigar pelo spread cross-DEX (que os
+   solvers internalizam), virar quem preenche as ordens. Permissionless, ~60-70% do código já serve,
+   sem capital/KYC. Nicho real = long-tail. Viabilidade + economia em `docs/UNISWAPX_FILLER_FEASIBILITY.md`.
+5. **Rust só no hot-path do backrun** — caro; só se o DRY_RUN mostrar que vale. E o Motor 3 ainda
    está bloqueado por falta de feed de mempool de qualquer jeito.
 
 ---
@@ -158,6 +161,9 @@ exóticos que os bots grandes ignoram).
 5. **Critério de decisão pós-DRY_RUN** — que número de won-rate / PnL líquido justificaria capital
    real? E qual número nos diria "TS não aguenta, hora de Rust ou pivô"? Definir isso ANTES, pra não
    decidir no calor.
+6. **Filler UniswapX (Motor 2)** — ✅ **aprofundado (jun/2026).** Barato de construir (~60-70% de reúso),
+   mas margem fina (1-5 bps) e competição de MM com inventário → nicho = long-tail. Próximo passo é a
+   **F0: medir os fills reais na Base on-chain ANTES de construir.** Detalhes em `docs/UNISWAPX_FILLER_FEASIBILITY.md`.
 
 ---
 

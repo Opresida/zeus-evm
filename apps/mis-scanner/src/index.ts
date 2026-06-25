@@ -53,6 +53,15 @@ import {
   findTriangularCycles,
   BribeTracker,
   shouldAutoEnableCompetitiveBribe,
+  // Defesas de maturidade (paridade Motor 1) — todas de execution-utils.
+  AutoPauseManager,
+  FinalityTracker,
+  OrphanRecoveryManager,
+  TxStateMachine,
+  ReorgAnalytics,
+  BlockStalenessCheck,
+  ProcessCheck,
+  LatencyTracker,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -206,6 +215,40 @@ async function main(): Promise<void> {
   const bribeAutoState = { enabled: false, reason: '', sinceIso: '', outbidCount: 0 };
   logger.info('🧠 Camada de inteligência do Motor 2 pronta (competidores + PnL + calibração + post-mortem)');
 
+  // ─── Defesas de maturidade (paridade com o Motor 1) — REUSO de execution-utils, dormentes em DRY_RUN ───
+  // Saúde → pausa: o health server (abaixo) ganha "sensores" reais; sem isto ele responde mas nada pausa o bot.
+  const autoPauseManager = new AutoPauseManager({ logger });
+  const txStateMachine = new TxStateMachine({ logger });
+  const orphanRecoveryManager = new OrphanRecoveryManager({ txStateMachine, logger });
+  const reorgAnalytics = new ReorgAnalytics({ logger });
+  const latencyTracker = new LatencyTracker();
+  // Reorg → pausa crítica + recovery de tx órfã (mesmo encadeamento do liquidator).
+  const finalityTracker = new FinalityTracker({ client, logger });
+  finalityTracker.onReorg(async (ev) => {
+    if (ev.depth >= 3 || finalityTracker.isCircuitBreakerActive()) {
+      autoPauseManager.setReason('reorg', 'critical', `reorg depth=${ev.depth} ancestor=${ev.commonAncestorBlock}`);
+      setTimeout(() => autoPauseManager.clearReason('reorg'), 5 * 60 * 1000).unref();
+    }
+    reorgAnalytics.observe(ev);
+    await orphanRecoveryManager.onReorg(ev); // dormente em DRY_RUN (sem tx real registrada)
+  });
+  finalityTracker.start();
+  // Bloco travado (sem novo bloco > limite) → pausa.
+  const blockStalenessCheck = new BlockStalenessCheck({ client, logger });
+  blockStalenessCheck.onStatusChange((r) => {
+    if (r.status === 'critical') autoPauseManager.setReason('block_staleness', 'critical', `${r.age_seconds.toFixed(0)}s sem bloco`);
+    else autoPauseManager.clearReason('block_staleness');
+  });
+  blockStalenessCheck.start();
+  // Saúde do processo (memória/event-loop lag) → pausa.
+  const processCheck = new ProcessCheck({ logger });
+  processCheck.onStatusChange((p) => {
+    if (p.status === 'critical') autoPauseManager.setReason('process', 'critical', `mem ${p.memory_mb.rss.toFixed(0)}MB lag ${p.event_loop_lag_ms.toFixed(0)}ms`);
+    else autoPauseManager.clearReason('process');
+  });
+  processCheck.start();
+  logger.info('🛡️ Defesas de maturidade do Motor 2 prontas (reorg + auto-pause de saúde + latência)');
+
   // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
   const metricRegistry = new MetricRegistry({ logger });
   registerStandardMetrics(metricRegistry);
@@ -228,12 +271,18 @@ async function main(): Promise<void> {
         readinessProvider: () => {
           const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
           const live = !!arbExec?.deps.liveExecutionEnabled;
-          const paused = armed && !live;
+          const lockedOff = armed && !live;
+          // Pausa de saúde/reorg (sensores reais) OU toggle remoto OFF — ambos travam o dispatch.
+          const healthPaused = autoPauseManager.shouldPause();
+          const paused = lockedOff || healthPaused;
+          const reasons: string[] = [];
+          if (lockedOff) reasons.push('execution_locked (toggle remoto OFF)');
+          if (healthPaused) reasons.push(autoPauseManager.summary());
           return {
             status: 'ok',
             checks: {},
             dispatchesPaused: paused,
-            pausedReasons: paused ? ['execution_locked (toggle remoto OFF)'] : [],
+            pausedReasons: reasons,
           };
         },
         metricsProvider: () => metricRegistry.render(),
@@ -332,6 +381,8 @@ async function main(): Promise<void> {
         bribeTargetPercentile: env.BRIBE_TARGET_PERCENTILE,
         maxBribeWei: BigInt(Math.floor(env.MAX_BRIBE_GWEI * 1e9)),
         senderRegistry, bribeTracker, bribeAutoState,
+        // Defesas de maturidade (paridade Motor 1): gate de pausa + reorg recovery + latência.
+        autoPauseManager, txStateMachine, orphanRecoveryManager, latencyTracker,
       },
     };
     const remoteControlled = mode !== 'dryrun' && !!env.SUPABASE_URL;
@@ -431,7 +482,14 @@ async function main(): Promise<void> {
       mode: arbExec?.deps.mode ?? 'dryrun', severity: 'info', service: 'mis-scanner',
       uptimeSec: Math.floor(process.uptime()),
       adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
-      autoPaused: armed ? !live : false, // travado só conta quando está armado
+      // Travado por toggle remoto (só quando armado) OU pausado por saúde/reorg (sensores reais).
+      autoPaused: (armed ? !live : false) || autoPauseManager.shouldPause(),
+      // Razões de pausa de saúde/reorg → tela Saúde do painel (vazio quando saudável).
+      cooldowns: autoPauseManager.shouldPause()
+        ? [{ label: 'auto-pause', reason: autoPauseManager.summary(), active: true }]
+        : [],
+      // Latência de dispatch p50/p95 (paridade Motor 1) — omitida enquanto não há amostra real.
+      ...(latencyTracker.stats().samples > 0 ? { latency: latencyTracker.stats() } : {}),
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
       // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
       intel: (() => {

@@ -34,6 +34,10 @@ import {
   calculateCompetitiveBribe,
   type SenderRegistry,
   type BribeTracker,
+  type AutoPauseManager,
+  type TxStateMachine,
+  type OrphanRecoveryManager,
+  type LatencyTracker,
 } from '@zeus-evm/execution-utils';
 import { flashloanAssetOf } from './arbOpportunity';
 
@@ -75,6 +79,15 @@ export interface ArbDispatchDeps {
   eventBus?: EventBus;
   competitorResolver?: CompetitorResolver;
   blockPositionTracker?: BlockPositionTracker;
+  // ── Defesas de maturidade (paridade com o Motor 1) — todas opcionais, dormentes em DRY_RUN ──
+  /** Pausa o dispatch quando saúde/reorg degrada (gate pré-simulação). */
+  autoPauseManager?: AutoPauseManager;
+  /** Máquina de estado da tx (submitted→included) pra recovery de órfã pós-reorg. */
+  txStateMachine?: TxStateMachine;
+  /** Re-submete tx que ficou órfã num reorg (revalida via eth_call). */
+  orphanRecoveryManager?: OrphanRecoveryManager;
+  /** Buffer de latência submit→1ª confirmação (p50/p95 pro heartbeat). */
+  latencyTracker?: LatencyTracker;
   // ── Bribe (gorjeta do gás) competitivo auto-ligável (Motor 2) ──
   /** Liga o auto-ajuste do priority fee (limitado por lucro). */
   competitiveBribeEnabled?: boolean;
@@ -115,6 +128,12 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
   });
   if (!filtered.passed) {
     return { status: 'rejected', reason: filtered.reason };
+  }
+
+  // 1b. Auto-pause de saúde/reorg (fail-safe): se algum sensor (bloco travado, memória, reorg crítico)
+  //     marcou pausa, NÃO dispara. Só ADICIONA uma razão pra não enviar — nunca força um disparo.
+  if (deps.autoPauseManager?.shouldPause()) {
+    return { status: 'rejected', reason: `auto_paused: ${deps.autoPauseManager.summary()}` };
   }
 
   const flashloanAsset = flashloanAssetOf(opp);
@@ -211,8 +230,30 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
       maxPriorityFeePerGas: priorityFee,
     };
     logger.info({ pair: opp.pair.id, mode }, `🚀 arb SUBMETENDO (${mode}) — ${opp.pair.id}`);
+    const dispatchStart = Date.now();
     const txHash = await deps.wallet.sendTransaction(txParams as any);
+
+    // Reorg awareness (paridade Motor 1): registra a tx pra recovery de órfã pós-reorg. Re-valida via
+    // eth_call e reenvia com nonce fresh. Genérico/atômico. Dormente em DRY_RUN (este trecho só roda live).
+    const opKey = opp.pair.id;
+    deps.txStateMachine?.recordSubmitted({ txHash, operationKey: opKey });
+    deps.orphanRecoveryManager?.registerSubmission(txHash, {
+      operationKey: opKey,
+      submittedAt: dispatchStart,
+      validateOpportunity: async () => {
+        try { await client.call({ to: deps.executorAddress, data: calldata, account: deps.account } as any); return true; }
+        catch { return false; }
+      },
+      resubmit: async () => {
+        try { return await deps.wallet!.sendTransaction({ ...txParams, nonce: undefined } as any); }
+        catch { return null; }
+      },
+    });
+
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    deps.txStateMachine?.recordIncluded(txHash, receipt.blockNumber, receipt.blockHash);
+    // Latência submit→1ª conf (p50/p95 pro heartbeat → painel).
+    deps.latencyTracker?.observe(Date.now() - dispatchStart);
 
     const gasUsd = gasCostUsd(receipt.gasUsed, receipt.effectiveGasPrice ?? 0n, deps.ethUsdPrice);
 

@@ -203,10 +203,14 @@ zeus-evm/
 - **Motor 2**: quoters off-chain validados (`dexQuotes.fork`: UniV3 1582 / Slipstream 1572 / BaseSwap 1333 USDC + Aero reserves) + flashloan **Aave/Morpho/Balancer** no arb (`ZeusArbExecutor.fork`) + execução de swap dos 4 DEX (+lucro, `ZeusArbExecutorDex.fork` 4/4).
 - **`forge test` FULL: 147 passed / 0 failed** (1 skip unit intencional). Os fork tests provam **ABI/wiring/segurança**, não lucro (round-trips revertem) — exceto Aave/Dex que provam lucro end-to-end.
 
+**✅ Redeploy v9 Base Sepolia FEITO (2026-06-25)** — inclui o swap multi-DEX/Slipstream + whitelist + stale-check + OrphanRecovery. Endereços:
+- BribeManager `0x060469e0Cd4C477C6ABdCbAedB18d656EBB3dC2C` · ZeusLiquidator `0x6c0726ED372797Bc2aa1e41b7c9E80963835b9bc` · ZeusArbExecutor `0x2c3BDa4ce824e0BB464924C2977c3bf9Ad8f6f1E` · ZeusMoonwellLiquidator `0x9aE63562D625f0A3a2475C0B91445d5Bae97a447`.
+- Owner=deployer `0xE060…cBB4`. Os 3 executores: `revive()` + `setOperator(0xE060…cBB4)` + UniV3 router no whitelist (cast confirma `approvedRouter(0x0)=false` em vez de reverter = v9 on-chain). **Ainda NÃO mainnet.**
+
 **🔜 Falta (operacional, do Humberto):**
-- Redeploy **v9** na Sepolia (whitelist + stale-check + OrphanRecovery) + `revive()`/`setOperator()` no **Moonwell**.
 - **DRY_RUN mainnet ~2 semanas** (subir VM Fly.io + `GENERIC_WEBHOOK_URL` no `.env` do bot) — onde o lucro se prova com dado real.
-- CI já **verde** com `BASE_RPC_ARCHIVE` setado (job de fork rodando). Próximo: mesma varredura de validação no **Motor 2** (amanhã).
+- (Mainnet, futuro: owner=multisig + operador separado; aprovar os demais routers DEX no whitelist.)
+- Branches `claude/motor1-multidex-*` mergeadas + apagadas (higiene).
 
 ## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel (tudo na `main`)
 

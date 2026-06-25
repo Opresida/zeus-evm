@@ -101,6 +101,22 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     });
   })();
 
+  // ---- Marco: "lucro provado" da arb de 2 pernas → hora de ligar a triangular ----
+  // Gatilho REAL e conservador: lucro líquido ACUMULADO do Motor 2 (arb) >= limiar E nº de operações
+  // confirmadas >= mínimo (pra um trade sortudo não disparar). Só no modo AO VIVO (não no demo).
+  // Em DRY_RUN o netUsd do M2 fica 0 (não envia) → o aviso só aparece quando a arb faz dinheiro de verdade.
+  const TRIANGULAR_PROVEN_PROFIT_USD = 50; // ajuste fino quando quiser ser mais/menos exigente
+  const TRIANGULAR_MIN_OPS = 20;
+  const triangularReady = (() => {
+    if (demo || !live?.motorCards) return null;
+    const m2 = live.motorCards.find((c) => c.tag === "motor2");
+    if (!m2 || m2.netUsd < TRIANGULAR_PROVEN_PROFIT_USD || m2.ops < TRIANGULAR_MIN_OPS) return null;
+    return {
+      text: "Lucro provado, hora de implementar a ligação da arb triangular",
+      detail: `Arb de 2 pernas acumulou ${usd(m2.netUsd)} líquidos em ${m2.ops} operações — edge confirmado.`,
+    };
+  })();
+
   // ---- ticker ----
   const ticker =
     live?.ticker ??
@@ -373,6 +389,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     botStatus,
     runwayDays,
     adaptiveEv,
+    triangularReady,
     gas,
     k,
     pnl14,

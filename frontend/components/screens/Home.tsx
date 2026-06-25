@@ -7,9 +7,18 @@ const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.08em; text-
 const big = "font:600 30px/1 'IBM Plex Mono'; margin-top:12px; letter-spacing:-.01em;";
 
 export function Home({ vm }: ScreenProps) {
-  const { k, gas, runwayDays, adaptiveEv, motors, insights, ticker, pnl14 } = vm;
+  const { k, gas, runwayDays, adaptiveEv, motors, insights, ticker, pnl14, triangularReady } = vm;
   return (
     <section>
+      {triangularReady && (
+        <div style={css("display:flex; align-items:center; gap:12px; margin-bottom:18px; padding:14px 18px; background:var(--greensoft, rgba(34,197,94,.12)); border:1px solid var(--green); border-radius:11px;")}>
+          <span style={css("font:600 18px/1 'IBM Plex Sans';")}>🔺</span>
+          <div>
+            <div style={css("font:700 13.5px/1.3 'IBM Plex Sans'; color:var(--green);")}>{triangularReady.text}</div>
+            <div style={css("font:500 11.5px/1.4 'IBM Plex Mono'; color:var(--muted); margin-top:4px;")}>{triangularReady.detail}</div>
+          </div>
+        </div>
+      )}
       <div style={css("display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:22px;")}>
         <div>
           <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0; letter-spacing:-.01em;")}>Visão geral</h1>

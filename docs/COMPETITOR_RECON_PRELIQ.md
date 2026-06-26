@@ -53,6 +53,31 @@ Morpho singleton (`0xbbbb…ffcb`).
 2. **Multi-DEX** como diferencial onde a rota importa (eles fazem single-pool).
 3. **Sem flashloan** (igual a eles) — caminho mais barato; já temos o `_executeSwaps`.
 
+## B1. Dinâmica de reação — MEDIDO (o achado que vira a mesa)
+
+**A competição NÃO é corrida de latência (winner-take-all no 1º bloco). É um GRIND de presença.**
+- Em 30d, só **29 posições distintas** foram pré-liquidadas, cada uma fatiada **~31× em média** (máx **160×**).
+  **21 das 29 têm ≥10 fatias.** A pré-liq é parcial (`preLCF` ~10%) → a MESMA posição é fatiada dezenas de
+  vezes ao longo de blocos.
+- **Ninguém ganha por "chegar primeiro":** o #1 é o 1º num borrower só **1,4%** das vezes (#2: 4,5%; #3: 0%).
+  Eles faturam pegando **fatia atrás de fatia**, não correndo pra ser o 1º.
+- **O #1 vence por PRESENÇA + PARALELISMO:** 44 EOAs disparando toda janela (observado: 4 pré-liq no mesmo
+  bloco, 4 EOAs).
+- **Implicação enorme:** sair da cauda é **infra/orquestração** (monitorar posições encrencadas + disparar em
+  paralelo), **NÃO guerra de microssegundos** (que perderíamos). **Terreno amigável ao nosso stack TS.**
+
+## C2. Batch trace — 10 txs do #1 (certeza absoluta do padrão)
+`10/10 sucesso · 0 reverts · 0 flashloan · 9/10 single-hop/single-DEX · todos cbBTC→USDC`
+- **Nunca flashloan** (callback advance). **1 pool por tx** (UniV3 OU Aerodrome; nunca multi-rota).
+- **3/10 têm 0 swaps** = modo **inventário** (pré-funda USDC, repaga, **fica com o cbBTC** — usa capital).
+  O #1 mistura **callback+swap** (sem capital) e **inventário** (com capital). **0 reverts = gate preciso.**
+
+## Reabrir wallet-pool/rotação (gatilho ATINGIDO)
+O líder usa **44 EOAs em paralelo** e a competição é **presença/paralelismo**, não latência. Isso é
+**exatamente** o gatilho "evidência de fingerprint/rotação do adversário" da memória
+`project_zeus_evm_wallet_pool_decision`. Multi-EOA deixa de ser higiene anti-fingerprint e vira a **alavanca
+central de throughput** pra competir no grind. **Decisão a reabrir com o Humberto.**
+
 ## O que falta medir (próxima camada — B/C/D em profundidade)
 - **B1 — Latência de reação** (blocos entre cruzar `preLltv` e a tx landar): o número que define se "sair da
   cauda" é fácil (rota mais barata, copiável) ou caro (RPC/Flashblocks). **Decisivo, ainda não medido.**

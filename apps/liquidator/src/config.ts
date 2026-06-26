@@ -13,6 +13,21 @@ const optionalAddress = () =>
   z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional());
 
 /**
+ * Booleano de env CORRETO. `z.coerce.boolean()` faz `Boolean(string)` → QUALQUER string não-vazia
+ * vira `true` (inclusive "false"!), um footgun perigoso pra flags de segurança. Aqui "false"/"0"/
+ * "no"/"off"/"" → false; "true"/"1"/"yes"/"on" → true; ausente → default. Case-insensitive.
+ */
+const boolEnv = (def: boolean) =>
+  z.preprocess((v) => {
+    if (typeof v !== 'string') return v;
+    const s = v.trim().toLowerCase();
+    if (s === '') return undefined; // vazio → usa default
+    if (['true', '1', 'yes', 'on'].includes(s)) return true;
+    if (['false', '0', 'no', 'off'].includes(s)) return false;
+    return v; // valor inesperado → deixa o zod reclamar
+  }, z.boolean().default(def));
+
+/**
  * 3 modos de execução do liquidator:
  * - dryrun: pipeline completo MAS sem submeter tx (apenas log do que faria). Read-only.
  * - testnet: submete tx em chains Sepolia (gas testnet, dispatch real).
@@ -23,7 +38,7 @@ const optionalAddress = () =>
  */
 const liquidatorMode = z.enum(['dryrun', 'testnet', 'mainnet']);
 
-const envSchema = z.object({
+export const envSchema = z.object({
   // ─── Mode + chain ───
   /** Modo de operação do liquidator. Default fail-safe = dryrun. */
   LIQUIDATOR_MODE: liquidatorMode.default('dryrun'),
@@ -94,19 +109,19 @@ const envSchema = z.object({
 
   // ─── Morpho Blue (Grupo C) ───
   /** Habilita discovery + liquidation Morpho Blue (markets isolados). */
-  MORPHO_ENABLED: z.coerce.boolean().default(true),
+  MORPHO_ENABLED: boolEnv(true),
   /** Lookback de blocos pra enumerar markets via CreateMarket events (histórico). */
   MORPHO_MARKETS_LOOKBACK: z.coerce.number().int().min(100000).max(10000000).default(2000000),
 
   // ─── Moonwell (Compound V2 fork — Grupo C) ───
   /** Habilita discovery + liquidation Moonwell. Requer MOONWELL_LIQUIDATOR_ADDRESS pra dispatch real. */
-  MOONWELL_ENABLED: z.coerce.boolean().default(true),
+  MOONWELL_ENABLED: boolEnv(true),
   /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
   MOONWELL_LIQUIDATOR_ADDRESS: optionalAddress(),
 
   // ─── Morpho PRÉ-liquidação (Motor 1 — pre-liquidation) ───
   /** Habilita discovery + pré-liquidação Morpho (faixa preLltv<LTV<LLTV, callback+swap zero-capital). */
-  MORPHO_PRELIQ_ENABLED: z.coerce.boolean().default(false),
+  MORPHO_PRELIQ_ENABLED: boolEnv(false),
   /** Endereço do ZeusMorphoPreLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
   PRE_LIQUIDATOR_ADDRESS: optionalAddress(),
   /** Lookback de blocos pra enumerar contratos PreLiquidation via CreatePreLiquidation events. */
@@ -170,7 +185,7 @@ const envSchema = z.object({
    * loop de feedback sem mudar comportamento). `true` = injeta MIN_OPPORTUNITY_EV_USD
    * adaptativo no gate. Adapta dos sinais de observação do ledger (DRY_RUN-safe).
    */
-  ADAPTIVE_THRESHOLDS_ENABLED: z.coerce.boolean().default(false),
+  ADAPTIVE_THRESHOLDS_ENABLED: boolEnv(false),
   /** Intervalo de recálculo (s). Default 600 (10min). */
   ADAPTIVE_RECALC_INTERVAL_SEC: z.coerce.number().int().positive().default(600),
   /** Janela de observação pro recálculo (dias). Default 7. */
@@ -189,7 +204,13 @@ const envSchema = z.object({
   PNL_LOG_FILE: z.string().default('logs/pnl-events.jsonl'),
   /** Se true E modo != dryrun, dispara executor.kill() on-chain quando limit atingido.
    *  Em dryrun fica sempre false (não submete nada). */
-  AUTO_KILL_SWITCH_ENABLED: z.coerce.boolean().default(true),
+  AUTO_KILL_SWITCH_ENABLED: boolEnv(true),
+  /**
+   * Trava-mestra de segurança. Default `true` = TRAVADO (fail-safe). Pra rodar em `mainnet`
+   * (capital real), o operador TEM que setar explicitamente `KILL_SWITCH=false` no .env — senão
+   * o boot é RECUSADO (ver superRefine abaixo). Não afeta dryrun/testnet (lá não há capital real).
+   * É a "trava explícita" pré-mainnet: nunca liga capital real por esquecimento de config. */
+  KILL_SWITCH: boolEnv(true),
 
   // ─── Cooldown após N falhas seguidas (gap crítico #2) ───
   /** Número de falhas CONSECUTIVAS pra ativar cooldown automático.
@@ -215,13 +236,13 @@ const envSchema = z.object({
   GAS_RESERVE_CRITICAL_ETH: z.coerce.number().positive().default(0.01),
   /** Se true, dispatches ficam bloqueados quando balance < critical threshold.
    *  Default true (segurança). Em dryrun não tem efeito (sem wallet). */
-  BLOCK_DISPATCH_ON_CRITICAL_GAS: z.coerce.boolean().default(true),
+  BLOCK_DISPATCH_ON_CRITICAL_GAS: boolEnv(true),
 
   // ─── Stale position re-check (gap crítico #8) ───
   /** Se true, antes do dispatch real, faz 1 chamada RPC extra pra confirmar que
    *  borrower AINDA é liquidatable. Reduz gas perdido por race com outros bots.
    *  Custo: +50ms latência por dispatch. Em dryrun não tem efeito. */
-  STALE_CHECK_ENABLED: z.coerce.boolean().default(true),
+  STALE_CHECK_ENABLED: boolEnv(true),
 
   // ─── EIP-1559 gas pricing (gap crítico #5) ───
   /** Priority fee (gorjeta sequencer) em gwei. Default 0.001 — Base não tem MEV-Boost,
@@ -249,7 +270,7 @@ const envSchema = z.object({
   /** Se true, usa funções v7 `*WithBribe` em vez das v6. Default false (mantém v6).
    *  Em mainnet competitivo (Ethereum L1), ativar pra ter chance contra searchers Tier-1.
    *  Em Base/Arb/OP FCFS, bribe ajuda mas não é vital. */
-  BRIBE_ENABLED: z.coerce.boolean().default(false),
+  BRIBE_ENABLED: boolEnv(false),
   /** Hard cap em bps. Bribe nunca passa disso. Default 9500 = 95%. */
   BRIBE_HARD_CAP_BPS: z.coerce.number().int().min(100).max(9_900).default(9_500),
   /** Fee tier UniV3 default pro pool profitToken/WETH no swap inline (500 = 0.05%). */
@@ -279,7 +300,7 @@ const envSchema = z.object({
 
   // ─── Health Server (Item 12 H8+H11) ───
   /** Habilita HTTP health server (/healthz + /readyz). Default true em prod. */
-  HEALTH_SERVER_ENABLED: z.coerce.boolean().default(true),
+  HEALTH_SERVER_ENABLED: boolEnv(true),
   /** Porta de bind. Liquidator default 7880. */
   HEALTH_SERVER_PORT: z.coerce.number().int().min(1024).max(65535).default(7880),
   /** Host bind. '127.0.0.1' (loopback) pra dev local, '0.0.0.0' pra expor externamente. */
@@ -287,7 +308,7 @@ const envSchema = z.object({
 
   // ─── PnL Reporter (Item 10 P7 — daily digest pra Discord) ───
   /** Habilita PnL daily reporter. Default true mas só envia se PNL_REPORTER_WEBHOOK_URL configurado. */
-  PNL_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  PNL_REPORTER_ENABLED: boolEnv(true),
   /** Discord webhook dedicado pro PnL reporter (pode ser igual DISCORD_WEBHOOK_URL). */
   PNL_REPORTER_WEBHOOK_URL: optionalUrl(),
   /** Hora UTC pra disparar daily digest. Default 12 (meio-dia UTC). */
@@ -295,7 +316,7 @@ const envSchema = z.object({
 
   // ─── Competitor Reporter (Item 5 F9 — weekly digest) ───
   /** Habilita competitor weekly reporter. */
-  COMPETITOR_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  COMPETITOR_REPORTER_ENABLED: boolEnv(true),
   /** Discord webhook pro competitor reporter (pode ser o mesmo). */
   COMPETITOR_REPORTER_WEBHOOK_URL: optionalUrl(),
   /** Dia da semana (0=domingo, 1=segunda, ..., 6=sábado). Default 1 (segunda). */
@@ -305,13 +326,13 @@ const envSchema = z.object({
 
   // ─── Oracle Staleness Check (Grupo B) ───
   /** Habilita gate pre-dispatch de oracle staleness. */
-  ORACLE_STALENESS_CHECK_ENABLED: z.coerce.boolean().default(true),
+  ORACLE_STALENESS_CHECK_ENABLED: boolEnv(true),
   /** Threshold default em segundos. Chainlink Base ETH/USD update a cada ~1h. */
   ORACLE_STALENESS_THRESHOLD_SEC: z.coerce.number().int().min(60).max(86400).default(3600),
 
   // ─── Pause Detector (Grupo B) ───
   /** Habilita gate pre-dispatch contra Aave Pool.paused / Comet.isAbsorbPaused. */
-  PAUSE_DETECTOR_ENABLED: z.coerce.boolean().default(true),
+  PAUSE_DETECTOR_ENABLED: boolEnv(true),
   /** TTL do cache de pause state em blocos (~12s/bloco em Base). Default 3. */
   PAUSE_DETECTOR_CACHE_BLOCKS: z.coerce.number().int().min(1).max(20).default(3),
 
@@ -321,7 +342,7 @@ const envSchema = z.object({
    * Calculator roda N vezes mas pipeline escolhe maior profit. Resolve gap M-01 do audit
    * (26/28 at-risk hoje não resolvem por usar top-1).
    */
-  MULTI_COLLATERAL_EVAL_ENABLED: z.coerce.boolean().default(true),
+  MULTI_COLLATERAL_EVAL_ENABLED: boolEnv(true),
 
   // ─── Multi-hop Swaps (Grupo B) ───
   /**
@@ -329,17 +350,28 @@ const envSchema = z.object({
    * Resolve gap "pool direto raso" — pares exóticos costumam ter mais liquidez
    * via intermediate. Custo: +9 RPC calls por amount testado.
    */
-  MULTI_HOP_SWAPS_ENABLED: z.coerce.boolean().default(true),
+  MULTI_HOP_SWAPS_ENABLED: boolEnv(true),
 
   // ─── Failure Reporter (Item 4 A8 — weekly Markdown digest) ───
   /** Habilita weekly failure digest. */
-  FAILURE_REPORTER_ENABLED: z.coerce.boolean().default(true),
+  FAILURE_REPORTER_ENABLED: boolEnv(true),
   /** Discord webhook pro failure reporter. */
   FAILURE_REPORTER_WEBHOOK_URL: optionalUrl(),
   /** Dia da semana (0=domingo, 1=segunda, ..., 6=sábado). Default 1 (segunda). */
   FAILURE_REPORTER_WEEKDAY_UTC: z.coerce.number().int().min(0).max(6).default(1),
   /** Hora UTC pra disparar. Default 15h UTC (1h depois do competitor). */
   FAILURE_REPORTER_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(15),
+}).superRefine((cfg, ctx) => {
+  // TRAVA-MESTRA: mainnet (capital real) exige KILL_SWITCH=false EXPLÍCITO. Default true → recusa
+  // o boot. Impede ligar capital real por esquecimento. dryrun/testnet não têm capital real → livres.
+  if (cfg.LIQUIDATOR_MODE === 'mainnet' && cfg.KILL_SWITCH !== false) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['KILL_SWITCH'],
+      message:
+        'KILL_SWITCH=true bloqueia LIQUIDATOR_MODE=mainnet (capital real). Pra liberar, set explicitamente KILL_SWITCH=false no .env.',
+    });
+  }
 });
 
 export type LiquidatorEnv = z.infer<typeof envSchema>;

@@ -319,9 +319,14 @@ export async function boot(): Promise<LiquidatorState> {
       minProfitUsd: env.MIN_LIQUIDATION_PROFIT_USD,
       maxSlippageBps: env.MAX_SLIPPAGE_BPS,
       pollIntervalSec: env.LIQUIDATOR_POLL_INTERVAL_SEC,
+      killSwitch: env.KILL_SWITCH,
     },
     `🚀 Liquidator boot — mode=${env.LIQUIDATOR_MODE} chain=${ctx.chainConfig.name}`,
   );
+  // Trava-mestra: em mainnet o boot só chega aqui se KILL_SWITCH=false (a config recusaria senão).
+  if (env.LIQUIDATOR_MODE === 'mainnet') {
+    logger.warn('🔓 KILL_SWITCH=false explícito — capital REAL liberado (mainnet). Circuit breakers seguem valendo.');
+  }
 
   // Conectividade básica
   const blockNumber = await ctx.client.getBlockNumber();

@@ -24,8 +24,10 @@ export interface NormalizedOrder {
   input: { token: Address; amount: bigint };
   /** Saídas que devemos produzir (≥). 1+ — somamos por token. */
   outputs: OrderOutput[];
-  /** Deadline (unix secs). Depois disso a ordem não pode ser preenchida. */
+  /** Deadline (unix secs). 0 = desconhecido (ordem veio do filtro orderStatus=open → confiar nele). */
   deadline: number;
+  /** Filler exclusivo (cosignerData). Se setado e != nós, não dá pra preencher na janela de exclusividade. */
+  exclusiveFiller?: Address;
   /** Blob assinado pra passar no executeFill (order bytes + assinatura EIP-712). */
   signedOrder: Hex;
   signature: Hex;

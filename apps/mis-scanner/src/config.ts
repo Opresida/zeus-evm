@@ -63,6 +63,8 @@ const envSchema = z.object({
   UNISWAPX_API_BASE: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('https://api.uniswap.org/v2')),
   /** Lucro líquido mínimo (USD) pra preencher uma ordem. */
   UNISWAPX_MIN_PROFIT_USD: z.coerce.number().positive().default(1),
+  /** Intervalo de polling de ordens UniswapX (segundos). API rate-limit ~6 rps. */
+  UNISWAPX_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(3),
   /** Circuit breaker off-chain: cap absoluto do trade em ETH (espelha MAX_TRADE_ETH do contrato). */
   MAX_TRADE_ETH: num(0.5),
   /** Mínimo de profit líquido (USD) pra disparar. */

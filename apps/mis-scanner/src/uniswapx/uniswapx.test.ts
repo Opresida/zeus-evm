@@ -143,29 +143,55 @@ describe('fetchOpenOrders — feed (mapeamento + fail-safe)', () => {
   const mockFetch = (impl: () => Promise<Partial<Response>>): typeof fetch =>
     impl as unknown as typeof fetch;
 
-  it('mapeia ordem da API → NormalizedOrder (endAmount = conservador)', async () => {
+  // Shape REAL da API (validado ao vivo 2026-06-26): type→reactor, startAmount, cosignerData.outputOverrides.
+  it('mapeia ordem da API real (type→reactor + outputOverride resolvido)', async () => {
     const fetchImpl = mockFetch(async () => ({
       ok: true,
       json: async () => ({
         orders: [
           {
+            type: 'Dutch_V3',
+            orderStatus: 'open',
             encodedOrder: '0xdead',
             signature: '0xbeef',
             orderHash: '0xhash',
-            reactor: UNISWAPX_REACTORS_BASE.v2DutchOrder,
             swapper: SWAPPER,
-            deadline: 2_000_000_000,
-            input: { token: USDC, startAmount: '3000000000', endAmount: '3000000000' },
-            outputs: [{ token: WETH, startAmount: '1010000000000000000', endAmount: '1000000000000000000', recipient: SWAPPER }],
+            input: { token: USDC, startAmount: '3000000000', maxAmount: '3000000000' },
+            outputs: [{ token: WETH, startAmount: '1010000000000000000', minAmount: '1000000000000000000', recipient: SWAPPER }],
+            cosignerData: { exclusiveFiller: '0x0000000000000000000000000000000000000000', outputOverrides: ['1005000000000000000'] },
           },
         ],
       }),
     }));
     const orders = await fetchOpenOrders({ chainId: 8453, fetchImpl });
     expect(orders.length).toBe(1);
-    expect(orders[0]!.input.amount).toBe(3_000_000_000n);
-    expect(orders[0]!.outputs[0]!.amount).toBe(1_000_000_000_000_000_000n); // endAmount (conservador)
-    expect(orders[0]!.deadline).toBe(2_000_000_000);
+    expect(orders[0]!.reactor).toBe(UNISWAPX_REACTORS_BASE.v3DutchOrder); // type Dutch_V3 → V3 reactor
+    expect(orders[0]!.input.amount).toBe(3_000_000_000n); // startAmount
+    expect(orders[0]!.outputs[0]!.amount).toBe(1_005_000_000_000_000_000n); // outputOverride (resolvido) > startAmount
+    expect(orders[0]!.deadline).toBe(0); // sem deadline na API → 0 (confia no filtro open)
+    expect(orders[0]!.exclusiveFiller).toBeUndefined(); // zero address → não exclusivo
+  });
+
+  it('extrai exclusiveFiller quando setado', async () => {
+    const fetchImpl = mockFetch(async () => ({
+      ok: true,
+      json: async () => ({
+        orders: [
+          {
+            type: 'Dutch_V2',
+            encodedOrder: '0xdead',
+            signature: '0xbeef',
+            orderHash: '0xhash',
+            input: { token: USDC, startAmount: '1000000' },
+            outputs: [{ token: WETH, startAmount: '1', recipient: SWAPPER }],
+            cosignerData: { exclusiveFiller: '0xB2D35561eCC160B71357E1822E83567486f3439a' },
+          },
+        ],
+      }),
+    }));
+    const orders = await fetchOpenOrders({ chainId: 8453, fetchImpl });
+    expect(orders[0]!.reactor).toBe(UNISWAPX_REACTORS_BASE.v2DutchOrder);
+    expect(orders[0]!.exclusiveFiller?.toLowerCase()).toBe('0xb2d35561ecc160b71357e1822e83567486f3439a');
   });
 
   it('fail-safe: HTTP erro / json ruim / sem orders → []', async () => {

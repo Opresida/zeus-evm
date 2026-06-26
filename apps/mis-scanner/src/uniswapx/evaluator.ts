@@ -37,8 +37,8 @@ function singleOutputToken(order: NormalizedOrder): { token: Address; amount: bi
 }
 
 export async function evaluateFill(order: NormalizedOrder, opts: EvaluateFillOpts): Promise<FillEvaluation> {
-  // 1. Deadline.
-  if (order.deadline <= opts.nowSec) {
+  // 1. Deadline (só checa quando conhecido; 0 = veio do filtro orderStatus=open, confia nele).
+  if (order.deadline > 0 && order.deadline <= opts.nowSec) {
     return { ok: false, reason: 'ordem expirada (deadline passou)' };
   }
 

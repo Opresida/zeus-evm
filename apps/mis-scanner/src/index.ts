@@ -65,6 +65,8 @@ import { optimizeFlashLoan, fetchEthUsd, fetchTokenUsd } from './flashEstimator'
 import { loadConfig } from './config';
 import { findFreshArb } from './execution/arbOpportunity';
 import { dispatchArb, type ArbDispatchDeps } from './execution/arbDispatcher';
+import { runFillerTick } from './uniswapx/runner';
+import { baseTokenMeta } from './uniswapx/tokens';
 import { fetchEngineControlEnabled } from './engineControl';
 
 // Carrega .env local + raiz do monorepo (2 níveis acima) — RPC fica na raiz
@@ -384,6 +386,41 @@ async function main(): Promise<void> {
   if (remoteControlActive) {
     await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
     logger.info({ motor: env.ENGINE_CONTROL_MOTOR, pollEvery: env.ENGINE_CONTROL_POLL_EVERY }, '🎛️ controle remoto de execução ATIVO (poll via Supabase)');
+  }
+
+  // ─── Filler UniswapX (Motor 2 / F3) — loop próprio (poll→avalia→dispatch). Default OFF. ───
+  // DRY_RUN: só observa+loga candidatos. Execução real exige ARB armado+liberado (reusa o toggle motor2)
+  // + UNISWAPX_FILLER_ADDRESS. Atômico no contrato (minProfitWei + whitelist + kill switch).
+  if (env.UNISWAPX_FILLER_ENABLED && chainConfig.uniswapV3?.quoterV2) {
+    const fillerDeps = {
+      client,
+      quoterAddress: chainConfig.uniswapV3.quoterV2,
+      apiBase: env.UNISWAPX_API_BASE,
+      chainId: chainConfig.chainId,
+      minProfitUsd: env.UNISWAPX_MIN_PROFIT_USD,
+      gasCostUsd: env.GAS_COST_USD_ESTIMATE,
+      ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+      tokenMeta: baseTokenMeta,
+      logger,
+      nowSec: () => Math.floor(Date.now() / 1000),
+      mode: arbExec?.deps.mode ?? 'dryrun',
+      wallet: arbExec?.deps.wallet,
+      account: arbExec?.deps.account,
+      fillerAddress: env.UNISWAPX_FILLER_ADDRESS as Address | undefined,
+      profitReceiver: (arbExec?.deps.profitReceiver ?? ZERO) as Address,
+      gasOracle: arbExec?.deps.gasOracle,
+      liveExecutionEnabled: () => !!arbExec?.deps.liveExecutionEnabled,
+    };
+    logger.info(
+      { mode: fillerDeps.mode, filler: fillerDeps.fillerAddress ?? '(ausente → só DRY_RUN)' },
+      '🧩 Filler UniswapX ATIVO (Motor 2/F3) — poll de ordens',
+    );
+    const fillerInterval = setInterval(() => {
+      runFillerTick(fillerDeps).catch((err) =>
+        logger.warn({ err: err instanceof Error ? err.message : err }, 'filler tick falhou'),
+      );
+    }, env.UNISWAPX_POLL_INTERVAL_SEC * 1000);
+    fillerInterval.unref();
   }
 
   // Graceful shutdown: salva snapshot + drena o ledger DuckDB ao sair (Ctrl+C)

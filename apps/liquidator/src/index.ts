@@ -50,6 +50,7 @@ import { buildMorphoMarketCache, type MorphoMarketCache } from './protocols/morp
 import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discovery';
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
+import { fetchEngineControlEnabled } from './engineControl';
 import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
 import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
 import type { PreLiquidationContractInfo, PrePosition } from './protocols/morpho-preliq/types';
@@ -154,6 +155,14 @@ interface LiquidatorState {
   preLiquidationCache?: PreLiquidationContractInfo[];
   /** BorrowerCache acumulativo por market id de pré-liquidação. */
   preLiquidationBorrowerCaches: Map<string, BorrowerCache>;
+  /**
+   * Toggle remoto de execução (painel via engine_control). MUTÁVEL — o poll atualiza em runtime.
+   * `false` = travado pelo painel; `true` = liberado; `undefined` = controle remoto inativo.
+   * Lido a cada dispatch (clássico + pré-liq). Default no boot conforme `remoteControlActive`.
+   */
+  liveExecutionEnabled?: boolean;
+  /** Controle remoto ATIVO (mode != dryrun && SUPABASE_URL presente). Define o default travado. */
+  remoteControlActive: boolean;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -1099,6 +1108,22 @@ export async function boot(): Promise<LiquidatorState> {
     account: ctx.account ?? null,
   });
 
+  // Controle remoto (painel → engine_control): só faz sentido ARMADO (mode != dryrun) E com Supabase.
+  // Em dryrun nunca submete; sem SUPABASE → preserva comportamento (envia conforme o mode). Ativo →
+  // sobe TRAVADO (liveExecutionEnabled=false), o poll libera. FAIL-SAFE.
+  const remoteControlActive = env.LIQUIDATOR_MODE !== 'dryrun' && !!env.SUPABASE_URL;
+  if (remoteControlActive) {
+    logger.warn(
+      { motor: env.ENGINE_CONTROL_MOTOR, mode: env.LIQUIDATOR_MODE },
+      '🎛️ Motor 1 ARMADO-MAS-TRAVADO — envio (clássico + pré-liq) travado até o toggle do painel (engine_control)',
+    );
+  } else if (env.LIQUIDATOR_MODE !== 'dryrun') {
+    logger.warn(
+      { mode: env.LIQUIDATOR_MODE },
+      '⚠️ Motor 1 em modo de envio SEM controle remoto (SUPABASE_URL ausente) — envia conforme o mode',
+    );
+  }
+
   return {
     env,
     ctx,
@@ -1112,6 +1137,8 @@ export async function boot(): Promise<LiquidatorState> {
     moonwellBorrowerCaches,
     preLiquidationCache,
     preLiquidationBorrowerCaches,
+    liveExecutionEnabled: remoteControlActive ? false : undefined,
+    remoteControlActive,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1473,6 +1500,7 @@ export async function processOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
     aaveMarket: activeMarket
@@ -1508,6 +1536,7 @@ export async function processCompoundOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
   });
@@ -1540,6 +1569,7 @@ export async function processMorphoOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
   });
@@ -1572,6 +1602,7 @@ export async function processMoonwellOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     moonwellLiquidatorAddress: state.env.MOONWELL_LIQUIDATOR_ADDRESS as Address | undefined,
   });
 }
@@ -1603,6 +1634,7 @@ export async function processMorphoPreLiquidationOpportunity(
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
+    liveExecutionEnabled: state.liveExecutionEnabled,
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });
 }
@@ -2054,6 +2086,35 @@ async function main() {
     `🔁 Discovery loop ATIVO — polling ${state.env.LIQUIDATOR_POLL_INTERVAL_SEC}s`,
   );
 
+  // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
+  // Modelo armado-mas-travado: gateia o Motor 1 INTEIRO (clássico + pré-liq). Fail-safe interno
+  // (fetchEngineControlEnabled) trava em qualquer erro. Só roda quando remoteControlActive.
+  const pollEngineControl = async () => {
+    if (!state.remoteControlActive) return;
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: state.env.SUPABASE_URL,
+      supabaseKey: state.env.SUPABASE_KEY,
+      motor: state.env.ENGINE_CONTROL_MOTOR,
+    });
+    const prev = !!state.liveExecutionEnabled;
+    if (next !== prev) {
+      state.liveExecutionEnabled = next; // lido fresco em cada dispatch
+      logger.warn(
+        { motor: state.env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
+        next
+          ? '🟢 TOGGLE REMOTO: Motor 1 LIGADO — envios passam a ser submetidos (circuit breakers seguem valendo)'
+          : '🔴 TOGGLE REMOTO: Motor 1 DESLIGADO — envios travados (simula+observa apenas)',
+      );
+    }
+  };
+  if (state.remoteControlActive) {
+    await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
+    logger.info(
+      { motor: state.env.ENGINE_CONTROL_MOTOR, pollEvery: state.env.ENGINE_CONTROL_POLL_EVERY },
+      '🎛️ controle remoto de execução ATIVO (poll via Supabase)',
+    );
+  }
+
   // Tick imediato + tick periódico
   try {
     await discoveryTick(state);
@@ -2061,7 +2122,13 @@ async function main() {
     logger.error({ err: err instanceof Error ? err.message : err }, 'tick #0 falhou');
   }
 
+  let tickCount = 0;
   setInterval(() => {
+    tickCount++;
+    // Reconsulta o toggle remoto a cada N ticks (barato; fail-safe interno mantém travado em erro).
+    if (state.remoteControlActive && tickCount % state.env.ENGINE_CONTROL_POLL_EVERY === 0) {
+      void pollEngineControl();
+    }
     discoveryTick(state).catch((err) =>
       logger.error({ err: err instanceof Error ? err.message : err }, 'tick falhou'),
     );

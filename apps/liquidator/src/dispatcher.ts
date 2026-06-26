@@ -54,6 +54,14 @@ export interface DispatchInput {
   to: Address;
   /** Calldata pronta */
   data: Hex;
+  /**
+   * Toggle remoto de execução (painel → Supabase engine_control). Modelo armado-mas-travado:
+   *   - `undefined` → controle remoto INATIVO (preserva comportamento: envia conforme o mode).
+   *   - `true`      → liberado pelo painel (envia).
+   *   - `false`     → TRAVADO pelo painel (não submete; loga como held). Fail-safe default.
+   * Os circuit breakers do contrato (MAX_TRADE, minProfit, sim+EV gate) seguem valendo por cima.
+   */
+  liveExecutionEnabled?: boolean;
   /** Resumo pra logging contextual */
   summary: Record<string, unknown>;
   /** Confirmação de simulação prévia (true = pré-flight passou) */
@@ -123,6 +131,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     account,
     to,
     data,
+    liveExecutionEnabled,
     summary,
     simulationOk,
     simulationGas,
@@ -174,6 +183,17 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       `🟦 DRY_RUN: tx VÁLIDA (não submetida). Gas estimado: ${simulationGas?.toString() ?? 'n/a'}`,
     );
     return { status: 'dryrun_skipped', reason: 'mode=dryrun' };
+  }
+
+  // Gate 2.5: toggle remoto (painel). ARMADO-MAS-TRAVADO — em testnet/mainnet, se o painel
+  // não liberou (liveExecutionEnabled === false), a tx é VÁLIDA mas NÃO submetida. Fail-safe:
+  // só `false` explícito trava; `undefined` = controle remoto inativo (preserva comportamento).
+  if (liveExecutionEnabled === false) {
+    logger.info(
+      { ...summary, gasEstimate: simulationGas?.toString() },
+      `🔒 ARMADO-MAS-TRAVADO: tx VÁLIDA, envio TRAVADO pelo painel (toggle remoto OFF). Gas est.: ${simulationGas?.toString() ?? 'n/a'}`,
+    );
+    return { status: 'dryrun_skipped', reason: 'execução travada pelo painel (engine_control OFF)' };
   }
 
   // Gate 3: wallet obrigatória em testnet/mainnet

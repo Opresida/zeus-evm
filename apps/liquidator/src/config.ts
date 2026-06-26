@@ -126,6 +126,18 @@ const envSchema = z.object({
   MIN_DEBT_USD: z.coerce.number().positive().default(100),
   MIN_LIQUIDATION_PROFIT_USD: z.coerce.number().positive().default(5),
 
+  // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
+  // Modelo ARMADO-MAS-TRAVADO: em testnet/mainnet, o ENVIO só passa quando o painel ligar (motor1).
+  // Sem SUPABASE_URL → controle remoto INATIVO (preserva comportamento atual: envia conforme o mode).
+  // Com SUPABASE_URL → sobe TRAVADO (fail-safe) e só o toggle remoto libera. Gateia o Motor 1 inteiro
+  // (liquidação clássica + pré-liquidação). O bot só LÊ; a escrita é exclusiva das rotas /api do front.
+  SUPABASE_URL: optionalUrl(),
+  SUPABASE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Identificador do motor na tabela engine_control. Liquidator = motor1. */
+  ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor1')),
+  /** Reconsulta o toggle a cada N ticks de discovery (barato; fail-safe interno trava em erro). */
+  ENGINE_CONTROL_POLL_EVERY: z.coerce.number().int().positive().default(3),
+
   // ─── Liquidator-específico ───
   /** Polling interval entre ciclos de busca (segundos). Caminho A = 60s. */
   LIQUIDATOR_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(60),

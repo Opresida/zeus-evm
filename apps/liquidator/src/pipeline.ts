@@ -112,6 +112,12 @@ export interface PipelineDeps {
   blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
   /** Endereço do bot (pra o resolver ignorar nossas txs). */
   botSender?: Address;
+  /**
+   * Toggle remoto de execução (painel → engine_control). Repassado ao dispatch:
+   * `false` = travado pelo painel; `undefined` = controle remoto inativo (preserva comportamento).
+   * Gateia o Motor 1 inteiro (clássico + pré-liq).
+   */
+  liveExecutionEnabled?: boolean;
 }
 
 /**
@@ -525,6 +531,7 @@ async function _runAavePipelineInner(
   // 4. Dispatcher
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -816,6 +823,7 @@ async function _runCompoundPipelineInner(
   // 4. Dispatcher
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1032,6 +1040,7 @@ async function _runMorphoPipelineInner(
   // 4. Dispatcher — conecta na caixa-preta (reconciler/failure/pnl/eventBus)
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1197,6 +1206,7 @@ async function _runMoonwellPipelineInner(
   // 4. Dispatcher — protocol='moonwell' na caixa-preta
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1375,6 +1385,7 @@ async function _runMorphoPreLiquidationPipelineInner(
   // 4. Dispatcher — protocol='morpho-preliq' na caixa-preta (reconciler/failure/pnl/eventBus).
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
+    liveExecutionEnabled: deps.liveExecutionEnabled,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,

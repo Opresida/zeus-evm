@@ -50,9 +50,10 @@ create table if not exists public.engine_control (
   updated_by        text
 );
 
--- seed do Motor 2 (idempotente) — começa TRAVADO.
+-- seed dos motores (idempotente) — todos começam TRAVADOS.
+-- motor1 = liquidações (clássica + pré-liquidação Morpho); motor2 = arbitragem; motor3 = backrun.
 insert into public.engine_control (motor, execution_enabled)
-  values ('motor2', false)
+  values ('motor1', false), ('motor2', false), ('motor3', false)
   on conflict (motor) do nothing;
 
 -- ---------- RLS ----------

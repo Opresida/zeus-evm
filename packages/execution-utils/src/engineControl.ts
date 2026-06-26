@@ -3,10 +3,8 @@
  *
  * Modelo ARMADO-MAS-TRAVADO: o bot sobe com a wallet pronta (armado), mas o ENVIO de tx fica
  * TRAVADO até o operador ligar pelo painel. A escrita na tabela é EXCLUSIVA das rotas /api do
- * Frontend (validadas por secret); o bot só LÊ.
- *
- * Vale pro Motor 1 INTEIRO (liquidação clássica + pré-liquidação Morpho) — ambos passam pelo
- * mesmo `dispatch`, então o toggle gateia os dois de uma vez.
+ * Frontend (validadas por secret); o bot só LÊ. Compartilhado entre os motores (M1 liquidator,
+ * M2 mis-scanner, …) — 1 linha por motor na tabela.
  *
  * FAIL-SAFE absoluto: qualquer incerteza (sem config, erro de rede, resposta malformada,
  * coluna ausente) → retorna `false` (travado). Nunca liga a execução na dúvida.

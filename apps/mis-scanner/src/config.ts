@@ -76,6 +76,18 @@ const envSchema = z.object({
   ETH_USD_PRICE_ESTIMATE: num(3000),
   GAS_PRIORITY_FEE_GWEI: num(0.01),
   GAS_MAX_FEE_MULTIPLIER: posInt(200),
+  // ── Bribe (gorjeta do gás) competitivo auto-ligável (Motor 2) ──
+  /** Liga o auto-ajuste do priority fee (limitado por lucro). Default false = estático.
+   *  Mesmo com false, o ZEUS pode AUTO-LIGAR se detectar gas_outbid (ver AUTO_ENABLE abaixo). */
+  COMPETITIVE_BRIBE_ENABLED: boolDefault(false),
+  /** Percentil de mercado alvo pra ganhar a corrida ('p50' | 'p75' | 'p95'). */
+  BRIBE_TARGET_PERCENTILE: z.enum(['p50', 'p75', 'p95']).default('p75'),
+  /** Teto RÍGIDO de priority fee (gwei) — sanidade além do teto de lucro. */
+  MAX_BRIBE_GWEI: num(5),
+  /** Nº de corridas perdidas no gás (gas_outbid) na janela pra o ZEUS auto-ligar o bribe. */
+  BRIBE_AUTO_ENABLE_THRESHOLD: posInt(3),
+  /** Janela (min) pra contar os gas_outbid do auto-liga. */
+  BRIBE_AUTO_ENABLE_WINDOW_MIN: posInt(60),
   /** Notional alvo por tentativa (USD). */
   ARB_NOTIONAL_USD: num(5000),
   /** Quantos pares top (por persistência/viabilidade) tentar por scan. */
@@ -97,6 +109,16 @@ const envSchema = z.object({
   ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor2')),
   /** A cada quantos ticks de scan reconsultar o toggle remoto. */
   ENGINE_CONTROL_POLL_EVERY: posInt(5),
+
+  // ─── Alerting / ponte pro painel (ZEUS Command) ───
+  // Sem isso, NADA do Motor 2 chega ao painel (só M1/M3 mandavam). Aponta pra /api/ingest do Vercel.
+  GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo do header x-zeus-secret (= ZEUS_WEBHOOK_SECRET no Vercel). */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Filtro de severidades (comma-separated). Default: tudo. */
+  GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+  /** Intervalo do heartbeat (snapshot ao vivo → painel/service_status) em segundos. */
+  HEARTBEAT_EVERY_SEC: posInt(30),
 });
 
 export type MisEnv = z.infer<typeof envSchema> & { MIS_FLASH_MIN_BPS: number };

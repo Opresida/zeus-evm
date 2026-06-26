@@ -52,3 +52,8 @@ export {
   sendFailureDigestToDiscord,
   type FailureDigestOptions,
 } from './failureReporter';
+
+export {
+  LatencyTracker,
+  type LatencyStats,
+} from './latencyTracker';

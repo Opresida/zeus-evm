@@ -55,6 +55,7 @@ contract ZeusLiquidatorForkTest is Test {
         liquidator.setUniV3SwapRouter(SWAP_ROUTER_V3);
         liquidator.setOperator(operator, true);
         liquidator.revive();
+        liquidator.setApprovedRouter(SWAP_ROUTER_V3, true);
         vm.stopPrank();
     }
 

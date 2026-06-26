@@ -109,14 +109,20 @@ contract DeployScript is Script {
         liquidator = new ZeusLiquidator(aavePool, morpho, balancer, address(bribeManager), owner, maxTradeWei);
         if (owner == msg.sender) {
             if (weth != address(0)) liquidator.setWeth(weth);
-            if (swapRouter != address(0)) liquidator.setUniV3SwapRouter(swapRouter);
+            if (swapRouter != address(0)) {
+                liquidator.setUniV3SwapRouter(swapRouter);
+                liquidator.setApprovedRouter(swapRouter, true); // whitelist on-chain (UniV3); demais via runbook
+            }
         }
 
         // 3) Deploy ZeusArbExecutor (recebe MESMO BribeManager imutável + fontes de flashloan)
         arbExecutor = new ZeusArbExecutor(aavePool, morpho, balancer, address(bribeManager), owner, maxTradeWei);
         if (owner == msg.sender) {
             if (weth != address(0)) arbExecutor.setWeth(weth);
-            if (swapRouter != address(0)) arbExecutor.setUniV3SwapRouter(swapRouter);
+            if (swapRouter != address(0)) {
+                arbExecutor.setUniV3SwapRouter(swapRouter);
+                arbExecutor.setApprovedRouter(swapRouter, true); // whitelist on-chain (UniV3); demais via runbook
+            }
         }
 
         // 4) Deploy ZeusMoonwellLiquidator (Moonwell = Compound V2 fork; contrato próprio por EIP-170).
@@ -154,7 +160,9 @@ contract DeployScript is Script {
         console2.log("  1) Owner chama revive() pra desativar kill switch");
         console2.log("  2) Owner chama setOperator(<bot_address>, true)");
         console2.log("  3) Se owner != deployer, chamar setWeth + setUniV3SwapRouter manualmente");
-        console2.log("  4) Fundear bot wallet com pequeno saldo de gas");
+        console2.log("  4) Owner chama setApprovedRouter(<router>, true) p/ CADA router DEX usado");
+        console2.log("     (UniV3 ja aprovado se owner==deployer; faltam Aerodrome/Slipstream/Pancake/Sushi)");
+        console2.log("  5) Fundear bot wallet com pequeno saldo de gas");
         console2.log("");
         console2.log("BribeManager nao precisa de revive/operator - eh stateless");
     }

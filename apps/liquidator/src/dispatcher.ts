@@ -36,6 +36,12 @@ import {
   type CompetitorResolver,
   type BlockPositionTracker,
   type MetricRegistry,
+  type LatencyTracker,
+  type SenderRegistry,
+  type TxStateMachine,
+  type OrphanRecoveryManager,
+  type BribeTracker,
+  calculateCompetitiveBribe,
 } from '@zeus-evm/execution-utils';
 import { generateFailureId } from '@zeus-evm/execution-utils';
 import type { LiquidatorMode as MMode } from './config';
@@ -54,14 +60,6 @@ export interface DispatchInput {
   to: Address;
   /** Calldata pronta */
   data: Hex;
-  /**
-   * Toggle remoto de execução (painel → Supabase engine_control). Modelo armado-mas-travado:
-   *   - `undefined` → controle remoto INATIVO (preserva comportamento: envia conforme o mode).
-   *   - `true`      → liberado pelo painel (envia).
-   *   - `false`     → TRAVADO pelo painel (não submete; loga como held). Fail-safe default.
-   * Os circuit breakers do contrato (MAX_TRADE, minProfit, sim+EV gate) seguem valendo por cima.
-   */
-  liveExecutionEnabled?: boolean;
   /**
    * Wallet-pool (opt-in). Quando presente + mode != dryrun + liberado, o envio sai por UM sender do
    * pool (selecionado + nonce local + reserva no breaker AGREGADO) em vez do sender único. `acquire`
@@ -115,6 +113,8 @@ export interface DispatchInput {
   opportunityId?: string;
   /** Venue/market label (ex: 'seamless') pra distinguir forks Aave no reconciler. */
   venue?: string;
+  /** DEX da troca colateral→dívida (multi-DEX): 'uniswap-v3'|'aerodrome'|'slipstream'. Observabilidade. */
+  swapVenue?: string;
   /** MetricRegistry opcional — pra cronometrar dispatch (histograma zeus_dispatch_duration_seconds). */
   metricRegistry?: MetricRegistry;
   /** Fase 5b — post-mortem: descobre QUEM nos ganhou numa falha (só com tx real). */
@@ -123,6 +123,28 @@ export interface DispatchInput {
   blockPositionTracker?: BlockPositionTracker;
   /** Endereço do nosso bot (pra o resolver ignorar nossas próprias txs). */
   botSender?: Address;
+  /** Fase 2b — buffer de latência de dispatch (alimenta p50/p95 do heartbeat). */
+  latencyTracker?: LatencyTracker;
+  /** Fase 2b — registry de competidores (pra registrar a vitória do competidor contra nós). */
+  senderRegistry?: SenderRegistry;
+  /** Item 9 R2 — máquina de estado das tx (submitted→included→orphaned). */
+  txStateMachine?: TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet; dormente em DRY_RUN). */
+  orphanRecoveryManager?: OrphanRecoveryManager;
+  /** Toggle remoto de execução (engine_control). Só `true` EXATO libera o ENVIO; ausente/false = travado
+   *  (armado-mas-travado). Mesmo em testnet/mainnet, sem isto a tx não é submetida (só simula+observa). */
+  liveExecutionEnabled?: boolean;
+  // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
+  /** Liga o auto-ajuste do priority fee (limitado pelo lucro). Default off = priority fee estático. */
+  competitiveBribeEnabled?: boolean;
+  /** Percentil de mercado alvo pra ganhar a corrida. */
+  bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
+  /** Teto RÍGIDO de priority fee (wei) — sanidade além do teto de lucro. */
+  maxBribeWei?: bigint;
+  /** Piso de lucro líquido (USD) que insistimos em manter — nunca prejuízo. */
+  minProfitUsd?: number;
+  /** Tracker do último bribe efetivo (pro heartbeat → painel). */
+  bribeTracker?: BribeTracker;
 }
 
 /**
@@ -139,7 +161,6 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     account,
     to,
     data,
-    liveExecutionEnabled,
     senderPool,
     poolExposureWei,
     summary,
@@ -195,15 +216,15 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     return { status: 'dryrun_skipped', reason: 'mode=dryrun' };
   }
 
-  // Gate 2.5: toggle remoto (painel). ARMADO-MAS-TRAVADO — em testnet/mainnet, se o painel
-  // não liberou (liveExecutionEnabled === false), a tx é VÁLIDA mas NÃO submetida. Fail-safe:
-  // só `false` explícito trava; `undefined` = controle remoto inativo (preserva comportamento).
-  if (liveExecutionEnabled === false) {
+  // Gate 2.5: toggle remoto (armado-mas-travado). Só `true` EXATO libera o envio — qualquer
+  // outra coisa mantém TRAVADO (fail-safe), mesmo em testnet/mainnet. A oportunidade foi simulada
+  // e validada (coleta de dados segue normal); só o ENVIO fica travado até o painel ligar.
+  if (input.liveExecutionEnabled !== true) {
     logger.info(
-      { ...summary, gasEstimate: simulationGas?.toString() },
-      `🔒 ARMADO-MAS-TRAVADO: tx VÁLIDA, envio TRAVADO pelo painel (toggle remoto OFF). Gas est.: ${simulationGas?.toString() ?? 'n/a'}`,
+      { ...summary },
+      `🔒 EXECUÇÃO TRAVADA (toggle off): tx VÁLIDA mas NÃO submetida — ligue no painel pra executar.`,
     );
-    return { status: 'dryrun_skipped', reason: 'execução travada pelo painel (engine_control OFF)' };
+    return { status: 'dryrun_skipped', reason: 'execução travada pelo toggle (engine_control)' };
   }
 
   // Wallet-pool (opt-in): adquire UM sender sob o teto AGREGADO + nonce local. null = teto estourado → segura.
@@ -238,12 +259,57 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       ...(acquired ? { nonce: acquired.nonce } : {}),
     };
     if (fees) {
-      txParams.maxFeePerGas = fees.maxFeePerGas;
-      txParams.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+      let priorityFee = fees.maxPriorityFeePerGas;
+      let maxFee = fees.maxFeePerGas;
+
+      // Bribe competitor-aware (opt-in): sobe o priority fee pra ganhar a corrida, SEMPRE limitado pelo
+      // lucro (nunca prejuízo). O teto de lucro vem do EV da própria oportunidade.
+      if (
+        input.competitiveBribeEnabled &&
+        input.senderRegistry &&
+        simulationGas &&
+        simulationGas > 0n &&
+        ethUsdPrice > 0
+      ) {
+        const mkt = input.senderRegistry.marketBribeStats();
+        const pct = input.bribeTargetPercentile ?? 'p75';
+        const targetGwei = pct === 'p95' ? mkt.p95Gwei : pct === 'p50' ? mkt.p50Gwei : mkt.p75Gwei;
+        // Lucro do ativo → USD → ETH-wei (pra raciocinar em wei como o gás).
+        const profitUsd = estimateUsd(profitAssetSymbol, expectedProfitWei, profitAssetDecimals, ethUsdPrice);
+        const toEthWei = (usd: number) => BigInt(Math.max(0, Math.floor((usd / ethUsdPrice) * 1e18)));
+        const r = calculateCompetitiveBribe({
+          expectedProfitWei: toEthWei(profitUsd ?? 0),
+          gasUnits: simulationGas,
+          baseFeePerGasWei: fees.baseFeePerGas,
+          basePriorityFeeWei: fees.maxPriorityFeePerGas,
+          marketTargetPriorityFeeWei: BigInt(Math.floor((targetGwei || 0) * 1e9)),
+          minProfitWei: toEthWei(input.minProfitUsd ?? 0),
+          maxPriorityFeeWei: input.maxBribeWei,
+        });
+        priorityFee = r.priorityFeeWei;
+        // maxFee = (baseFee*multiplier do oracle) + novo priority. baseFee*mult = maxFee - basePriority.
+        maxFee = fees.maxFeePerGas - fees.maxPriorityFeePerGas + priorityFee;
+        input.bribeTracker?.observe(Number(priorityFee) / 1e9, r.autoRaised, r.reason);
+        if (r.autoRaised) {
+          logger.info(
+            {
+              ...summary,
+              deGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+              paraGwei: (Number(priorityFee) / 1e9).toFixed(4),
+              alvo: `${targetGwei} (${pct})`,
+              motivo: r.reason,
+            },
+            `⚡ BRIBE auto-ajustado pra ganhar a corrida (dentro do lucro): ${(Number(priorityFee) / 1e9).toFixed(4)} gwei`,
+          );
+        }
+      }
+
+      txParams.maxFeePerGas = maxFee;
+      txParams.maxPriorityFeePerGas = priorityFee;
       logger.debug(
         {
-          maxFeeGwei: (Number(fees.maxFeePerGas) / 1e9).toFixed(4),
-          priorityGwei: (Number(fees.maxPriorityFeePerGas) / 1e9).toFixed(4),
+          maxFeeGwei: (Number(maxFee) / 1e9).toFixed(4),
+          priorityGwei: (Number(priorityFee) / 1e9).toFixed(4),
           baseFeeGwei: (Number(fees.baseFeePerGas) / 1e9).toFixed(4),
         },
         `⛽ EIP-1559 fees aplicados`,
@@ -256,6 +322,30 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
 
+    // Item 9 R2/R5 — registra a tx pra recovery de órfã pós-reorg. Re-simula (eth_call) pra
+    // revalidar e reenvia com nonce fresh. Genérico (independe de protocolo). Dormente em DRY_RUN.
+    const opKey = positionKey ?? txHash;
+    input.txStateMachine?.recordSubmitted({ txHash, operationKey: opKey });
+    input.orphanRecoveryManager?.registerSubmission(txHash, {
+      operationKey: opKey,
+      submittedAt: Date.now(),
+      validateOpportunity: async () => {
+        try {
+          await client.call({ to, data, account } as any);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      resubmit: async () => {
+        try {
+          return await sendWallet.sendTransaction({ ...txParams, nonce: undefined } as any);
+        } catch {
+          return null;
+        }
+      },
+    });
+
     // Dedup: marca position como pending durante await
     if (dedupTracker && positionKey) {
       dedupTracker.markPending(positionKey, txHash);
@@ -263,11 +353,17 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     // Aguarda confirmação
     const receipt = await client.waitForTransactionReceipt({ hash: txHash, confirmations: 1 });
+    // Item 9 R2 — registra inclusão (includedBlockNumber é o que o OrphanRecovery usa pra achar órfãs).
+    input.txStateMachine?.recordIncluded(txHash, receipt.blockNumber, receipt.blockHash);
+    input.txStateMachine?.recordConfirmations(txHash, receipt.blockNumber);
     // Histograma de latência dispatch (antes morto) — segundos do submit até 1 conf.
-    metricRegistry?.observe('zeus_dispatch_duration_seconds', (Date.now() - dispatchStart) / 1000, {
+    const dispatchMs = Date.now() - dispatchStart;
+    metricRegistry?.observe('zeus_dispatch_duration_seconds', dispatchMs / 1000, {
       chain: chainName,
       protocol: protocol ?? 'unknown',
     });
+    // Fase 2b — buffer pro p50/p95 que o heartbeat manda pro painel (Prometheus só guarda buckets).
+    input.latencyTracker?.observe(dispatchMs);
 
     if (receipt.status === 'reverted') {
       // Gas perdido em tx revertida = LOSS pra PnL tracker (em USD)
@@ -311,6 +407,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
               failureEvent.block_total_txs = pos.block_total_txs;
               (failureEvent.payload as Record<string, unknown>).relative_position = pos.relative_position;
               (failureEvent.payload as Record<string, unknown>).is_bottom_10pct = pos.is_bottom_10pct;
+              // Fase 2b — índice da nossa tx no bloco (pro painel mostrar "pos #N" no post-mortem).
+              (failureEvent.payload as Record<string, unknown>).our_tx_index = pos.our_tx_index;
             }
           }
           if (input.competitorResolver && input.botSender) {
@@ -319,6 +417,17 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
               failureEvent.competitor_winner_sender = winner.winner_sender;
               failureEvent.competitor_winner_alias = winner.winner_alias;
               failureEvent.competitor_winner_priority_fee_wei = winner.winner_priority_fee_wei?.toString();
+              // Fase 2b — bribe do vencedor no payload (pro painel: "perdeu por X gwei").
+              if (winner.winner_priority_fee_wei != null) {
+                (failureEvent.payload as Record<string, unknown>).winner_priority_fee_gwei =
+                  Number(winner.winner_priority_fee_wei) / 1e9;
+              }
+              // Fase 2b — contabiliza a vitória do competidor contra nós (alimenta win_rate_vs_us).
+              input.senderRegistry?.recordWinAgainstUs(winner.winner_sender, {
+                txHash: winner.winner_tx_hash,
+                blockNumber: winner.winner_block_number,
+                priorityFeeWei: winner.winner_priority_fee_wei,
+              });
             }
           }
         } catch (err) {
@@ -338,6 +447,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           txHash,
           gasUsdLost: revertGasUsd,
           reason: 'on-chain revert',
+          // Post-mortem: quem nos ganhou (quando o CompetitorResolver resolveu acima) → painel mostra.
+          competitorAlias: failureEvent.competitor_winner_alias,
         });
       }
 
@@ -533,6 +644,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         netProfitUsd: netProfitUsd ?? null,
         profitDeltaBps: deltaBps,
         blockNumber: receipt.blockNumber.toString(),
+        swapVenue: input.swapVenue,
       });
     }
 

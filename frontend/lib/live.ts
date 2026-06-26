@@ -1,8 +1,27 @@
 import { usd } from "./viewModel";
 import { uptimeFromSec } from "./viewModel";
-import type { EventRow, LiveSnapshot, TxRow, ZeusEvent } from "./types";
+import type { EventRow, LiveSnapshot, ServiceStatusRow, TxRow, WalletSnapshotRow, ZeusEvent } from "./types";
 
 const TX_TYPES = new Set(["tx.confirmed", "tx.reverted_on_chain", "tx.reverted_pre_dispatch"]);
+
+/** Mapeia o `protocol` de um evento tx.* para o motor (item 4 — mini-cards). */
+const MOTOR_BY_PROTOCOL: Record<string, string> = {
+  "aave-v3": "motor1",
+  "compound-v3": "motor1",
+  "morpho-blue": "motor1",
+  "moonwell": "motor1",
+  arb: "motor2",
+  backrun: "motor3",
+};
+const MOTOR_LABEL: Record<string, string> = {
+  motor1: "M1 · Liquidações",
+  motor2: "M2 · Arbitragem",
+  motor3: "M3 · Backrun",
+};
+function motorOf(protocol: string | null): string | null {
+  if (!protocol) return null;
+  return MOTOR_BY_PROTOCOL[protocol] ?? (protocol.startsWith("backrun") ? "motor3" : null);
+}
 
 function hhmm(ts: string) {
   const d = new Date(ts);
@@ -33,6 +52,7 @@ function rowToTx(r: EventRow): TxRow {
     mode: (r.mode || "main").slice(0, 4),
     time: hhmm(r.ts),
     reason: (r.payload?.reason as string) || undefined,
+    venue: (r.payload?.swapVenue as string) || undefined,
   };
 }
 
@@ -46,9 +66,13 @@ function tickerText(r: EventRow): string {
   return `${r.type}${p}${ev?.reason ? " · " + ev.reason : ""}`;
 }
 
-/** Deriva o snapshot ao vivo a partir das linhas de eventos (mais recente primeiro). */
-export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
-  if (!rows.length) return {};
+/** Deriva o snapshot ao vivo a partir dos eventos (mais recente primeiro) + status dos serviços. */
+export function deriveSnapshot(
+  rows: EventRow[],
+  statuses: ServiceStatusRow[] = [],
+  walletSnaps: WalletSnapshotRow[] = [],
+): LiveSnapshot {
+  if (!rows.length && !statuses.length) return {};
   const snap: LiveSnapshot = {};
 
   // ----- transações -----
@@ -86,15 +110,25 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     snap.kpiWinRate = ((ok / today.length) * 100).toFixed(1) + "%";
   }
 
-  // ----- estado a partir do último heartbeat / gás -----
-  const hb = rows.find((r) => r.type === "zeus.heartbeat");
-  if (hb) {
-    const p = hb.payload as ZeusEvent;
-    if (p.gasReserveEth != null) snap.gasEth = p.gasReserveEth.toFixed(3);
-    if (p.gasReserveUsd != null) snap.gasUsd = "$" + p.gasReserveUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (p.adaptiveMinEvUsd != null) snap.adaptiveEv = "$" + p.adaptiveMinEvUsd.toFixed(2);
-    if (p.autoPaused != null) snap.botStatus = p.autoPaused ? "PAUSED" : "RUNNING";
-  }
+  // ----- estado ao vivo a partir do service_status (heartbeat por serviço) -----
+  const byService = (s: string) => statuses.find((x) => x.service === s);
+  // Gás: vem do serviço que segura a wallet financiada (liquidator); fallback = qualquer um com gás.
+  const gasSvc = byService("liquidator") ?? statuses.find((s) => s.gas_reserve_eth != null);
+  if (gasSvc?.gas_reserve_eth != null) snap.gasEth = gasSvc.gas_reserve_eth.toFixed(3);
+  if (gasSvc?.gas_reserve_usd != null)
+    snap.gasUsd = "$" + gasSvc.gas_reserve_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // EV adaptativo: do Motor 2 (mis-scanner).
+  const mis = byService("mis-scanner");
+  if (mis?.adaptive_min_ev_usd != null) snap.adaptiveEv = "$" + mis.adaptive_min_ev_usd.toFixed(2);
+  // Estado REAL do bot: o toggle do Motor 2 (auto_paused = travado). Senão, qualquer serviço pausado.
+  if (mis?.auto_paused != null) snap.botStatus = mis.auto_paused ? "TRAVADO" : "RUNNING";
+  else if (statuses.some((s) => s.auto_paused)) snap.botStatus = "PAUSED";
+
+  // Modo + chain REAIS (pro selo de modo na topbar): prefere o Motor 2 (arb), senão liquidator/qualquer.
+  const primary = mis ?? byService("liquidator") ?? statuses.find((s) => s.mode);
+  if (primary?.mode) snap.mode = primary.mode;
+  if (primary?.chain) snap.chain = primary.chain;
+
   const gasEvt = rows.find((r) => r.type === "gas.alert" || r.type === "gas.recovered");
   if (gasEvt) {
     const p = gasEvt.payload as ZeusEvent;
@@ -102,9 +136,8 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     if (snap.gasUsd == null && p.balanceUsd != null) snap.gasUsd = "$" + p.balanceUsd.toFixed(2);
   }
 
-  // ----- log do sistema -----
+  // ----- log do sistema (heartbeat agora vem do service_status, não de events) -----
   const sysTypes = new Set([
-    "zeus.heartbeat",
     "failure.cooldown_activated",
     "failure.cooldown_expired",
     "gas.alert",
@@ -113,18 +146,264 @@ export function deriveSnapshot(rows: EventRow[]): LiveSnapshot {
     "liquidator.boot",
     "liquidator.shutdown",
   ]);
-  const sys = rows.filter((r) => sysTypes.has(r.type)).slice(0, 7);
-  if (sys.length) {
-    snap.eventLog = sys.map((r) => {
+  const sysLines = rows
+    .filter((r) => sysTypes.has(r.type))
+    .slice(0, 6)
+    .map((r) => {
       const p = r.payload as ZeusEvent;
       let text = (p?.reason as string) || "";
-      if (r.type === "zeus.heartbeat" && p.uptimeSec != null)
-        text = `Heartbeat ok · gás ${p.gasReserveEth?.toFixed(3) ?? "?"} ETH · uptime ${uptimeFromSec(p.uptimeSec)}`;
-      else if (r.type === "gas.alert") text = text || `Gás baixo · ${p.balanceEth?.toFixed(3) ?? "?"} ETH`;
+      if (r.type === "gas.alert") text = text || `Gás baixo · ${p.balanceEth?.toFixed(3) ?? "?"} ETH`;
       else if (r.type.includes("cooldown")) text = text || `Cooldown · ${p.consecutiveFailures ?? "?"} falhas · ${p.cooldownSec ?? "?"}s`;
       else if (r.type.includes("kill_switch")) text = text || `Kill switch · perda 24h ${usd(p.loss24hUsd ?? 0)}`;
       return { time: hhmm(r.ts), color: colorFor(r.type), type: r.type, text: text || r.type };
     });
+  // Linha sintética de heartbeat (estado mais fresco) no topo do log.
+  const freshest = statuses.slice().sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+  if (freshest) {
+    sysLines.unshift({
+      time: hhmm(freshest.updated_at),
+      color: "var(--gold)",
+      type: "zeus.heartbeat",
+      text: `Heartbeat ${freshest.service} · gás ${freshest.gas_reserve_eth?.toFixed(3) ?? "?"} ETH · uptime ${uptimeFromSec(freshest.uptime_sec ?? 0)}`,
+    });
+  }
+  if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
+
+  // ----- inteligência: drift sustentado real (de pnl.reconciled) -----
+  const recon = rows.filter((r) => r.type === "pnl.reconciled").slice(0, 6);
+  if (recon.length) {
+    snap.driftAlarms = recon.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const bps = Number(p.profitDeltaBps ?? 0);
+      const mag = Math.abs(bps);
+      const color = mag >= 100 ? "var(--red)" : mag >= 30 ? "var(--gold)" : "var(--green)";
+      const cause = (p.attributionCause as string) || "—";
+      return { color, text: `${p.protocol ?? "—"} · ${cause}`, bps: `${bps > 0 ? "+" : ""}${bps}bps` };
+    });
+  }
+
+  // ----- item 1: falhas recentes (failure.recorded) — categoria + quem nos ganhou -----
+  const failRows = rows.filter((r) => r.type === "failure.recorded").slice(0, 6);
+  if (failRows.length) {
+    snap.failures = failRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const category = (p.failureCategory as string) || "—";
+      const winner = (p.competitorAlias as string) || "";
+      const lost = p.gasUsdLost != null ? `−$${Number(p.gasUsdLost).toFixed(2)} gás` : "";
+      const detail = [winner ? `perdeu p/ ${winner}` : "", lost, (p.reason as string) || ""].filter(Boolean).join(" · ");
+      return {
+        time: hhmm(r.ts),
+        color: category.includes("reverted") || category.includes("lost") ? "var(--red)" : "var(--gold)",
+        protocol: r.protocol || (p.protocol as string) || "—",
+        category,
+        detail: detail || category,
+      };
+    });
+  }
+
+  // ----- Fase 2b: post-mortem (corridas perdidas) — failure.recorded COM vencedor resolvido -----
+  const lostRows = rows.filter((r) => r.type === "failure.recorded" && (r.payload as ZeusEvent)?.competitorAlias).slice(0, 6);
+  if (lostRows.length) {
+    snap.postmortem = lostRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const alias = (p.competitorAlias as string) || "—";
+      const gwei = p.winner_priority_fee_gwei != null ? ` · ${Number(p.winner_priority_fee_gwei).toFixed(2)} gwei` : "";
+      const idx = p.our_tx_index != null ? `pos #${p.our_tx_index}` : p.is_bottom_10pct ? "fim do bloco" : "—";
+      return {
+        time: hhmm(r.ts),
+        text: `${r.protocol || (p.protocol as string) || "—"} · perdemos para ${alias}${gwei}`,
+        pos: idx,
+      };
+    });
+  }
+
+  // ----- Fase 2b: log de auto-calibração — calibration.applied -----
+  const calibRows = rows.filter((r) => r.type === "calibration.applied").slice(0, 6);
+  if (calibRows.length) {
+    snap.calib = calibRows.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const oldV = Number(p.oldThresholdUsd ?? 0);
+      const newV = Number(p.newThresholdUsd ?? 0);
+      return {
+        time: hhmm(r.ts),
+        effect: `min EV $${oldV.toFixed(2)} → $${newV.toFixed(2)}`,
+        text: (p.reason as string) || "calibração aplicada",
+      };
+    });
+  }
+
+  // ----- item 2: pulso do radar (discovery, do heartbeat em service_status) -----
+  // Prioriza o liquidator (motor que faz discovery); fallback = qualquer serviço com discovery.
+  const discSvc = (byService("liquidator")?.discovery ? byService("liquidator") : statuses.find((s) => s.discovery))!;
+  if (discSvc?.discovery) {
+    const d = discSvc.discovery;
+    snap.discovery = {
+      service: discSvc.service,
+      positions: d.positions,
+      dispatched: d.dispatched,
+      rejected: d.rejected,
+      ago: ago(d.atIso),
+    };
+  }
+
+  // ----- item 3: inteligência real (intel, do heartbeat) substitui o mock quando presente -----
+  const intelSvc = byService("liquidator")?.intel ? byService("liquidator") : statuses.find((s) => s.intel);
+  if (intelSvc?.intel) {
+    snap.intel = { ...intelSvc.intel };
+  }
+  // O auto-liga da gorjeta competitiva é sinal do Motor 2 (mis-scanner). Se o intel exibido veio do
+  // liquidator, ainda assim sobrepomos esse flag de qualquer serviço que o tenha ligado.
+  const autoEnabledSvc = statuses.find((s) => s.intel?.competitiveBribeAutoEnabled);
+  if (autoEnabledSvc?.intel?.competitiveBribeAutoEnabled) {
+    snap.intel = {
+      ...(snap.intel ?? {}),
+      competitiveBribeAutoEnabled: true,
+      bribeAutoEnableReason: autoEnabledSvc.intel.bribeAutoEnableReason,
+    };
+  }
+
+  // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
+  // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
+  const liq = byService("liquidator");
+  const healthSvc = liq?.health ? liq : statuses.find((s) => s.health);
+  if (healthSvc?.health?.components?.length) snap.health = healthSvc.health.components;
+
+  const compSvc = liq?.competitors ? liq : statuses.find((s) => s.competitors);
+  if (compSvc?.competitors?.length) snap.competitors = compSvc.competitors;
+
+  const coolSvc = liq?.cooldowns ? liq : statuses.find((s) => s.cooldowns);
+  if (coolSvc?.cooldowns?.length) snap.cooldowns = coolSvc.cooldowns;
+
+  const ksSvc = liq?.kill_switch ? liq : statuses.find((s) => s.kill_switch);
+  if (ksSvc?.kill_switch) snap.killSwitch = ksSvc.kill_switch;
+
+  const edgeSvc = byService("mis-scanner")?.edge_pairs ? byService("mis-scanner") : statuses.find((s) => s.edge_pairs);
+  if (edgeSvc?.edge_pairs?.length) snap.edgePairs = edgeSvc.edge_pairs;
+
+  // Fase 2b — latência de dispatch (do liquidator; omitida enquanto não há dispatch real).
+  const latSvc = liq?.latency ? liq : statuses.find((s) => s.latency);
+  if (latSvc?.latency && latSvc.latency.samples > 0) snap.latency = latSvc.latency;
+
+  // Motor 1 — resiliência de reorg (reorgs 24h + órfãs recuperadas).
+  const reorgSvc = liq?.reorgs ? liq : statuses.find((s) => s.reorgs);
+  if (reorgSvc?.reorgs) snap.reorgs = reorgSvc.reorgs;
+
+  // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
+  // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
+  if (walletSnaps.length) {
+    snap.whRaw = [...walletSnaps]
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+      .slice(-30)
+      .map((w) => Number(w.balance_eth ?? 0));
+  }
+
+  // ----- item 4: mini-cards por motor (PnL + ops 24h, derivado dos eventos tx.*) -----
+  const startMs = startOfDay.getTime() - 23 * 60 * 60 * 1000; // janela ~24h
+  const acc: Record<string, { netUsd: number; ops: number }> = {};
+  for (const r of rows) {
+    if (r.type !== "tx.confirmed" && r.type !== "tx.reverted_on_chain") continue;
+    if (new Date(r.ts).getTime() < startMs) continue;
+    const motor = motorOf(r.protocol);
+    if (!motor) continue;
+    const a = (acc[motor] ??= { netUsd: 0, ops: 0 });
+    a.netUsd += r.net_profit_usd ?? (r.type === "tx.reverted_on_chain" ? -(r.gas_usd ?? 0) : 0);
+    a.ops += 1;
+  }
+  // Sempre mostra os 3 cards (M1/M2/M3); motores sem evento ainda ficam zerados (honesto).
+  snap.motorCards = ["motor1", "motor2", "motor3"].map((tag) => ({
+    tag,
+    label: MOTOR_LABEL[tag] ?? tag,
+    netUsd: acc[tag]?.netUsd ?? 0,
+    ops: acc[tag]?.ops ?? 0,
+  }));
+
+  // ===== FASE 1: agregados de PnL / gás / relatórios (derivados dos events tx.*) =====
+  const txAgg = rows.filter((r) => r.type === "tx.confirmed" || r.type === "tx.reverted_on_chain");
+  const netOf = (r: EventRow) => r.net_profit_usd ?? (r.type === "tx.reverted_on_chain" ? -(r.gas_usd ?? 0) : 0);
+  if (txAgg.length) {
+    const nowMs = Date.now();
+    const DAY = 86_400_000;
+    const inWin = (ms: number) => txAgg.filter((r) => nowMs - new Date(r.ts).getTime() <= ms);
+    const sumNet = (rs: EventRow[]) => rs.reduce((a, r) => a + netOf(r), 0);
+    const sumGas = (rs: EventRow[]) => rs.reduce((a, r) => a + (r.gas_usd ?? 0), 0);
+
+    snap.kpi7d = sumNet(inWin(7 * DAY));
+    snap.kpi30d = sumNet(inWin(30 * DAY));
+    snap.kpiProj = snap.kpi30d; // mês-a-mês (MTD) — projeção simples e honesta
+    snap.gas24h = sumGas(inWin(DAY));
+    snap.gas30d = sumGas(inWin(30 * DAY));
+    const gross30 = inWin(30 * DAY).reduce((a, r) => a + (r.net_profit_usd != null ? r.net_profit_usd + (r.gas_usd ?? 0) : 0), 0);
+    snap.gas30dPct = gross30 > 0 ? Math.round((snap.gas30d / gross30) * 100) + "%" : "—";
+
+    // net por dia (p/ barras 14d + série cumulativa do gráfico de PnL)
+    const day0 = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+    const dayKey = (ts: string) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+    const byDay: Record<number, number> = {};
+    for (const r of txAgg) byDay[dayKey(r.ts)] = (byDay[dayKey(r.ts)] ?? 0) + netOf(r);
+    const raw14 = Array.from({ length: 14 }, (_, i) => byDay[day0 - (13 - i) * DAY] ?? 0);
+    snap.raw14 = raw14;
+    snap.kpiW14sum = raw14.reduce((a, b) => a + b, 0);
+
+    // série diária cumulativa (realizado) p/ o gráfico realizado-vs-esperado
+    let cum = 0;
+    const realized = Array.from({ length: 15 }, (_, i) => (cum += byDay[day0 - (14 - i) * DAY] ?? 0));
+    snap.pnlSeries = { daily: realized, weekly: [], monthly: [] };
+    // esperado (de pnl.reconciled), série diária cumulativa
+    const reconAll = rows.filter((r) => r.type === "pnl.reconciled");
+    if (reconAll.length) {
+      const expByDay: Record<number, number> = {};
+      for (const r of reconAll) {
+        const p = r.payload as Record<string, unknown>;
+        expByDay[dayKey(r.ts)] = (expByDay[dayKey(r.ts)] ?? 0) + Number(p.expectedUsd ?? p.netProfitUsd ?? 0);
+      }
+      let cumE = 0;
+      snap.expSeries = { daily: Array.from({ length: 15 }, (_, i) => (cumE += expByDay[day0 - (14 - i) * DAY] ?? 0)), weekly: [], monthly: [] };
+    }
+
+    // breakdown por motor / protocolo (net acumulado dos events carregados)
+    const motorNet: Record<string, number> = {};
+    const protoNet: Record<string, number> = {};
+    for (const r of txAgg) {
+      const n = netOf(r);
+      const m = motorOf(r.protocol);
+      if (m) motorNet[m] = (motorNet[m] ?? 0) + n;
+      if (r.protocol) protoNet[r.protocol] = (protoNet[r.protocol] ?? 0) + n;
+    }
+    const mkBreak = (obj: Record<string, number>, labelFn: (k: string) => string) => {
+      const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+      const max = Math.max(1, ...entries.map(([, v]) => Math.abs(v)));
+      return entries.map(([k, v]) => ({ name: labelFn(k), val: v, pct: String(Math.round((Math.abs(v) / max) * 100)) }));
+    };
+    if (Object.keys(motorNet).length) snap.motorBreak = mkBreak(motorNet, (k) => MOTOR_LABEL[k] ?? k);
+    if (Object.keys(protoNet).length) snap.protoBreak = mkBreak(protoNet, (k) => k);
+
+    // relatórios por período (net / win / ops / gás / drift)
+    const driftAvg = (rs: EventRow[]) => {
+      const ds = rs.map((r) => r.profit_delta_bps ?? 0).filter((x) => x !== 0);
+      return ds.length ? Math.round(ds.reduce((a, b) => a + b, 0) / ds.length) : 0;
+    };
+    const mkRep = (ms: number, label: string, range: string) => {
+      const rs = inWin(ms);
+      const ok = rs.filter((r) => r.type === "tx.confirmed").length;
+      const mb: Record<string, number> = {};
+      for (const r of rs) { const mm = motorOf(r.protocol); if (mm) mb[mm] = (mb[mm] ?? 0) + netOf(r); }
+      const top = Object.entries(mb).sort((a, b) => b[1] - a[1])[0];
+      return {
+        net: sumNet(rs),
+        win: rs.length ? ((ok / rs.length) * 100).toFixed(1) + "%" : "—",
+        ops: String(rs.length),
+        gas: sumGas(rs),
+        drift: rs.length ? `${driftAvg(rs)}bps` : "—",
+        bestMotor: top ? (MOTOR_LABEL[top[0]] ?? top[0]) : "—",
+        range,
+        label,
+      };
+    };
+    snap.repByPeriod = {
+      daily: mkRep(DAY, "Diário", "últimas 24h"),
+      weekly: mkRep(7 * DAY, "Semanal", "últimos 7d"),
+      monthly: mkRep(30 * DAY, "Mensal", "últimos 30d"),
+    };
   }
 
   return snap;

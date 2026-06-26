@@ -43,7 +43,13 @@ contract ZeusMoonwellLiquidator is
     uint256 public maxTradeWei;
     mapping(address => uint256) private _maxTradePerToken;
     mapping(address => bool) private _operators;
+    /// @notice Routers DEX aprovados pro _executeSwaps (whitelist on-chain — defesa em profundidade).
+    mapping(address => bool) public approvedRouter;
     bool private _killed;
+
+    /// @notice Router de swap não está na whitelist on-chain.
+    error RouterNotApproved(address router);
+    event RouterApprovalSet(address indexed router, bool approved);
 
     /// @dev Flag transiente "eu iniciei este flashloan" — OBRIGATÓRIA contra hijack do Balancer.
     uint256 private constant _FLASH_EXPECTED_SLOT =
@@ -282,6 +288,7 @@ contract ZeusMoonwellLiquidator is
                 : steps[i].amountIn;
             uint256 cap = getMaxTradeFor(steps[i].tokenIn);
             if (effectiveAmountIn > cap) revert TradeTooLarge(effectiveAmountIn, cap);
+            if (!approvedRouter[steps[i].router]) revert RouterNotApproved(steps[i].router);
 
             DexType dt = steps[i].dexType;
             if (dt == DexType.UniswapV3) {
@@ -329,6 +336,13 @@ contract ZeusMoonwellLiquidator is
     }
 
     function isOperator(address account) external view override returns (bool) { return _operators[account]; }
+
+    /// @notice Aprova/revoga um router DEX pra uso no _executeSwaps (whitelist on-chain).
+    function setApprovedRouter(address router, bool approved) external onlyOwner {
+        if (router == address(0)) revert NotAuthorized();
+        approvedRouter[router] = approved;
+        emit RouterApprovalSet(router, approved);
+    }
 
     function rescueToken(address token, uint256 amount, address to) external override onlyOwner {
         if (to == address(0)) revert NotAuthorized();

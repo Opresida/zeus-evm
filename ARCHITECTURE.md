@@ -25,6 +25,26 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 >
 > Os fluxos 1/2/3 abaixo (executeArbitrage / executeFlashloanArbitrage / liquidation) continuam corretos —
 > só estão hoje distribuídos entre ZeusArbExecutor e ZeusLiquidator em vez de um único ZeusExecutor.
+>
+> **🆕 2026-06-23 — DEX adapters do Motor 2 + cola do painel:**
+> - Novos `DexType`: `Slipstream=5` (Aerodrome CL, `SlipstreamLib`) e `PancakeV3=6` (`PancakeV3Lib`, struct com deadline — Pancake **e Sushi V3** na Base). UniV2 genérico via `UniswapV2Lib`. Off-chain config-driven (`routerStyle` por fork). `DexType` com fonte única em `shared-types` + pin test.
+> - **Cola de eventos (bot → painel):** `apps/mis-scanner` liga o `genericWebhookSink` (header `x-zeus-secret`) ao eventBus → POST em `frontend/app/api/ingest` → Supabase `events` → Realtime → painel. Emite `zeus.heartbeat` (30s) direto pelo sink (não pelo bus → fora do ledger DuckDB). Toggle reverso: painel → `/api/control` → Supabase `engine_control` → bot poll.
+> - **RPC:** Alchemy primário (archive no free). Fork tests via `BASE_RPC_ARCHIVE` (`pnpm contracts:test:fork`).
+>
+> **🆕 2026-06-25 parte 3 — Painel: login MAZARI + branding + UX (deployado na Vercel):**
+> - **Auth:** painel atrás de **Supabase Auth** (login obrigatório em prod; demo sem login local). Tabelas
+>   `profiles` (role/status) + `invites` + `is_admin()` + RLS (events/service_status/wallet → `authenticated`;
+>   `engine_control` segue anon p/ o bot). **Cadastro por indicação** (admin) → `pending` → **admin aprova**.
+>   Membro = só vê; **armar o bot = admin-only** (UI + `requireAdmin` server-side em `/api/control`). Helpers
+>   `lib/authClient.ts`/`lib/authServer.ts`; rotas `/api/auth/signup`, `/api/admin/invite|approve`.
+> - **Branding:** `public/brand/mazari-logo.png` (login) + `public/icons/zeus-*.png` (app icon PWA + favicon).
+> - **UX:** `components/ZeusLoader.tsx` + `app/loading.tsx`; AuthGate faz **splash ≥4s** + **crossfade** p/ login;
+>   **botão Sair** na topbar; **selo de MODO** (DRY-RUN/ARMADO/LIVE, do heartbeat — `viewModel.modeBadge`).
+>
+> **🆕 2026-06-25 parte 2 — reuso cross-motor (sem código novo de lógica):**
+> - **Motor 2 herda as defesas do Motor 1** (todas de `@zeus-evm/execution-utils`, dormentes em DRY_RUN): reorg awareness (`FinalityTracker`→`onReorg`→`AutoPauseManager`/`OrphanRecoveryManager`/`ReorgAnalytics` + `TxStateMachine` no dispatch) + auto-pause de saúde (`AutoPauseManager`+`BlockStalenessCheck`+`ProcessCheck`, gate pré-simulação no `arbDispatcher`; antes o health server do M2 era "vazio") + `LatencyTracker` (p50/p95 no heartbeat).
+> - **Gorjeta competitiva auto-ligável no M2:** `calculateCompetitiveBribe` (teto de lucro) + detector `gas_outbid` que liga sozinho + heartbeat `competitiveBribeAutoEnabled`. OFF default. Ganho modesto na Base FCFS.
+> - **Arb triangular:** detecção segue read-only; caminho de execução planejado em `docs/TRIANGULAR_EXECUTION_PLAN.md` (atrás do MESMO toggle, sub-flag `TRIANGULAR_EXECUTION_ENABLED`). Banner "Lucro provado…" na Home.
 
 ## 🧭 Visão geral
 

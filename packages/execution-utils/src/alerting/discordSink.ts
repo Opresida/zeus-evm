@@ -43,6 +43,9 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'backrun.rejected': '🟡',
   'pnl.reconciled': '📊',
   'failure.recorded': '🔴',
+  'calibration.applied': '📈',
+  'wallet.snapshot': '👛',
+  'zeus.heartbeat': '💓', // não vai pro Discord por default (filtrado em createDiscordSink) — anti-spam
 };
 
 interface DiscordEmbed {
@@ -278,6 +281,16 @@ function buildEmbed(event: ZeusEvent): DiscordEmbed {
           { name: 'Protocolo', value: event.protocol, inline: true },
           ...(event.gasUsdLost !== undefined ? [{ name: 'Gás perdido', value: `$${event.gasUsdLost.toFixed(2)}`, inline: true }] : []),
         ],
+        footer,
+      };
+
+    // zeus.heartbeat (e qualquer tipo futuro) — embed genérico. Na prática não chega aqui:
+    // o createDiscordSink filtra heartbeat antes (anti-spam). Garante exaustividade do switch.
+    default:
+      return {
+        title: `${emoji} ${(event as ZeusEvent).type}`,
+        color,
+        timestamp: (event as ZeusEvent).timestamp,
         footer,
       };
   }

@@ -35,6 +35,8 @@ import {
   GasOracle,
   EventBus,
   EventIngester,
+  createGenericWebhookSink,
+  type Severity,
   SenderRegistry,
   BlockHistoryScanner,
   CooccurrenceAnalyzer,
@@ -49,6 +51,17 @@ import {
   BlockPositionTracker,
   computeAdaptiveThresholds,
   findTriangularCycles,
+  BribeTracker,
+  shouldAutoEnableCompetitiveBribe,
+  // Defesas de maturidade (paridade Motor 1) — todas de execution-utils.
+  AutoPauseManager,
+  FinalityTracker,
+  OrphanRecoveryManager,
+  TxStateMachine,
+  ReorgAnalytics,
+  BlockStalenessCheck,
+  ProcessCheck,
+  LatencyTracker,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -149,6 +162,20 @@ async function main(): Promise<void> {
   const eventBus = new EventBus(logger);
   const eventIngester = new EventIngester({ store, eventBus, logger, defaultChain: chainConfig.name });
   eventIngester.start();
+
+  // ─── Ponte pro painel (ZEUS Command) — sem isto, NADA do Motor 2 chega ao front ───
+  if (env.GENERIC_WEBHOOK_URL) {
+    const severities = env.GENERIC_SEVERITIES.split(',').map((s) => s.trim()) as Severity[];
+    eventBus.subscribe(
+      createGenericWebhookSink({
+        url: env.GENERIC_WEBHOOK_URL,
+        severities,
+        secret: env.GENERIC_WEBHOOK_SECRET,
+        logger,
+      }),
+    );
+    logger.info({ severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' }, '📡 Generic webhook sink ativo (Motor 2 → painel)');
+  }
   // Competidores (arb é competitivo — o motor TEM que ver o adversário).
   const senderRegistry = new SenderRegistry({ baseDir: resolve('logs', 'competitors'), logger });
   const cooccurrence = new CooccurrenceAnalyzer();
@@ -183,7 +210,46 @@ async function main(): Promise<void> {
   // Post-mortem: alvo = routers DEX (a corrida do arb é por quem inclui primeiro).
   const competitorResolver = new CompetitorResolver({ client, senderRegistry, targets: intelTargets.uniswap_v3_routers.concat(intelTargets.aerodrome_router ? [intelTargets.aerodrome_router] : []), logger });
   const blockPositionTracker = new BlockPositionTracker({ client, logger });
+  // Gorjeta competitiva (Motor 2): tracker do último bribe + estado mutável do auto-liga.
+  // `bribeAutoState` é a MESMA referência passada ao dispatcher — o detector periódico abaixo
+  // seta `.enabled=true` quando há evidência de gas_outbid, e o dispatch passa a usar a gorjeta.
+  const bribeTracker = new BribeTracker();
+  const bribeAutoState = { enabled: false, reason: '', sinceIso: '', outbidCount: 0 };
   logger.info('🧠 Camada de inteligência do Motor 2 pronta (competidores + PnL + calibração + post-mortem)');
+
+  // ─── Defesas de maturidade (paridade com o Motor 1) — REUSO de execution-utils, dormentes em DRY_RUN ───
+  // Saúde → pausa: o health server (abaixo) ganha "sensores" reais; sem isto ele responde mas nada pausa o bot.
+  const autoPauseManager = new AutoPauseManager({ logger });
+  const txStateMachine = new TxStateMachine({ logger });
+  const orphanRecoveryManager = new OrphanRecoveryManager({ txStateMachine, logger });
+  const reorgAnalytics = new ReorgAnalytics({ logger });
+  const latencyTracker = new LatencyTracker();
+  // Reorg → pausa crítica + recovery de tx órfã (mesmo encadeamento do liquidator).
+  const finalityTracker = new FinalityTracker({ client, logger });
+  finalityTracker.onReorg(async (ev) => {
+    if (ev.depth >= 3 || finalityTracker.isCircuitBreakerActive()) {
+      autoPauseManager.setReason('reorg', 'critical', `reorg depth=${ev.depth} ancestor=${ev.commonAncestorBlock}`);
+      setTimeout(() => autoPauseManager.clearReason('reorg'), 5 * 60 * 1000).unref();
+    }
+    reorgAnalytics.observe(ev);
+    await orphanRecoveryManager.onReorg(ev); // dormente em DRY_RUN (sem tx real registrada)
+  });
+  finalityTracker.start();
+  // Bloco travado (sem novo bloco > limite) → pausa.
+  const blockStalenessCheck = new BlockStalenessCheck({ client, logger });
+  blockStalenessCheck.onStatusChange((r) => {
+    if (r.status === 'critical') autoPauseManager.setReason('block_staleness', 'critical', `${r.age_seconds.toFixed(0)}s sem bloco`);
+    else autoPauseManager.clearReason('block_staleness');
+  });
+  blockStalenessCheck.start();
+  // Saúde do processo (memória/event-loop lag) → pausa.
+  const processCheck = new ProcessCheck({ logger });
+  processCheck.onStatusChange((p) => {
+    if (p.status === 'critical') autoPauseManager.setReason('process', 'critical', `mem ${p.memory_mb.rss.toFixed(0)}MB lag ${p.event_loop_lag_ms.toFixed(0)}ms`);
+    else autoPauseManager.clearReason('process');
+  });
+  processCheck.start();
+  logger.info('🛡️ Defesas de maturidade do Motor 2 prontas (reorg + auto-pause de saúde + latência)');
 
   // ─── Observabilidade (OIE Etapa D): bridge ledger → Prometheus + /metrics pro Grafana ───
   const metricRegistry = new MetricRegistry({ logger });
@@ -207,12 +273,18 @@ async function main(): Promise<void> {
         readinessProvider: () => {
           const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
           const live = !!arbExec?.deps.liveExecutionEnabled;
-          const paused = armed && !live;
+          const lockedOff = armed && !live;
+          // Pausa de saúde/reorg (sensores reais) OU toggle remoto OFF — ambos travam o dispatch.
+          const healthPaused = autoPauseManager.shouldPause();
+          const paused = lockedOff || healthPaused;
+          const reasons: string[] = [];
+          if (lockedOff) reasons.push('execution_locked (toggle remoto OFF)');
+          if (healthPaused) reasons.push(autoPauseManager.summary());
           return {
             status: 'ok',
             checks: {},
             dispatchesPaused: paused,
-            pausedReasons: paused ? ['execution_locked (toggle remoto OFF)'] : [],
+            pausedReasons: reasons,
           };
         },
         metricsProvider: () => metricRegistry.render(),
@@ -306,6 +378,13 @@ async function main(): Promise<void> {
         // Inteligência (Parte B): reconciliação, falhas, post-mortem, eventos.
         pnlTracker, failureTracker, pnlReconciler, failureCollector, eventBus,
         competitorResolver, blockPositionTracker,
+        // Gorjeta competitiva (limitada por lucro) — opt-in OU auto-ligada pelo detector abaixo.
+        competitiveBribeEnabled: env.COMPETITIVE_BRIBE_ENABLED,
+        bribeTargetPercentile: env.BRIBE_TARGET_PERCENTILE,
+        maxBribeWei: BigInt(Math.floor(env.MAX_BRIBE_GWEI * 1e9)),
+        senderRegistry, bribeTracker, bribeAutoState,
+        // Defesas de maturidade (paridade Motor 1): gate de pausa + reorg recovery + latência.
+        autoPauseManager, txStateMachine, orphanRecoveryManager, latencyTracker,
       },
     };
     const remoteControlled = mode !== 'dryrun' && !!env.SUPABASE_URL;
@@ -340,6 +419,42 @@ async function main(): Promise<void> {
   }, 5_000);
   intelMetricsInterval.unref();
 
+  // ─── Detector do auto-liga da gorjeta competitiva (Motor 2) ───
+  // A cada 5 min: conta quantas corridas perdemos por gás (gas_outbid) na janela. Se passar do
+  // limiar e a feature ainda estiver desligada, o ZEUS LIGA sozinho a gorjeta competitiva — que já é
+  // LIMITADA POR LUCRO (nunca prejuízo). Sticky na sessão; o operador é avisado no painel (heartbeat
+  // + evento). Não persiste em engine_control; opt-in via config (COMPETITIVE_BRIBE_ENABLED) continua valendo.
+  const bribeAutoDetector = setInterval(() => {
+    try {
+      if (!arbExec || bribeAutoState.enabled || env.COMPETITIVE_BRIBE_ENABLED) return; // já ligado/forçado
+      const windowMs = env.BRIBE_AUTO_ENABLE_WINDOW_MIN * 60_000;
+      const cutoff = Date.now() - windowMs;
+      const outbidCount = failureCollector
+        .recent(500)
+        .filter((f) => f.category === 'gas_outbid' && f.timestamp >= cutoff).length;
+      if (!shouldAutoEnableCompetitiveBribe({ outbidCount, threshold: env.BRIBE_AUTO_ENABLE_THRESHOLD })) return;
+
+      const reason = `${outbidCount} corridas perdidas no gás na última ${env.BRIBE_AUTO_ENABLE_WINDOW_MIN} min`;
+      bribeAutoState.enabled = true;
+      bribeAutoState.reason = reason;
+      bribeAutoState.sinceIso = new Date().toISOString();
+      bribeAutoState.outbidCount = outbidCount;
+      logger.warn(
+        { outbidCount, threshold: env.BRIBE_AUTO_ENABLE_THRESHOLD, windowMin: env.BRIBE_AUTO_ENABLE_WINDOW_MIN },
+        `⚡ ZEUS LIGOU a gorjeta competitiva sozinho — ${reason} (dentro do lucro, nunca no vermelho)`,
+      );
+      eventBus.emit({
+        type: 'calibration.applied', timestamp: new Date().toISOString(), chain: chainConfig.name,
+        mode: arbExec.deps.mode ?? 'dryrun', severity: 'info', dimension: 'bribe-competitivo',
+        oldThresholdUsd: 0, newThresholdUsd: 0,
+        reason: `gorjeta competitiva auto-ligada: ${reason}`,
+      });
+    } catch (err) {
+      logger.debug?.({ err: err instanceof Error ? err.message : err }, 'bribe auto-detector: erro (drop)');
+    }
+  }, 5 * 60_000);
+  bribeAutoDetector.unref();
+
   // ─── Auto-calibração (Etapa C) — recalcula o gate de EV do arb a partir do ledger ───
   const runAdaptive = async () => {
     try {
@@ -358,6 +473,55 @@ async function main(): Promise<void> {
   void runAdaptive();
   const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
   adaptiveTimer.unref();
+
+  // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
+  // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
+  const emitHeartbeat = () => {
+    const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
+    const live = !!arbExec?.deps.liveExecutionEnabled;
+    eventBus.emit({
+      type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain: chainConfig.name,
+      mode: arbExec?.deps.mode ?? 'dryrun', severity: 'info', service: 'mis-scanner',
+      uptimeSec: Math.floor(process.uptime()),
+      adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
+      // Travado por toggle remoto (só quando armado) OU pausado por saúde/reorg (sensores reais).
+      autoPaused: (armed ? !live : false) || autoPauseManager.shouldPause(),
+      // Razões de pausa de saúde/reorg → tela Saúde do painel (vazio quando saudável).
+      cooldowns: autoPauseManager.shouldPause()
+        ? [{ label: 'auto-pause', reason: autoPauseManager.summary(), active: true }]
+        : [],
+      // Latência de dispatch p50/p95 (paridade Motor 1) — omitida enquanto não há amostra real.
+      ...(latencyTracker.stats().samples > 0 ? { latency: latencyTracker.stats() } : {}),
+      motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+      // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
+      intel: (() => {
+        const mkt = senderRegistry.marketBribeStats();
+        const bs = bribeTracker.stats();
+        return {
+          marketBribeP50Gwei: mkt.p50Gwei,
+          marketBribeP75Gwei: mkt.p75Gwei,
+          marketBribeP95Gwei: mkt.p95Gwei,
+          competitorsActive: mkt.competitorsActive,
+          ourBribeGwei: bs?.lastGwei ?? env.GAS_PRIORITY_FEE_GWEI,
+          ...(bs?.autoRaised ? { bribeAutoRaised: true, bribeReason: bs.reason } : {}),
+          ...(bribeAutoState.enabled
+            ? { competitiveBribeAutoEnabled: true, bribeAutoEnableReason: bribeAutoState.reason }
+            : {}),
+        };
+      })(),
+      // Fase 2 — ranking de pares com edge persistente (reusa o mesmo mis.ranking() do loop de scan).
+      edgePairs: mis.ranking().slice(0, 8).map((r) => ({
+        pair: r.groupLabel,
+        score: Number((r.score ?? 0).toFixed(2)),
+        persistPct: `${(r.persistenceRatio * 100).toFixed(0)}%`,
+        avgBps: Math.round(r.avgDivergenceBps ?? 0),
+        samples: r.samples,
+      })),
+    });
+  };
+  emitHeartbeat();
+  const heartbeatTimer = setInterval(emitHeartbeat, env.HEARTBEAT_EVERY_SEC * 1000);
+  heartbeatTimer.unref();
 
   // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
   // Só faz sentido quando a execução está ARMADA (mode != dryrun). Em dryrun o toggle é irrelevante

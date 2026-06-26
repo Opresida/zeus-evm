@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabaseServer";
+import { requireAdmin } from "@/lib/authServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,36 +10,28 @@ export const dynamic = "force-dynamic";
  * `engine_control` (o bot faz poll dela). Modelo armado-mas-travado: ligar aqui só LIBERA o envio;
  * os circuit breakers do bot (MAX_TRADE_ETH, min profit, simulação+EV gate) seguem valendo.
  *
- * Auth: setar `ZEUS_CONTROL_SECRET` → exige header `x-zeus-control` batendo. FAIL-CLOSED em
- * produção: sem o segredo, o POST (que LIGA/DESLIGA execução) é recusado (503) — nunca fica aberto
- * em prod. Em dev libera (painel privado-por-URL). O GET (read-only) segue a mesma regra do segredo
- * mas não trava em prod. Melhor ainda: pôr o painel inteiro atrás de auth (Vercel password /
- * Supabase Auth) em vez de expor o segredo no browser.
+ * Auth: ADMIN-ONLY (defesa em profundidade). Aceita (a) sessão Supabase de admin aprovado via header
+ * `Authorization: Bearer <token>` — o caminho do painel; ou (b) o header `x-zeus-control` ==
+ * `ZEUS_CONTROL_SECRET` como OVERRIDE de máquina (curl/automação), só se o segredo estiver setado.
+ * Sem nenhum dos dois → 401/403. O painel inteiro já fica atrás do login (Supabase Auth).
  */
 
 const MOTORS = new Set(["motor1", "motor2", "motor3"]);
 const MODES = new Set(["dryrun", "testnet", "mainnet"]);
 
-function checkAuth(req: Request): boolean {
+/** true + (email do admin, quando houver) se autorizado. Admin-session OU header de máquina. */
+async function authorize(req: Request): Promise<{ ok: true; who: string } | { ok: false; status: number; error: string }> {
   const secret = process.env.ZEUS_CONTROL_SECRET;
-  if (!secret) return true; // sem segredo → libera (painel privado-por-URL em dev).
-  return req.headers.get("x-zeus-control") === secret;
+  if (secret && req.headers.get("x-zeus-control") === secret) return { ok: true, who: "machine" };
+  const adm = await requireAdmin(req);
+  if (adm.ok) return { ok: true, who: adm.email ?? "admin" };
+  return { ok: false, status: adm.status, error: adm.error };
 }
 
-/** FAIL-CLOSED: a rota de mutação NUNCA fica aberta em produção sem `ZEUS_CONTROL_SECRET`. */
-function writeBlockedInProd(): NextResponse | null {
-  if (process.env.NODE_ENV === "production" && !process.env.ZEUS_CONTROL_SECRET) {
-    return NextResponse.json(
-      { error: "ZEUS_CONTROL_SECRET não configurado — rota de controle travada em produção (fail-closed)" },
-      { status: 503 },
-    );
-  }
-  return null;
-}
-
-/** GET — estado desejado atual (pra UI mostrar o que foi pedido). */
+/** GET — estado desejado atual (pra UI mostrar o que foi pedido). Admin-only. */
 export async function GET(req: Request) {
-  if (!checkAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await authorize(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const sb = getServiceSupabase();
   if (!sb) return NextResponse.json({ error: "supabase not configured" }, { status: 503 });
 
@@ -51,11 +44,10 @@ export async function GET(req: Request) {
   return NextResponse.json({ ok: true, control: data ?? [] });
 }
 
-/** POST — liga/desliga a execução de um motor. Body: { motor, execution_enabled, desired_mode? }. */
+/** POST — liga/desliga a execução de um motor. Body: { motor, execution_enabled, desired_mode? }. Admin-only. */
 export async function POST(req: Request) {
-  const blocked = writeBlockedInProd();
-  if (blocked) return blocked;
-  if (!checkAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await authorize(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let body: { motor?: string; execution_enabled?: boolean; desired_mode?: string; updated_by?: string };
   try {
@@ -80,7 +72,7 @@ export async function POST(req: Request) {
     motor,
     execution_enabled: body.execution_enabled,
     updated_at: new Date().toISOString(),
-    updated_by: body.updated_by ?? "panel",
+    updated_by: body.updated_by ?? auth.who,
   };
   if (body.desired_mode) row.desired_mode = body.desired_mode;
 

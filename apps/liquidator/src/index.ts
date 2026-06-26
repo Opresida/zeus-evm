@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { buildHeartbeatPayload, compactIntel, type HeartbeatInput } from './heartbeat';
 import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
@@ -51,7 +52,6 @@ import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discover
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
 import { createWalletClient, http } from 'viem';
-import { fetchEngineControlEnabled } from './engineControl';
 import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from './walletPool/orchestrator';
 import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
 import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
@@ -75,6 +75,7 @@ import {
   CacheInvalidator,
   ReorgAnalytics,
   TxStateMachine,
+  OrphanRecoveryManager,
   BlockStalenessCheck,
   ProcessCheck,
   AutoPauseManager,
@@ -84,6 +85,8 @@ import {
   BuilderAttributionTracker,
   CompetitorResolver,
   BlockPositionTracker,
+  LatencyTracker,
+  BribeTracker,
   Tracer,
   MetricRegistry,
   registerStandardMetrics,
@@ -107,7 +110,16 @@ import {
   computeAdaptiveThresholds,
   type Severity,
   type ReadinessReport,
+  type HeartbeatDiscovery,
+  fetchEngineControlEnabled,
 } from '@zeus-evm/execution-utils';
+
+/** Holder mutável do pulso do radar — discoveryTick escreve, o heartbeat lê (mesma referência). */
+interface DiscoveryPulse {
+  last?: HeartbeatDiscovery;
+  /** Operações cumulativas (despachadas + simuladas) — alimenta motorStats.ops do heartbeat. */
+  opsTotal: number;
+}
 import { triggerKillSwitchOnChain } from './dispatcher';
 import { resolve as resolvePath } from 'node:path';
 import { writeFileSync } from 'node:fs';
@@ -159,14 +171,6 @@ interface LiquidatorState {
   preLiquidationBorrowerCaches: Map<string, BorrowerCache>;
   /** Wallet-pool da pré-liquidação (opt-in, mode != dryrun). Undefined = sender único de sempre. */
   preLiqSenderPool?: WalletPoolOrchestrator;
-  /**
-   * Toggle remoto de execução (painel via engine_control). MUTÁVEL — o poll atualiza em runtime.
-   * `false` = travado pelo painel; `true` = liberado; `undefined` = controle remoto inativo.
-   * Lido a cada dispatch (clássico + pré-liq). Default no boot conforme `remoteControlActive`.
-   */
-  liveExecutionEnabled?: boolean;
-  /** Controle remoto ATIVO (mode != dryrun && SUPABASE_URL presente). Define o default travado. */
-  remoteControlActive: boolean;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -177,6 +181,8 @@ interface LiquidatorState {
   gasReserveTracker: GasReserveTracker;
   /** Event bus — emite eventos tipados pra webhooks/sinks externos */
   eventBus: EventBus;
+  /** Pulso do radar de descoberta (item 2/4) — escrito por discoveryTick, lido pelo heartbeat. */
+  discoveryPulse: DiscoveryPulse;
   /** Gas oracle EIP-1559 — pricing correto pra Base/Arb/OP */
   gasOracle: GasOracle;
   /** Aave V3 PriceOracle — fonte canônica de preços USD pra calculator (core market). */
@@ -216,6 +222,17 @@ interface LiquidatorState {
   /** Post-mortem de falhas (Fase 5b). */
   competitorResolver: CompetitorResolver;
   blockPositionTracker: BlockPositionTracker;
+  /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
+  latencyTracker: LatencyTracker;
+  /** Motor 1 — tracker do último bribe efetivo (auto-ajuste competitor-aware). */
+  bribeTracker: BribeTracker;
+  /** Item 9 R2 — máquina de estado das tx (submitted→included→confirmed/orphaned). */
+  txStateMachine: TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
+  orphanRecoveryManager: OrphanRecoveryManager;
+  /** Toggle remoto de execução (painel via engine_control). false = armado-mas-travado (só coleta).
+   *  Mutável: o poll em main() atualiza; o gate no dispatcher lê por dispatch. */
+  liveExecutionEnabled: boolean;
 }
 
 /**
@@ -606,6 +623,8 @@ export async function boot(): Promise<LiquidatorState> {
 
   // Event Bus — subscriber-based emit/listen pra alertas + futuro WebSocket mobile
   const eventBus = new EventBus(logger);
+  // Holder do pulso do radar — discoveryTick escreve, o heartbeat (loop de métricas abaixo) lê.
+  const discoveryPulse: DiscoveryPulse = { opsTotal: 0 };
 
   // Historical Intelligence — Item 15 I1+I2 (DuckDB + EventIngester)
   // Coleta de TODOS eventos pra dataset histórico (alimenta IA futura).
@@ -683,6 +702,9 @@ export async function boot(): Promise<LiquidatorState> {
   // ── TxStateMachine (Item 9 R2) ──
   const txStateMachine = new TxStateMachine({ logger });
 
+  // ── OrphanRecoveryManager (Item 9 R5 / Motor 1 mainnet) — re-submete tx órfã pós-reorg ──
+  const orphanRecoveryManager = new OrphanRecoveryManager({ txStateMachine, logger });
+
   // ── ReorgAnalytics (Item 9 R7) — rolling 30d ──
   const reorgAnalytics = new ReorgAnalytics({ logger });
 
@@ -715,6 +737,8 @@ export async function boot(): Promise<LiquidatorState> {
     await cacheInvalidator.flushAll(ev.commonAncestorBlock);
     // Item 9 R7: registra sample no analytics rolling 30d
     reorgAnalytics.observe(ev);
+    // Item 9 R5: re-submete nossas tx que ficaram órfãs no reorg (dormente em DRY_RUN — sem tx real).
+    await orphanRecoveryManager.onReorg(ev);
   });
   finalityTracker.start();
   logger.info('🔗 FinalityTracker iniciado');
@@ -753,6 +777,10 @@ export async function boot(): Promise<LiquidatorState> {
     baseDir: resolvePath('logs', 'competitors'),
     logger,
   });
+  // Fase 2b — buffer de latência de dispatch (alimentado no dispatcher, lido no heartbeat).
+  const latencyTracker = new LatencyTracker();
+  // Motor 1 — tracker do último bribe efetivo (auto-ajuste competitor-aware), lido no heartbeat.
+  const bribeTracker = new BribeTracker();
   const scannerTargets = {
     aave_v3_pool: ctx.chainConfig.aave?.pool,
     compound_comets: [
@@ -855,11 +883,14 @@ export async function boot(): Promise<LiquidatorState> {
       createGenericWebhookSink({
         url: env.GENERIC_WEBHOOK_URL,
         severities,
+        // O pulso do radar já viaja no zeus.heartbeat (UPSERT em service_status) → não inunda o painel.
+        excludeEventTypes: ['discovery.tick_completed'],
+        secret: env.GENERIC_WEBHOOK_SECRET,
         logger,
       }),
     );
     logger.info(
-      { severities },
+      { severities, auth: env.GENERIC_WEBHOOK_SECRET ? 'x-zeus-secret' : 'none' },
       `📡 Generic webhook sink ativo — severidades: ${severities.join(',')}`,
     );
   }
@@ -872,6 +903,8 @@ export async function boot(): Promise<LiquidatorState> {
   // Referencia variáveis locais (closure) em vez de state final pra evitar TDZ
   // blocos processados é COUNTER → alimentamos pelo DELTA (running total vira incrementos)
   let lastBlocksProcessed = 0;
+  let hbTick = 0; // throttle do heartbeat (loop é 5s → emite a cada 6 = ~30s)
+  let lastSnapshotDay = ''; // Fase 2b — dia UTC do último snapshot de saldo (1×/dia)
   // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
   const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   const metricsSyncInterval = setInterval(() => {
@@ -934,6 +967,91 @@ export async function boot(): Promise<LiquidatorState> {
       const drift = driftTracker.stats();
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
+
+      // Heartbeat ~30s pro painel (gás-agora / uptime / estado real / radar / inteligência) —
+      // reusa valores JÁ coletados acima (mkt, drift, scannerStats, gasStats, pnlStats, discoveryPulse).
+      if (hbTick++ % 6 === 0) {
+        const hbInput: HeartbeatInput = {
+          service: 'liquidator',
+          chain,
+          mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          timestamp: new Date().toISOString(),
+          uptimeSec: Math.floor(proc.uptime_sec),
+          gasReserveEth: Number(gasStats.balanceEth ?? 0),
+          gasReserveUsd: gasStats.balanceUsd ?? undefined,
+          autoPaused: pauseStatus.paused,
+          motorTag: 'motor1',
+          ops: discoveryPulse.opsTotal,
+          netPnl24hUsd: pnlStats.netPnlUsd,
+          discovery: discoveryPulse.last,
+          // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
+          intel: {
+            ...(compactIntel({
+              marketBribeP50Gwei: mkt.p50Gwei,
+              marketBribeP75Gwei: mkt.p75Gwei,
+              marketBribeP95Gwei: mkt.p95Gwei,
+              competitorsActive: mkt.competitorsActive,
+              driftBps: drift.avg_drift_bps_all,
+              sustainedAlerts: drift.sustained_alerts_count,
+              // bribe EFETIVO (auto-ajustado) quando já houve dispatch; senão o lance-base configurado.
+              ourBribeGwei: bribeTracker.stats()?.lastGwei ?? env.GAS_PRIORITY_FEE_GWEI,
+            }) ?? {}),
+            // Flags de auto-ajuste (strings/bool não passam pelo compactIntel — entram por spread).
+            ...(bribeTracker.stats()?.autoRaised
+              ? { bribeAutoRaised: true, bribeReason: bribeTracker.stats()!.reason }
+              : {}),
+          },
+          // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
+          health: {
+            components: [
+              { name: 'auto-pause', ok: !pauseStatus.paused, detail: pauseStatus.paused ? pauseStatus.reasons.map((r) => r.message).join('; ') : 'ativo' },
+              { name: 'gás-reserva', ok: Number(gasStats.balanceEth ?? 0) > 0.002, detail: `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` },
+              { name: 'reorg', ok: finStats.reorgsInWindow === 0, detail: `${finStats.reorgsInWindow} na janela` },
+              { name: 'kill-switch', ok: !pnlStats.killSwitchTriggered, detail: pnlStats.killSwitchTriggered ? 'ATIVO' : 'ok' },
+            ],
+          },
+          competitors: senderRegistry.topThreats(8).map((p) => ({
+            alias: p.known_alias ?? `${p.sender.slice(0, 6)}…${p.sender.slice(-4)}`,
+            category: p.category,
+            txs: p.total_txs,
+            bribeGwei: Number((p.gas.avg_priority_fee_gwei ?? 0).toFixed(3)),
+            threat: Number((p.threat?.overall_score ?? 0).toFixed(2)),
+            wonVsUs: p.threat?.wins_against_us ?? 0,
+          })),
+          cooldowns: pauseStatus.reasons.map((r) => ({ label: r.source, reason: r.message, active: true })),
+          killSwitch: {
+            loss24hUsd: Number(pnlTracker.currentLoss24h().toFixed(2)),
+            limitUsd: env.DAILY_LOSS_LIMIT_USD,
+            triggered: pnlStats.killSwitchTriggered,
+          },
+          // Fase 2b — latência p50/p95 de dispatch (omitida enquanto samples===0 = sem execução real).
+          latency: latencyTracker.stats(),
+          // Motor 1 mainnet — resiliência de reorg + órfãs recuperadas (dormente até reorg real).
+          reorgs: {
+            window24h: finStats.reorgsInWindow,
+            orphansRecovered: orphanRecoveryManager.getStats().total_recoveries_succeeded,
+            orphansDetected: orphanRecoveryManager.getStats().total_orphans_detected,
+          },
+        };
+        eventBus.emit(buildHeartbeatPayload(hbInput));
+      }
+
+      // Fase 2b — snapshot diário do saldo da wallet (virada de dia UTC) → tabela wallet_snapshots.
+      // Robusto a restart: emite no 1º tick de cada dia. Alimenta o gráfico de saldo 30d do painel.
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      if (todayUtc !== lastSnapshotDay) {
+        lastSnapshotDay = todayUtc;
+        eventBus.emit({
+          type: 'wallet.snapshot',
+          timestamp: new Date().toISOString(),
+          chain,
+          mode: env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          severity: 'info',
+          service: 'liquidator',
+          balanceEth: Number(gasStats.balanceEth ?? 0),
+          balanceUsd: gasStats.balanceUsd ?? undefined,
+        });
+      }
     } catch (err) {
       logger.debug(
         { err: err instanceof Error ? err.message : err },
@@ -1117,22 +1235,6 @@ export async function boot(): Promise<LiquidatorState> {
     account: ctx.account ?? null,
   });
 
-  // Controle remoto (painel → engine_control): só faz sentido ARMADO (mode != dryrun) E com Supabase.
-  // Em dryrun nunca submete; sem SUPABASE → preserva comportamento (envia conforme o mode). Ativo →
-  // sobe TRAVADO (liveExecutionEnabled=false), o poll libera. FAIL-SAFE.
-  const remoteControlActive = env.LIQUIDATOR_MODE !== 'dryrun' && !!env.SUPABASE_URL;
-  if (remoteControlActive) {
-    logger.warn(
-      { motor: env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, mode: env.LIQUIDATOR_MODE },
-      '🎛️ Motor 1 ARMADO-MAS-TRAVADO — envio (clássico + pré-liq) travado até o toggle do painel (engine_control)',
-    );
-  } else if (env.LIQUIDATOR_MODE !== 'dryrun') {
-    logger.warn(
-      { mode: env.LIQUIDATOR_MODE },
-      '⚠️ Motor 1 em modo de envio SEM controle remoto (SUPABASE_URL ausente) — envia conforme o mode',
-    );
-  }
-
   // ─── Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela) ───
   // Gated: WALLET_POOL_ENABLED + mode != dryrun + seed-mestre. Em dryrun não há envio → sem pool.
   let preLiqSenderPool: WalletPoolOrchestrator | undefined;
@@ -1166,8 +1268,7 @@ export async function boot(): Promise<LiquidatorState> {
     preLiquidationCache,
     preLiquidationBorrowerCaches,
     preLiqSenderPool,
-    liveExecutionEnabled: remoteControlActive ? false : undefined,
-    remoteControlActive,
+    discoveryPulse,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1193,6 +1294,12 @@ export async function boot(): Promise<LiquidatorState> {
     metricRegistry,
     competitorResolver,
     blockPositionTracker,
+    latencyTracker,
+    bribeTracker,
+    txStateMachine,
+    orphanRecoveryManager,
+    // Toggle remoto: sobe SEMPRE travado (fail-safe). O poll em main() liga quando o painel confirmar.
+    liveExecutionEnabled: false,
   };
 }
 
@@ -1524,12 +1631,21 @@ export async function processOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: activeMarket?.oracleInstance ?? state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
-    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
     aaveMarket: activeMarket
@@ -1560,12 +1676,21 @@ export async function processCompoundOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
-    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
   });
@@ -1593,12 +1718,21 @@ export async function processMorphoOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
-    liveExecutionEnabled: state.liveExecutionEnabled,
     stalenessChecker: state.stalenessChecker,
     pauseDetector: state.pauseDetector,
   });
@@ -1626,12 +1760,21 @@ export async function processMoonwellOpportunity(
     competitorResolver: state.competitorResolver,
     blockPositionTracker: state.blockPositionTracker,
     botSender: state.callerAddress,
+    latencyTracker: state.latencyTracker,
+    senderRegistry: state.senderRegistry,
+    txStateMachine: state.txStateMachine,
+    orphanRecoveryManager: state.orphanRecoveryManager,
+    liveExecutionEnabled: state.liveExecutionEnabled,
+    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
+    maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
+    minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
+    bribeTracker: state.bribeTracker,
     aaveOracle: state.aaveOracle,
     pnlReconciler: state.pnlReconciler,
     failureCollector: state.failureCollector,
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
-    liveExecutionEnabled: state.liveExecutionEnabled,
     moonwellLiquidatorAddress: state.env.MOONWELL_LIQUIDATOR_ADDRESS as Address | undefined,
   });
 }
@@ -2062,7 +2205,18 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     );
   }
 
-  // Emit tick event pra subscribers (Discord filtra fora por default — só generic webhook recebe)
+  // Pulso do radar (item 2/4): snapshot do último tick + ops cumulativas → viaja no heartbeat
+  // (UPSERT em service_status), NÃO inunda a tabela `events`. O sink filtra discovery.tick_completed.
+  state.discoveryPulse.last = {
+    positions: stats.aave + stats.compound,
+    dispatched: stats.dispatched,
+    rejected: stats.rejected,
+    atIso: new Date().toISOString(),
+  };
+  state.discoveryPulse.opsTotal += stats.dispatched + stats.dryrun;
+
+  // Emit tick event pra subscribers (Discord filtra fora por default; o generic webhook também
+  // filtra — o snapshot vai pelo heartbeat. Mantido pro EventIngester/ledger local.)
   state.eventBus.emit({
     type: 'discovery.tick_completed',
     timestamp: new Date().toISOString(),
@@ -2116,35 +2270,6 @@ async function main() {
     `🔁 Discovery loop ATIVO — polling ${state.env.LIQUIDATOR_POLL_INTERVAL_SEC}s`,
   );
 
-  // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
-  // Modelo armado-mas-travado: gateia o Motor 1 INTEIRO (clássico + pré-liq). Fail-safe interno
-  // (fetchEngineControlEnabled) trava em qualquer erro. Só roda quando remoteControlActive.
-  const pollEngineControl = async () => {
-    if (!state.remoteControlActive) return;
-    const next = await fetchEngineControlEnabled({
-      supabaseUrl: state.env.SUPABASE_URL,
-      supabaseKey: state.env.SUPABASE_KEY,
-      motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR,
-    });
-    const prev = !!state.liveExecutionEnabled;
-    if (next !== prev) {
-      state.liveExecutionEnabled = next; // lido fresco em cada dispatch
-      logger.warn(
-        { motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
-        next
-          ? '🟢 TOGGLE REMOTO: Motor 1 LIGADO — envios passam a ser submetidos (circuit breakers seguem valendo)'
-          : '🔴 TOGGLE REMOTO: Motor 1 DESLIGADO — envios travados (simula+observa apenas)',
-      );
-    }
-  };
-  if (state.remoteControlActive) {
-    await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
-    logger.info(
-      { motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, pollEvery: state.env.LIQUIDATOR_ENGINE_CONTROL_POLL_EVERY },
-      '🎛️ controle remoto de execução ATIVO (poll via Supabase)',
-    );
-  }
-
   // Tick imediato + tick periódico
   try {
     await discoveryTick(state);
@@ -2152,17 +2277,37 @@ async function main() {
     logger.error({ err: err instanceof Error ? err.message : err }, 'tick #0 falhou');
   }
 
-  let tickCount = 0;
   setInterval(() => {
-    tickCount++;
-    // Reconsulta o toggle remoto a cada N ticks (barato; fail-safe interno mantém travado em erro).
-    if (state.remoteControlActive && tickCount % state.env.LIQUIDATOR_ENGINE_CONTROL_POLL_EVERY === 0) {
-      void pollEngineControl();
-    }
     discoveryTick(state).catch((err) =>
       logger.error({ err: err instanceof Error ? err.message : err }, 'tick falhou'),
     );
   }, state.env.LIQUIDATOR_POLL_INTERVAL_SEC * 1000);
+
+  // ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
+  // Modelo armado-mas-travado: sobe SEMPRE travado; só liga quando o painel confirmar `true` exato.
+  // Em DRY_RUN o gate é irrelevante (nunca submete), mas o poll roda igual pra refletir no heartbeat.
+  const pollEngineControl = async () => {
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: state.env.SUPABASE_URL,
+      supabaseKey: state.env.SUPABASE_KEY,
+      motor: state.env.ENGINE_CONTROL_MOTOR,
+    });
+    if (next !== state.liveExecutionEnabled) {
+      state.liveExecutionEnabled = next; // lido por dispatch no gate 2.5
+      logger.warn(
+        { motor: state.env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
+        next
+          ? '🟢 TOGGLE REMOTO: execução LIGADA — tx passam a ser submetidas (circuit breakers seguem valendo)'
+          : '🔴 TOGGLE REMOTO: execução DESLIGADA — envios travados (simula+observa apenas)',
+      );
+    }
+  };
+  await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
+  setInterval(() => {
+    pollEngineControl().catch((err) =>
+      logger.debug({ err: err instanceof Error ? err.message : err }, 'poll engine_control falhou (mantém travado)'),
+    );
+  }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
 
   // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
   // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o
@@ -2176,8 +2321,24 @@ async function main() {
       });
       const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
       if (applied) {
+        const oldThresholdUsd = state.env.MIN_OPPORTUNITY_EV_USD;
         // Injeção opt-in: liquidationEdgeGate lê deps.env.MIN_OPPORTUNITY_EV_USD (= state.env).
         state.env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
+        // Fase 2b — registra a calibração aplicada no painel (só quando muda de fato + foi aplicada).
+        if (adaptive.MIN_OPPORTUNITY_EV_USD !== oldThresholdUsd) {
+          state.eventBus.emit({
+            type: 'calibration.applied',
+            timestamp: new Date().toISOString(),
+            chain: state.ctx.chainConfig.name,
+            mode: state.env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+            severity: 'info',
+            dimension: 'global',
+            oldThresholdUsd: oldThresholdUsd ?? 0,
+            newThresholdUsd: adaptive.MIN_OPPORTUNITY_EV_USD,
+            topProtocol: adaptive.topProtocol,
+            reason: `MIN_EV recalculado dos sinais do ledger (${state.env.ADAPTIVE_WINDOW_DAYS}d)`,
+          });
+        }
       }
       logger.info(
         { applied, ...adaptive },

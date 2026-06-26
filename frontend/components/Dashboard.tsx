@@ -5,7 +5,7 @@ import { Hover } from "@/components/ui";
 import { buildViewModel } from "@/lib/viewModel";
 import { deriveSnapshot } from "@/lib/live";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import type { EventRow, UiState } from "@/lib/types";
+import type { EventRow, ServiceStatusRow, UiState, WalletSnapshotRow } from "@/lib/types";
 import { MOCK } from "@/lib/mockData";
 import type { Actions } from "@/components/screens/shared";
 import { Home } from "@/components/screens/Home";
@@ -16,6 +16,8 @@ import { Intelligence } from "@/components/screens/Intelligence";
 import { Health } from "@/components/screens/Health";
 import { Reports } from "@/components/screens/Reports";
 import { Settings } from "@/components/screens/Settings";
+import { Admin } from "@/components/screens/Admin";
+import type { Profile } from "@/lib/authClient";
 
 const NAV: { id: UiState["screen"]; label: string; icon: string }[] = [
   { id: "home", label: "Visão geral", icon: "◉" },
@@ -28,7 +30,9 @@ const NAV: { id: UiState["screen"]; label: string; icon: string }[] = [
   { id: "settings", label: "Configurações", icon: "⚙" },
 ];
 
-export default function Dashboard() {
+export default function Dashboard({ profile }: { profile?: Profile | null }) {
+  const isAdmin = profile?.role === "admin";
+  const nav = isAdmin ? [...NAV, { id: "admin" as const, label: "Admin", icon: "⚿" }] : NAV;
   const [ui, setUi] = useState<UiState>({
     screen: "home",
     theme: "navy",
@@ -40,7 +44,12 @@ export default function Dashboard() {
     chans: { ...MOCK.chanDefault },
   });
   const [rows, setRows] = useState<EventRow[]>([]);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatusRow[]>([]);
+  const [walletSnaps, setWalletSnaps] = useState<WalletSnapshotRow[]>([]);
   const live = isSupabaseConfigured();
+  // Toggle Demo: ON = dados de mock (layout/apresentação); OFF = dados REAIS do Supabase
+  // (cards sem dado real ficam vazios — útil pra ver o que ainda não está fiado ao backend).
+  const [demoMode, setDemoMode] = useState(true);
 
   // tema persistido
   useEffect(() => {
@@ -50,6 +59,15 @@ export default function Dashboard() {
   useEffect(() => {
     localStorage.setItem("zeus-theme", ui.theme);
   }, [ui.theme]);
+
+  // demo mode persistido
+  useEffect(() => {
+    const d = localStorage.getItem("zeus-demo");
+    if (d != null) setDemoMode(d === "1");
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("zeus-demo", demoMode ? "1" : "0");
+  }, [demoMode]);
 
   // relógio / uptime / ticker
   useEffect(() => {
@@ -73,10 +91,31 @@ export default function Dashboard() {
         if (active && data) setRows(data as EventRow[]);
       });
 
+    // estado ao vivo dos serviços (heartbeat) — tabela separada (não inunda events)
+    sb.from("service_status")
+      .select("*")
+      .then(({ data }) => {
+        if (active && data) setServiceStatus(data as ServiceStatusRow[]);
+      });
+
+    // Fase 2b — histórico de saldo (snapshot diário) p/ o gráfico 30d
+    sb.from("wallet_snapshots")
+      .select("*")
+      .order("ts", { ascending: false })
+      .limit(60)
+      .then(({ data }) => {
+        if (active && data) setWalletSnaps(data as WalletSnapshotRow[]);
+      });
+
     const ch = sb
       .channel("events-stream")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "events" }, (payload) => {
         setRows((prev) => [payload.new as EventRow, ...prev].slice(0, 400));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_status" }, (payload) => {
+        const row = payload.new as ServiceStatusRow;
+        if (!row?.service) return;
+        setServiceStatus((prev) => [row, ...prev.filter((s) => s.service !== row.service)]);
       })
       .subscribe();
 
@@ -86,8 +125,11 @@ export default function Dashboard() {
     };
   }, []);
 
-  const snapshot = useMemo(() => (live ? deriveSnapshot(rows) : null), [live, rows]);
-  const vm = useMemo(() => buildViewModel(ui, snapshot), [ui, snapshot]);
+  const snapshot = useMemo(
+    () => (live ? deriveSnapshot(rows, serviceStatus, walletSnaps) : null),
+    [live, rows, serviceStatus, walletSnaps],
+  );
+  const vm = useMemo(() => buildViewModel(ui, demoMode ? null : snapshot), [ui, snapshot, demoMode]);
 
   const actions: Actions = useMemo(
     () => ({
@@ -117,6 +159,7 @@ export default function Dashboard() {
     >
       {/* ===== TOPBAR ===== */}
       <header
+        className="z-topbar"
         style={css(
           "display:flex; align-items:center; gap:18px; padding:0 22px; height:60px; border-bottom:1px solid var(--border); background:var(--bg2); position:sticky; top:0; z-index:20;",
         )}
@@ -142,7 +185,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div className="z-topspacer" style={{ flex: 1 }} />
 
         <div
           style={css(
@@ -153,10 +196,18 @@ export default function Dashboard() {
           <span style={css("font:600 11px/1 'IBM Plex Mono'; letter-spacing:.06em; color:var(--text);")}>{vm.botStatus}</span>
         </div>
 
-        <div className="z-topmeta" style={css("display:flex; align-items:center; gap:7px; padding:6px 12px; border:1px solid var(--border); border-radius:8px;")}>
-          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--gold);")}>MAINNET</span>
+        <div
+          className="z-topmeta"
+          style={css(`display:flex; align-items:center; gap:7px; padding:6px 12px; border:1px solid ${vm.modeBadge.color}; border-radius:8px;`)}
+          title={vm.modeBadge.sub ? `Modo: ${vm.modeBadge.label} (${vm.modeBadge.sub})` : `Modo: ${vm.modeBadge.label}`}
+        >
+          <span style={{ ...css("width:6px; height:6px; border-radius:50%; flex:none;"), background: vm.modeBadge.color }} />
+          <span style={{ ...css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em;"), color: vm.modeBadge.color }}>{vm.modeBadge.label}</span>
+          {vm.modeBadge.sub && (
+            <span style={css("font:500 9px/1 'IBM Plex Mono'; letter-spacing:.04em; color:var(--muted);")}>{vm.modeBadge.sub}</span>
+          )}
           <span style={css("width:1px; height:11px; background:var(--border2);")} />
-          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--text2);")}>BASE</span>
+          <span style={css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.1em; color:var(--text2);")}>{vm.chainLabel}</span>
         </div>
 
         <div className="z-topmeta" style={css("display:flex; align-items:center; gap:8px; padding:6px 12px; border:1px solid var(--border); border-radius:8px;")}>
@@ -170,6 +221,19 @@ export default function Dashboard() {
 
         <Hover
           as="button"
+          onClick={() => setDemoMode((d) => !d)}
+          base={`display:flex; align-items:center; gap:7px; padding:7px 11px; border-radius:8px; cursor:pointer; border:1px solid ${demoMode ? "var(--gold)" : "var(--border2)"}; background:${demoMode ? "var(--goldsoft)" : "var(--panel)"};`}
+          hover="border-color:var(--gold);"
+          title={demoMode ? "Modo DEMO (dados de mock). Clique pra mostrar dados REAIS." : "Modo AO VIVO (dados reais). Clique pra voltar ao DEMO."}
+        >
+          <span style={{ ...css("width:7px; height:7px; border-radius:50%; flex:none;"), background: demoMode ? "var(--gold)" : "var(--green)" }} />
+          <span style={{ ...css("font:600 10px/1 'IBM Plex Mono'; letter-spacing:.12em;"), color: demoMode ? "var(--gold)" : "var(--text2)" }}>
+            {demoMode ? "DEMO" : "LIVE"}
+          </span>
+        </Hover>
+
+        <Hover
+          as="button"
           onClick={() => actions.setTheme(ui.theme === "navy" ? "black" : "navy")}
           base="width:34px; height:34px; border-radius:8px; border:1px solid var(--border2); background:var(--panel); color:var(--text2); cursor:pointer; display:flex; align-items:center; justify-content:center;"
           hover="border-color:var(--gold); color:var(--gold);"
@@ -179,6 +243,23 @@ export default function Dashboard() {
             <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
           </svg>
         </Hover>
+
+        {/* Sair → volta pra tela de login (só quando há sessão real). */}
+        {profile && (
+          <Hover
+            as="button"
+            onClick={actions.logout}
+            base="display:flex; align-items:center; gap:7px; height:34px; padding:0 12px; border-radius:8px; border:1px solid var(--border2); background:var(--panel); color:var(--text2); cursor:pointer; font:600 11px/1 'IBM Plex Sans';"
+            hover="border-color:var(--red); color:var(--red);"
+            title={`Sair${profile.email ? ` (${profile.email})` : ""}`}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="M16 17l5-5-5-5M21 12H9" />
+            </svg>
+            <span className="z-navlabel">Sair</span>
+          </Hover>
+        )}
       </header>
 
       {/* ===== BODY ===== */}
@@ -190,7 +271,7 @@ export default function Dashboard() {
             "width:230px; flex:none; border-right:1px solid var(--border); background:var(--bg2); padding:16px 12px; display:flex; flex-direction:column; gap:3px; position:sticky; top:60px; height:calc(100vh - 60px); overflow-y:auto;",
           )}
         >
-          {NAV.map((n) => {
+          {nav.map((n) => {
             const activeSel = ui.screen === n.id;
             return (
               <Hover
@@ -233,7 +314,8 @@ export default function Dashboard() {
             {ui.screen === "intel" && <Intelligence {...screenProps} />}
             {ui.screen === "health" && <Health {...screenProps} />}
             {ui.screen === "reports" && <Reports {...screenProps} />}
-            {ui.screen === "settings" && <Settings {...screenProps} />}
+            {ui.screen === "settings" && <Settings {...screenProps} isAdmin={isAdmin} />}
+            {ui.screen === "admin" && isAdmin && <Admin />}
           </div>
         </main>
       </div>

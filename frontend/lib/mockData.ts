@@ -177,3 +177,51 @@ export const MOCK = {
   ] as [string, string, string][],
   chanDefault: { push: true, email: true } as Record<string, boolean>,
 };
+
+/**
+ * Fallback do MODO AO VIVO (demo OFF): mesma forma do MOCK, mas com valores VAZIOS/zerados.
+ * Assim, todo card sem dado real fica visivelmente vazio ("—" / 0 / lista vazia) em vez de mostrar
+ * um número falso. As `*Meta` (config de notificação/canais e labels de período) ficam do MOCK —
+ * são estrutura de UI, não métrica. Arrays de série/lista ficam `[]` (gráficos/listas renderizam vazio).
+ */
+export const EMPTY: typeof MOCK = {
+  botStatus: "—",
+  runwayDays: "—",
+  adaptiveEv: "—",
+  gas: { eth: "—", usd: 0 },
+  k: { today: 0, todayTx: 0, w7: 0, w7delta: "—", m30: 0, proj: 0, winRate: "—", ok: 0, fail: 0, w14sum: 0 },
+  raw14: [],
+  motors: [],
+  insights: [],
+  ticker: [],
+  allRows: [],
+  pnlSeries: { daily: [], weekly: [], monthly: [] },
+  expSeries: { daily: [], weekly: [], monthly: [] },
+  motorBreak: [],
+  protoBreak: [],
+  wallet: { gas24h: 0, gas24hEth: "—", gas30d: 0, gas30dPct: "—" },
+  whRaw: [],
+  gasAlerts: [],
+  bribe: [],
+  ourBribe: "—",
+  driftAlarms: [],
+  competitors: [],
+  postmortem: [],
+  calib: [],
+  edgePairs: [],
+  components: [],
+  cooldowns: [],
+  latP50: [],
+  latP95: [],
+  ks: { loss: 0, limit: 0, pct: "0", last: "—" },
+  eventLog: [],
+  repByPeriod: {
+    daily: { net: 0, win: "—", ops: "0", gas: 0, drift: "—", bestMotor: "—", range: "—", label: "Diário" },
+    weekly: { net: 0, win: "—", ops: "0", gas: 0, drift: "—", bestMotor: "—", range: "—", label: "Semanal" },
+    monthly: { net: 0, win: "—", ops: "0", gas: 0, drift: "—", bestMotor: "—", range: "—", label: "Mensal" },
+  },
+  notifMeta: MOCK.notifMeta,
+  notifDefault: MOCK.notifDefault,
+  chanMeta: MOCK.chanMeta,
+  chanDefault: MOCK.chanDefault,
+};

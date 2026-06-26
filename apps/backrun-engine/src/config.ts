@@ -104,6 +104,8 @@ const envSchema = z.object({
   // ─── Alerting ───
   DISCORD_WEBHOOK_URL: optionalUrl(),
   GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo do header `x-zeus-secret` (autentica no /api/ingest do ZEUS Command; = ZEUS_WEBHOOK_SECRET). */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   DISCORD_SEVERITIES: z.string().default('warn,critical'),
   GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
 

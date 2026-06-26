@@ -127,6 +127,30 @@ contract ZeusArbExecutorTest is Test {
         arbExecutor.executeArbitrage(p);
     }
 
+    // ── Whitelist on-chain de routers (Motor 1 mainnet) ──
+    function test_SetApprovedRouter_OwnerOnlyAndToggles() public {
+        address router = makeAddr("router");
+        assertEq(arbExecutor.approvedRouter(router), false); // default = não aprovado
+        // não-owner não pode
+        vm.prank(operator);
+        vm.expectRevert();
+        arbExecutor.setApprovedRouter(router, true);
+        // owner aprova
+        vm.prank(owner);
+        arbExecutor.setApprovedRouter(router, true);
+        assertEq(arbExecutor.approvedRouter(router), true);
+        // owner revoga
+        vm.prank(owner);
+        arbExecutor.setApprovedRouter(router, false);
+        assertEq(arbExecutor.approvedRouter(router), false);
+    }
+
+    function test_SetApprovedRouter_RevertsOnZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(IZeusArbExecutor.NotAuthorized.selector);
+        arbExecutor.setApprovedRouter(address(0), true);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     //  executeFlashloanArbitrage
     // ═══════════════════════════════════════════════════════════════════════

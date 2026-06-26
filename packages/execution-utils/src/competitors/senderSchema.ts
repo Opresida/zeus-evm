@@ -80,6 +80,8 @@ export interface CompetitorProfile {
   // ─── Threat score (vs nós) ───
   threat: {
     overall_score: number;        // 0-100
+    /** Nº bruto de corridas que ele nos ganhou (head-to-head) — alimentado por recordWinAgainstUs. */
+    wins_against_us?: number;
     /** % de vezes que ele ganhou de nós (lost_race / total head-to-head). */
     win_rate_vs_us?: number;
     /** Gwei a mais que pagamos em média quando competimos. */

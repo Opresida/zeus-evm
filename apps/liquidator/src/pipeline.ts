@@ -28,12 +28,12 @@ import { AavePriceOracle } from './protocols/aave/oracle';
 import { buildLiquidationTx } from './protocols/aave/builder';
 import { simulateLiquidation } from './protocols/aave/simulator';
 import { calculateOptimalCompoundLiquidation } from './protocols/compound/calculator';
+import { swapVenueLabel } from './protocols/bestSwapPlan';
 import { buildCompoundLiquidationTx } from './protocols/compound/builder';
 import { simulateCompoundLiquidation } from './protocols/compound/simulator';
 import { calculateOptimalMorphoLiquidation } from './protocols/morpho/calculator';
 import { buildMorphoLiquidationTx } from './protocols/morpho/builder';
 import { simulateMorphoLiquidation } from './protocols/morpho/simulator';
-import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math';
 import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calculator';
 import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
 import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
@@ -60,7 +60,12 @@ import {
   type PnlReconciler,
   type FailureCollector,
 } from '@zeus-evm/execution-utils';
-import { isAaveStillLiquidatable, isCompoundStillLiquidatable } from './staleCheck';
+import {
+  isAaveStillLiquidatable,
+  isCompoundStillLiquidatable,
+  isMoonwellStillLiquidatable,
+  isMorphoStillLiquidatable,
+} from './staleCheck';
 
 export interface PipelineDeps {
   env: LiquidatorEnv;
@@ -112,14 +117,25 @@ export interface PipelineDeps {
   blockPositionTracker?: import('@zeus-evm/execution-utils').BlockPositionTracker;
   /** Endereço do bot (pra o resolver ignorar nossas txs). */
   botSender?: Address;
-  /**
-   * Toggle remoto de execução (painel → engine_control). Repassado ao dispatch:
-   * `false` = travado pelo painel; `undefined` = controle remoto inativo (preserva comportamento).
-   * Gateia o Motor 1 inteiro (clássico + pré-liq).
-   */
+  /** Fase 2b — buffer de latência de dispatch (p50/p95 pro heartbeat). */
+  latencyTracker?: import('@zeus-evm/execution-utils').LatencyTracker;
+  /** Fase 2b — registry de competidores (pra registrar win-against-us no post-mortem). */
+  senderRegistry?: import('@zeus-evm/execution-utils').SenderRegistry;
+  /** Item 9 R2 — máquina de estado das tx (pro recovery de órfã pós-reorg). */
+  txStateMachine?: import('@zeus-evm/execution-utils').TxStateMachine;
+  /** Item 9 R5 — recuperação de tx órfã pós-reorg (Motor 1 mainnet). */
+  orphanRecoveryManager?: import('@zeus-evm/execution-utils').OrphanRecoveryManager;
+  /** Toggle remoto de execução (engine_control). false = armado-mas-travado (só coleta).
+   *  Gateia o Motor 1 inteiro (clássico + pré-liq). */
   liveExecutionEnabled?: boolean;
   /** Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela). Default ausente. */
   senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
+  competitiveBribeEnabled?: boolean;
+  bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
+  maxBribeWei?: bigint;
+  minProfitUsd?: number;
+  bribeTracker?: import('@zeus-evm/execution-utils').BribeTracker;
 }
 
 /**
@@ -418,6 +434,7 @@ async function _runAavePipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     contractCapWei: cap,
     oracle: deps.aaveOracle,
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED
@@ -572,9 +589,19 @@ async function _runAavePipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: marketLabel,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -710,6 +737,7 @@ async function _runCompoundPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     contractCapWei: cap,
     oracle: deps.aaveOracle,
   });
@@ -865,8 +893,18 @@ async function _runCompoundPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -947,6 +985,7 @@ async function _runMorphoPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig, // habilita swap multi-DEX (UniV3/Aero/Slipstream)
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
   });
   observeCalc(deps, 'morpho-blue', calcStart);
@@ -1026,16 +1065,20 @@ async function _runMorphoPipelineInner(
     calldata: built.data,
   });
 
-  // 3.5 Stale check — re-lê position + recomputa isLiquidatable antes do submit real
-  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success) {
-    const stillLiq = isMorphoLiquidatable(
-      { borrowShares: position.borrowShares, collateral: position.collateral },
-      { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
-      position.collateralPrice,
-      position.lltv,
-    );
-    if (!stillLiq) {
-      return { status: 'reverted_pre_dispatch', reason: 'stale position: não mais liquidável (Morpho HF recovered)' };
+  // 3.5 Stale check — RE-LÊ a position fresh + recomputa isLiquidatable antes do submit real
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success && ctx.chainConfig.morpho?.morphoBlue) {
+    const staleCheck = await isMorphoStillLiquidatable({
+      client: ctx.client,
+      morpho: ctx.chainConfig.morpho.morphoBlue,
+      marketId: position.marketId,
+      borrower: position.borrower,
+      market: { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
+      collateralPrice: position.collateralPrice,
+      lltv: position.lltv,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      return { status: 'reverted_pre_dispatch', reason: `stale position: ${staleCheck.reason ?? 'Morpho não mais liquidável'}` };
     }
   }
 
@@ -1083,9 +1126,19 @@ async function _runMorphoPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: position.marketId,
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 
@@ -1205,6 +1258,19 @@ async function _runMoonwellPipelineInner(
     calldata: built.data,
   });
 
+  // 3.5 Stale check — Comptroller.getAccountLiquidity (shortfall>0?) antes do submit real
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success && ctx.chainConfig.moonwell?.comptroller) {
+    const staleCheck = await isMoonwellStillLiquidatable({
+      client: ctx.client,
+      comptroller: ctx.chainConfig.moonwell.comptroller,
+      borrower: position.borrower,
+      logger,
+    });
+    if (!staleCheck.stillLiquidatable) {
+      return { status: 'reverted_pre_dispatch', reason: `stale position: ${staleCheck.reason ?? 'Moonwell não mais liquidável'}` };
+    }
+  }
+
   // 4. Dispatcher — protocol='moonwell' na caixa-preta
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
@@ -1244,9 +1310,19 @@ async function _runMoonwellPipelineInner(
     competitorResolver: deps.competitorResolver,
     blockPositionTracker: deps.blockPositionTracker,
     botSender: deps.botSender,
+    latencyTracker: deps.latencyTracker,
+    senderRegistry: deps.senderRegistry,
+    txStateMachine: deps.txStateMachine,
+    orphanRecoveryManager: deps.orphanRecoveryManager,
+    competitiveBribeEnabled: deps.competitiveBribeEnabled,
+    bribeTargetPercentile: deps.bribeTargetPercentile,
+    maxBribeWei: deps.maxBribeWei,
+    minProfitUsd: deps.minProfitUsd,
+    bribeTracker: deps.bribeTracker,
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',
+    swapVenue: swapVenueLabel(decision.swapPlan?.dexType),
   });
 }
 

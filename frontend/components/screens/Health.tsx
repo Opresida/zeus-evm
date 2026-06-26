@@ -5,7 +5,7 @@ import type { ScreenProps } from "./shared";
 const card = "background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:18px 20px;";
 
 export function Health({ vm }: ScreenProps) {
-  const { healthKpis, latP50Path, latP95Path, ks, components, cooldowns, eventLog } = vm;
+  const { healthKpis, latP50Path, latP95Path, ks, components, cooldowns, eventLog, discovery, failures } = vm;
   return (
     <section>
       <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Saúde & Auto-ajuste</h1>
@@ -98,6 +98,46 @@ export function Health({ vm }: ScreenProps) {
                 <div style={css("font:500 11.5px/1.4 'IBM Plex Mono'; color:var(--muted); margin-top:6px;")}>{cd.reason}</div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Radar de descoberta (item 2) + Falhas recentes (item 1) */}
+      <div className="z-grid-row2" style={css("display:grid; grid-template-columns:1fr 1.2fr; gap:14px; margin-top:14px;")}>
+        <div style={css(card)}>
+          <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>Radar de descoberta</span>
+          {discovery ? (
+            <div style={css("margin-top:14px;")}>
+              <div style={css("display:flex; align-items:center; gap:8px;")}>
+                <span style={css("width:8px;height:8px;border-radius:50%;background:var(--green);")} />
+                <span style={css("font:600 15px/1 'IBM Plex Sans'; color:var(--text);")}>Scanner vivo</span>
+                <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted);")}>· {discovery.service} · há {discovery.ago}</span>
+              </div>
+              <div style={css("display:flex; gap:22px; margin-top:16px;")}>
+                <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--text);")}>{discovery.positions}</div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>posições vistas</span></div>
+                <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--green);")}>{discovery.dispatched}</div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>despachadas</span></div>
+                <div><div style={css("font:600 22px/1 'IBM Plex Mono'; color:var(--text2);")}>{discovery.rejected}</div><span style={css("font:500 10px/1.2 'IBM Plex Mono'; color:var(--muted);")}>rejeitadas</span></div>
+              </div>
+            </div>
+          ) : (
+            <div style={css("font:500 12px/1.4 'IBM Plex Mono'; color:var(--muted); margin-top:14px;")}>sem heartbeat de descoberta ainda</div>
+          )}
+        </div>
+        <div style={css(card)}>
+          <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>Falhas recentes</span>
+          <div style={css("display:flex; flex-direction:column; margin-top:14px;")}>
+            {failures.length ? (
+              failures.map((f, i) => (
+                <div key={i} style={css("display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--border);")}>
+                  <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted); width:46px; flex:none;")}>{f.time}</span>
+                  <span style={{ ...css("width:7px; height:7px; border-radius:50%; flex:none;"), background: f.color }} />
+                  <span style={css("font:600 11px/1 'IBM Plex Mono'; color:var(--text2); width:96px; flex:none;")}>{f.protocol}</span>
+                  <span style={css("font:400 12px/1.3 'IBM Plex Sans'; color:var(--text2); flex:1;")}>{f.category} · {f.detail}</span>
+                </div>
+              ))
+            ) : (
+              <div style={css("font:500 12px/1.4 'IBM Plex Mono'; color:var(--muted);")}>sem falhas recentes 🎉</div>
+            )}
           </div>
         </div>
       </div>

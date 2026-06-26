@@ -42,7 +42,7 @@ Bot de arbitragem on-chain em EVM. **Duas modalidades:**
 - **Off-chain:** TypeScript + Node 22 + `viem`
 - **Smart contracts:** Solidity 0.8.27 + Foundry (via_ir, optimizer 1M runs)
 - **Monorepo:** pnpm 10+ workspaces (pnpm-only — npm install é bloqueado)
-- **Provider:** dRPC primário + Alchemy fallback
+- **Provider:** Alchemy primário (archive incluso no free tier) + fallback a definir (dRPC free descartado — não serve archive)
 - **Flashloan:** multi-fonte 0% — Morpho + Balancer primário, Aave V3 0.05% fallback
 - **Intelligence:** ledger DuckDB (camada OIE — scoring + observações)
 - **Deploy:** Fly.io (Dockerfile raiz + `deploy/fly/*.toml` com volume persistente)
@@ -181,6 +181,146 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-25 (parte 3) — Painel: login MAZARI + branding + UX (tudo na `main`, deployado na Vercel)
+
+Sessão focada no **ZEUS Command (frontend)**: autenticação real + identidade visual MAZARI + acabamento.
+Tudo commitado, **pushed e deployado** (Vercel auto-deploy na `main`). Frontend: `tsc` limpo · `next build` OK ·
+vitest **35/35** (8 testes novos de auth/invite).
+
+**1. Login completo (Supabase Auth) + cadastro por indicação com aprovação do admin:**
+- Painel inteiro atrás de **login obrigatório** (em produção). Sem Supabase (dev/local) → modo demo sem login.
+- **Papéis:** membro aprovado **só VÊ**; **armar o bot = admin-only** em 2 níveis (UI esconde o toggle **+**
+  `/api/control` valida `requireAdmin` no servidor via Bearer). Conta-raiz = `humbertodeassuncao@gmail.com`.
+- **Cadastro por LINK DE INDICAÇÃO** (só o admin gera) → conta nasce `pending` → **admin aprova** no painel.
+  **Sem verificação de e-mail** (aprovação humana é o portão; sem SMTP).
+- Tabelas `profiles` + `invites` + `is_admin()` + RLS (leitura de events/service_status/wallet apertada p/
+  `authenticated`; `engine_control` segue anon p/ o bot ler). Rotas: `/api/auth/signup`, `/api/admin/invite`,
+  `/api/admin/approve`, `/api/control` (admin). Helpers `lib/authClient.ts` + `lib/authServer.ts`. Guia em
+  `frontend/AUTH_SETUP.md`.
+- **Supabase JÁ CONFIGURADO ao vivo** (via Management API): tabelas+RLS criadas, conta admin criada+approved.
+  O Personal Access Token do Humberto foi **revogado por ele** após o setup (higiene).
+
+**2. Identidade visual MAZARI / ZEUS:**
+- **Logo oficial ZEUS FLASHLOAN** (lockup, fundo transparente) na tela de login + rodapé **"Tecnologia
+  exclusiva do Grupo MAZARI CORP"**. `public/brand/mazari-logo.png`.
+- **App icon** (tile navy + raio) → ícone da home no PWA (manifest 192/512 any+maskable) + apple-touch +
+  ícone das notificações. **Favicon** (monograma circular) → aba + badge. `public/icons/zeus-*.png`.
+  _Sem resize (ImageMagick ausente; o `convert` do Windows é utilitário de DISCO — NÃO usar); PNGs 1080²
+  escalam nativamente._
+
+**3. UX de abertura + acabamento:**
+- **ZeusLoader** (spinner dual-ring, ~1KB, sem libs) em `components/ZeusLoader.tsx` + keyframes no globals.css
+  (respeita `prefers-reduced-motion`). `app/loading.tsx` (splash da rota).
+- **Splash de entrada por NO MÍNIMO 4s** (`MIN_SPLASH_MS`) em paralelo à checagem de sessão (não soma atraso).
+- **Crossfade suave** splash → login (`FADE_MS=500`, `@keyframes zfadein`).
+- **Botão "Sair"** na topbar (1 clique, volta pro login; só com sessão real).
+- **Selo de MODO real** na topbar (substitui o "MAINNET" hardcoded): **DRY-RUN/TESTNET/ARMADO/LIVE** vindo do
+  heartbeat (cor por estado) + chain real. Read-only.
+
+**Esclarecimento importante (DRY_RUN):** DRY_RUN **não se liga por botão** — é o modo padrão do bot
+(`ARB_MODE=dryrun`) quando se **sobe a VM**. O toggle do painel **arma execução REAL** (só efetivo em modo
+mainnet); em dryrun é irrelevante (nunca envia). Ir pra mainnet = decisão de **deploy**, não botão. O selo de
+modo deixa isso visível. Próximo passo combinado: **checklist de subida da VM (Fly.io)** pra ligar o dry-run.
+
+**Pendências de operação (Humberto):** trocar a senha do admin (passou pelo chat); (opcional) setar as 3 chaves
+VAPID na Vercel pra push no celular; reinstalar o PWA no celular pra pegar o ícone novo.
+
+---
+
+## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular (tudo na `main`)
+
+Foco: aproveitar funções que já existiam em um motor pra reforçar o outro (reuso barato de `execution-utils`),
+sem código novo de lógica. Três entregas, todas com testes + typecheck 13/13 verdes:
+
+**1. Gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (commit `20c2a2e`):
+- A `calculateCompetitiveBribe` (teto de lucro — nunca prejuízo) foi wireada no `arbDispatcher` do M2,
+  **desligada por padrão**. O ZEUS **auto-liga sozinho** quando detecta evidência REAL de perda por gás
+  (falhas `gas_outbid` ≥ limiar na janela) e **avisa no painel** (banner verde na tela Inteligência).
+- Novo helper puro `shouldAutoEnableCompetitiveBribe` + `bribeAutoState` mutável + detector periódico (5min)
+  no `index.ts`. Heartbeat ganhou `competitiveBribeAutoEnabled`/`bribeAutoEnableReason`. Sem mudança de schema.
+- Honesto: na Base (FCFS) o ganho é **modesto** (inclusão, não fura-fila); vira arma em chains de leilão.
+
+**2. Paridade defensiva do Motor 2 com o Motor 1** (commit `57f5ebf`):
+- O M2 (indo pro DRY_RUN mainnet) **não herdara** as defesas que o M1 já tinha, mesmo prontas no
+  `execution-utils`. Ligadas (dormentes em DRY_RUN): **reorg awareness** (`FinalityTracker` +
+  `OrphanRecoveryManager` + `TxStateMachine` + `ReorgAnalytics`, mesmo encadeamento `onReorg` do M1) +
+  **auto-pause de saúde** (`AutoPauseManager` + `BlockStalenessCheck` + `ProcessCheck` — o health server
+  do M2 antes era "vazio"; agora pausa de verdade + gate pré-simulação no dispatcher) + **latência**
+  (`LatencyTracker` → heartbeat p50/p95). Tudo sob guard opcional → zero regressão. 4 testes novos.
+- **Lacuna pequena restante:** `GasReserveTracker` ainda não ligado no M2 (M1 tem). Outras defesas do M1
+  (dedup de posição, Chainlink staleness, PauseDetector) **não se aplicam** ao arb (são de lending).
+
+**3. Arb TRIANGULAR — plano + gatilho no painel** (commit `d1bee82`):
+- A detecção triangular (`findTriangularCycles`) segue **read-only** (loga + grava `arb_triangular_observed`;
+  NÃO vai pro dispatch). Ligar o toggle do frontend **NÃO** executa triangular — o toggle só libera a arb de
+  **2 pernas** (que tem pipeline completo). Triangular precisa do **caminho de execução** (cola off-chain).
+- `docs/TRIANGULAR_EXECUTION_PLAN.md`: plano da cola que falta (builder calldata multi-hop + sizing + EV gate
+  tri + dispatch atrás do MESMO gate). Contrato on-chain **já suporta multi-hop**. Recomendado sub-toggle
+  `TRIANGULAR_EXECUTION_ENABLED` (default OFF) sob a chave-mestra remota (validar antes de escalar).
+- Painel: banner verde na Home **"Lucro provado, hora de implementar a ligação da arb triangular"** — dispara
+  quando o lucro líquido ACUMULADO do M2 (arb) ≥ $50 E ops ≥ 20, no modo AO VIVO (em DRY_RUN fica 0 → quieto).
+
+**Estado honesto pós-sessão (M1 + M2):** maduros **como software** e agora no mesmo nível de defesa. Mas
+**"falta só o DRY_RUN" é otimista**: (a) o DRY_RUN ainda não está rodando (falta VM Fly.io + `GENERIC_WEBHOOK_URL`
++ envs Vercel); (b) o DRY_RUN é um **PORTÃO** que precisa PROVAR o edge — e o edge do M1 na Base é fino
+(só Morpho; resto capturado por OEV) e o do M2 é **não-provado**; (c) mesmo provando, mainnet exige deploy
+mainnet (hoje só Sepolia) + owner=multisig + operador separado + re-audit do v9 + 2 semanas testnet. Próximo
+passo combinado: montar o **checklist de subida do DRY_RUN**.
+
+---
+
+## 🆕 SESSÃO 2026-06-24 — Painel real ponta-a-ponta + prontidão mainnet Motor 1/2 + validação ABI on-chain (tudo na `main`)
+
+**Painel (ZEUS Command) — dado REAL fim-a-fim:**
+- Cobertura de dados Fases 1/2/2b + insights (Fase 3): KPIs 7d/30d/projeção, barras 14d, PnL realizado×esperado, breakdown motor/protocolo, carteira+gás, relatórios, **saúde** (componentes/cooldowns/kill-switch/latência), **inteligência** (bribe P50/P75/P95, competidores, edge pairs, post-mortem, calibração, won/lost), **saldo 30d** (`wallet_snapshots`), **resiliência de reorg/órfã**. Detalhes em `docs/FRONTEND_DATA_COVERAGE.md`.
+- **Toggle DEMO/LIVE** (mock × real). **Veredito de bribe dinâmico** (nosso lance vs p50/p75/p95, com mensagem de auto-ajuste). **Responsividade mobile** (topbar quebra em 2 linhas; auditado via Playwright em 351–390px → 0 overflow).
+- Supabase: novas colunas jsonb em `service_status` (health/competitors/edge_pairs/cooldowns/kill_switch/latency/reorgs) + tabela `wallet_snapshots` + seed `engine_control(motor1)`.
+
+**Motor 1 — prontidão MAINNET (mudanças de contrato = v9, AINDA NÃO deployado):**
+- **Whitelist on-chain de routers** (`approvedRouter` + `setApprovedRouter` onlyOwner + check default-deny no `_executeSwaps`) nos 3 contratos. `Deploy.s.sol` aprova UniV3; demais routers via runbook.
+- **Stale-check** estendido a **Morpho** (re-read fresh da position) + **Moonwell** (`getAccountLiquidity`), antes só Aave/Compound.
+- **OrphanRecoveryManager + TxStateMachine** ligados no dispatch (re-submete tx órfã pós-reorg; dormente em DRY_RUN).
+- Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+
+**Toggle remoto de execução do Motor 1** (igual Motor 2): painel → `/api/control` → `engine_control(motor1)` → liquidator faz poll (15s) → gate "armado-mas-travado" no dispatcher (só `true` exato libera o envio). `fetchEngineControlEnabled` promovido pra `@zeus-evm/execution-utils` (compartilhado; mis-scanner re-exporta).
+
+**Bribe competitor-aware com TETO DE LUCRO** (opt-in, `COMPETITIVE_BRIBE_ENABLED=false` default): auto-ajusta o priority fee pra ganhar a corrida, **limitado pelo lucro da oportunidade (nunca prejuízo)**; painel avisa o auto-ajuste. `calculateCompetitiveBribe` + `BribeTracker` em execution-utils.
+
+**Validação ABI/contratos on-chain (Alchemy archive, FORK TESTS no CI — não script descartável):**
+- **Motor 1**: liquidação provada on-chain → Aave (+lucro end-to-end via `MotorsProfit`), Morpho Blue, Compound III, Moonwell. NOVOS forks: `ZeusMoonwellLiquidator.fork` (liquidateBorrow), `ZeusCompoundLiquidator.fork` (absorb), `ZeusMorphoLiquidator.fork` (liquidate → revert `"position is healthy"` = **edge Morpho fechado**). Cast Sepolia: contratos respondem (seletores v8 ok); **v9 NÃO deployado** (`approvedRouter` reverte); **Moonwell `isKilled()=true`**.
+- **Motor 2**: quoters off-chain validados (`dexQuotes.fork`: UniV3 1582 / Slipstream 1572 / BaseSwap 1333 USDC + Aero reserves) + flashloan **Aave/Morpho/Balancer** no arb (`ZeusArbExecutor.fork`) + execução de swap dos 4 DEX (+lucro, `ZeusArbExecutorDex.fork` 4/4).
+- **`forge test` FULL: 147 passed / 0 failed** (1 skip unit intencional). Os fork tests provam **ABI/wiring/segurança**, não lucro (round-trips revertem) — exceto Aave/Dex que provam lucro end-to-end.
+
+**✅ Redeploy v9 Base Sepolia FEITO (2026-06-25)** — inclui o swap multi-DEX/Slipstream + whitelist + stale-check + OrphanRecovery. Endereços:
+- BribeManager `0x060469e0Cd4C477C6ABdCbAedB18d656EBB3dC2C` · ZeusLiquidator `0x6c0726ED372797Bc2aa1e41b7c9E80963835b9bc` · ZeusArbExecutor `0x2c3BDa4ce824e0BB464924C2977c3bf9Ad8f6f1E` · ZeusMoonwellLiquidator `0x9aE63562D625f0A3a2475C0B91445d5Bae97a447`.
+- Owner=deployer `0xE060…cBB4`. Os 3 executores: `revive()` + `setOperator(0xE060…cBB4)` + UniV3 router no whitelist (cast confirma `approvedRouter(0x0)=false` em vez de reverter = v9 on-chain). **Ainda NÃO mainnet.**
+
+**🔜 Falta (operacional, do Humberto):**
+- **DRY_RUN mainnet ~2 semanas** (subir VM Fly.io + `GENERIC_WEBHOOK_URL` no `.env` do bot) — onde o lucro se prova com dado real.
+- (Mainnet, futuro: owner=multisig + operador separado; aprovar os demais routers DEX no whitelist.)
+- Branches `claude/motor1-multidex-*` mergeadas + apagadas (higiene).
+
+## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel (tudo na `main`)
+
+**Mergeado + corrigido (commits `fcfc7be`→`f57222d`):**
+- **Expansão de DEX do Motor 2:** Slipstream (Aerodrome CL) + UniV2 genérico (forks) + forks UniV3.
+  **Adapter `PancakeV3Lib` + `DexType.PancakeV3=6`** (struct `exactInputSingle` COM deadline).
+  Achado verificado on-chain: **Sushi V3 na Base também precisa de deadline** → `routerStyle='pancakeV3'`.
+- **DexType unificado** (era triplicado): fonte única em `shared-types` + re-export + **pin test**.
+- **Toggle remoto "armado-mas-travado"** (Motor 2): painel→`/api/control`→Supabase `engine_control`→bot poll→gate. Fail-safe. `/api/control` POST fail-closed em prod.
+- **Endereços de venue verificados on-chain** (Alchemy archive): vivos = BaseSwap/AlienBase/SwapBased/Pancake-v2/Sushi-v2 + Pancake V3 + Sushi V3 + Slipstream. **Removidos** dackieswap-v2 (router morto) e rocketswap (sem par curado).
+- **RPC: Alchemy é PRIMÁRIO** (dRPC free descartado — não forka archive). `BASE_RPC_ARCHIVE` + `pnpm contracts:test:fork` plug-and-play.
+- **CI:** fix do `forge install` (forge 1.x removeu `--no-commit`) + pin de libs + job `contracts-fork` (trap de endereços). 3 jobs verdes. **Falta setar o secret `BASE_RPC_ARCHIVE` no GitHub** pra ativar o trap.
+- **Redeploy Base Sepolia v8** (com os adapters): BribeManager `0xe0B6…4795` · ZeusLiquidator `0x8E76…193D` · ZeusArbExecutor `0x0156…ab4A` · Moonwell `0x3A34…3dA3`. Liquidator+ArbExecutor com `revive()` + `setOperator(0xE060…cBB4)`.
+- **Cola do painel (eventos bot→painel):** Supabase criado (projeto `kwmhuokedfmlvntovjtw`, schema.sql rodado). `genericWebhookSink` manda `x-zeus-secret`; **mis-scanner liga o sink + emite `zeus.heartbeat`** (30s, direto, não infla DuckDB). Novo `HeartbeatEvent`.
+
+**🔜 Falta (próxima sessão):**
+- **Vercel:** setar 4 envs (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ZEUS_WEBHOOK_SECRET) + redeploy → painel sai do demo.
+- **Bot `.env`:** preencher `GENERIC_WEBHOOK_URL` = `<URL do painel Vercel>/api/ingest` (falta a URL).
+- **Moonwell:** `revive()` + `setOperator()` (se usar Motor 1 Moonwell — ficou com kill switch ativo).
+- **Subir a VM na Fly.io** + secrets dela; depois **2 semanas DRY_RUN** antes de cogitar mainnet.
+- Mainnet (futuro): owner=multisig + operador separado (no testnet ficou owner==operador).
+
 ## 🗺️ Estado atual (snapshot 2026-06-15)
 
 ### ✅ Pronto
@@ -237,7 +377,7 @@ O detector consome via `getTargetPairsForChain`.
 Moonwell MEV tax ~99%). **Morpho Blue ABERTO = único edge real** → liquidator prioriza Morpho.
 Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 
-- **Total**: contratos **78/79 unit Foundry** (1 skip) + fork verde · **~404 testes TS** (vitest; execution-utils
+- **Total** (pós-2026-06-24): **`forge test` 147 passed / 0 failed** (78 unit + fork suite ampliada — novos forks Moonwell/Compound/Morpho-liquidation + dexQuotes + arb Morpho/Balancer) · **~430 testes TS** (vitest; execution-utils
   **336/336**) · **typecheck 13/13** · 7 apps · 6 packages
 
 ### 🟡 Em andamento (próxima sessão)
@@ -279,9 +419,13 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 **Detalhes completos em [TODO.md](./TODO.md).**
 
 ### 🔑 Decisões já tomadas
-- Provider RPC: **dRPC** primário + Alchemy fallback
+- Provider RPC: **Alchemy** primário (archive no free) + fallback a definir (dRPC free descartado em 2026-06-23 — não forka archive)
 - Owner = **carteira testnet dedicada** `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
 - Contratos ainda na **SEPOLIA (testnet)** — **NÃO mainnet**. Lucro real **US$ 0** (provado em fork).
+  - **Base Sepolia v8 (redeploy 2026-06-23, com DexType.PancakeV3 + adapters DEX):**
+    BribeManager `0xe0B6A6840d1f011F27Ec63eb3390D0d7E0904795` · ZeusLiquidator `0x8E769a56F0f3fA7e7410fE5955D94E9dE458193D` ·
+    ZeusArbExecutor `0x0156Aa6729891103Cc22b1e14c5E1e5338E6ab4A` · ZeusMoonwellLiquidator `0x3A34EcDD1A9a53d5799fF0f4cB479FF2963F3dA3`.
+    Owner = deployer `0xE060…cBB4`. Liquidator + ArbExecutor já com `revive()` (isKilled=false); falta `setOperator(<bot>)` + revive do Moonwell.
   - **ZeusMorphoPreLiquidator (pré-liquidação Morpho) — Base Sepolia 2026-06-26:**
     `0x5797E24C6eCb0fEb14fB39cbe11ff9B5b347E534` (verified · owner=operator=`0xE060…cBB4` ·
     revive() OK, isKilled=false · maxTradeWei 0.01 ETH). Cadastro de mercados
@@ -289,7 +433,7 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
     No redeploy mainnet: novo endereço + `PRE_LIQUIDATOR_ADDRESS` no `.env`.
   - _Histórico v6 (pré-split, contrato único): Base Sepolia `0xe38298B4d242d0D1C45696a96c4C588926Cf1139`,
     Arb/OP Sepolia `0xe48473D75805886Ac4162B1304EAB6b8F93C5faa`. Anteriores arquivados: Base v2
-    `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`. Endereços v8 (split) atualizar ao redeploy._
+    `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`._
 
 ### ⏸️ Aguardando decisão do Humberto
 - **Ligar execução do arb (Motor 2)** — motor pronto e OFF por default; aguarda edge provado no DRY_RUN/ledger

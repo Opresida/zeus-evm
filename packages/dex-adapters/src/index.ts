@@ -14,6 +14,8 @@ export { quoteUniswapV2 } from './uniswap-v2/quoter';
 export type { UniswapV2QuoteParams } from './uniswap-v2/quoter';
 export { quoteSlipstream } from './slipstream/quoter';
 export type { SlipstreamQuoteParams } from './slipstream/quoter';
+export { bestSwapAcrossDexes } from './bestSwap';
+export type { BestSwapOpts } from './bestSwap';
 
 // ─── Pricing local (fundação do MIS — Motor 2) ───
 export {

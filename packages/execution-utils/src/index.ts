@@ -76,6 +76,19 @@ export type {
   BackrunOpportunityFoundEvent,
   BackrunDispatchedEvent,
   BackrunRejectedEvent,
+  ZeusHeartbeatEvent,
+  MotorStat,
+  HeartbeatDiscovery,
+  HeartbeatIntel,
+  HeartbeatHealth,
+  HeartbeatCompetitor,
+  HeartbeatCooldown,
+  HeartbeatKillSwitch,
+  HeartbeatEdgePair,
+  HeartbeatLatency,
+  HeartbeatReorgs,
+  CalibrationAppliedEvent,
+  WalletSnapshotEvent,
 } from './events';
 
 // ─── Event Decoder ───
@@ -172,6 +185,8 @@ export {
   type DriftStats,
   type FailureDigestOptions,
   generateFailureId,
+  LatencyTracker,
+  type LatencyStats,
 } from './analytics';
 
 // ─── Finality + Reorg Protection (Item 9 R1+R2+R3+R5+R7) ───
@@ -200,6 +215,20 @@ export {
   type ReorgSample,
   type ReorgAggregateStats,
 } from './finality';
+
+// ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
+export { fetchEngineControlEnabled } from './engineControl';
+
+// ─── Bribe competitor-aware com teto de lucro (Motor 1 mainnet) ───
+export {
+  calculateCompetitiveBribe,
+  shouldAutoEnableCompetitiveBribe,
+  BribeTracker,
+  type CompetitiveBribeInput,
+  type CompetitiveBribeResult,
+  type BribeAdjustReason,
+  type BribeState,
+} from './competitiveBribe';
 
 // ─── Observability (Item 16B OB1+OB2+OB5 — Tracer + Prometheus + Logger) ───
 export {

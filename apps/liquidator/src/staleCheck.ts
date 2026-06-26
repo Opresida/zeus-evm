@@ -25,6 +25,9 @@ import type { Address, PublicClient } from 'viem';
 import { POOL_ABI } from '@zeus-evm/aave-discovery';
 
 import type { LoggerLike } from '@zeus-evm/aave-discovery';
+import { COMPTROLLER_ABI } from './protocols/moonwell/abi';
+import { MORPHO_ABI } from './protocols/morpho/abi';
+import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math';
 
 type AnyPublicClient = PublicClient<any, any>;
 
@@ -146,5 +149,90 @@ export async function isCompoundStillLiquidatable(opts: {
       reason: 'RPC error — assumed liquidable',
       elapsedMs,
     };
+  }
+}
+
+/**
+ * Pra Moonwell (Compound V2 fork): Comptroller.getAccountLiquidity → shortfall > 0 = liquidável.
+ * Definitivo (igual ao Compound III). Fail-open em erro de RPC.
+ */
+export async function isMoonwellStillLiquidatable(opts: {
+  client: AnyPublicClient;
+  comptroller: Address;
+  borrower: Address;
+  logger?: LoggerLike;
+}): Promise<StaleCheckResult> {
+  const { client, comptroller, borrower, logger } = opts;
+  const start = Date.now();
+
+  try {
+    const res = (await client.readContract({
+      address: comptroller,
+      abi: COMPTROLLER_ABI,
+      functionName: 'getAccountLiquidity',
+      args: [borrower],
+    })) as readonly [bigint, bigint, bigint]; // [error, liquidity, shortfall]
+    const shortfall = res[2];
+    const elapsedMs = Date.now() - start;
+    const stillLiquidatable = shortfall > 0n;
+    return {
+      stillLiquidatable,
+      reason: stillLiquidatable ? undefined : 'Comptroller.shortfall=0 (position resolvida/repaga)',
+      elapsedMs,
+    };
+  } catch (err) {
+    const elapsedMs = Date.now() - start;
+    logger?.warn(
+      { borrower, comptroller, err: err instanceof Error ? err.message : err, elapsedMs },
+      `Stale check Moonwell falhou — assumindo ainda liquidable (fail-open)`,
+    );
+    return { stillLiquidatable: true, reason: 'RPC error — assumed liquidable', elapsedMs };
+  }
+}
+
+/**
+ * Pra Morpho Blue: RE-LÊ a position fresh (borrowShares/collateral mudam na liquidação) e recomputa
+ * isLiquidatable com os totais de mercado + preço + lltv já conhecidos (mudam devagar). 1 read RPC,
+ * mesmo custo do Aave — vira guarda de verdade contra race condition. Fail-open em erro.
+ */
+export async function isMorphoStillLiquidatable(opts: {
+  client: AnyPublicClient;
+  morpho: Address;
+  marketId: `0x${string}`;
+  borrower: Address;
+  market: { totalBorrowAssets: bigint; totalBorrowShares: bigint };
+  collateralPrice: bigint;
+  lltv: bigint;
+  logger?: LoggerLike;
+}): Promise<StaleCheckResult> {
+  const { client, morpho, marketId, borrower, market, collateralPrice, lltv, logger } = opts;
+  const start = Date.now();
+
+  try {
+    const pos = (await client.readContract({
+      address: morpho,
+      abi: MORPHO_ABI,
+      functionName: 'position',
+      args: [marketId, borrower],
+    })) as readonly [bigint, bigint, bigint]; // [supplyShares, borrowShares, collateral]
+    const elapsedMs = Date.now() - start;
+    const stillLiquidatable = isMorphoLiquidatable(
+      { borrowShares: pos[1], collateral: pos[2] },
+      market,
+      collateralPrice,
+      lltv,
+    );
+    return {
+      stillLiquidatable,
+      reason: stillLiquidatable ? undefined : 'Morpho re-read: HF recuperado (não mais liquidável)',
+      elapsedMs,
+    };
+  } catch (err) {
+    const elapsedMs = Date.now() - start;
+    logger?.warn(
+      { borrower, marketId, err: err instanceof Error ? err.message : err, elapsedMs },
+      `Stale check Morpho falhou — assumindo ainda liquidable (fail-open)`,
+    );
+    return { stillLiquidatable: true, reason: 'RPC error — assumed liquidable', elapsedMs };
   }
 }

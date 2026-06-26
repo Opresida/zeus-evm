@@ -30,6 +30,25 @@
 > - [ ] **`approvedDexAdapters`** — regra do CLAUDE.md sem enforcement on-chain: decidir whitelist vs ajustar doc.
 > - [ ] **`OrphanRecoveryManager`** — re-submissão de tx órfã pós-reorg; só faz sentido no modo LIVE.
 
+> ## 🔌 FRONTEND (ZEUS Command) — ENV VARS PENDENTES (Humberto, amanhã)
+>
+> Ponte de eventos fechada no código (branch `claude/frontend-event-coverage`: secret no webhook,
+> Motor 2 → painel, heartbeat + estado real do toggle, drift real). **Falta SETAR as variáveis** —
+> ver [docs/SUPABASE_SCHEMA_REVIEW.md](./docs/SUPABASE_SCHEMA_REVIEW.md) pra a migração do schema.
+>
+> **No bot (Fly.io) — liquidator + backrun + mis-scanner:**
+> - [ ] `GENERIC_WEBHOOK_URL` = `https://<app>.vercel.app/api/ingest`
+> - [ ] `GENERIC_WEBHOOK_SECRET` = (mesmo valor do `ZEUS_WEBHOOK_SECRET` no Vercel)
+> - [ ] mis-scanner (toggle Motor 2): `SUPABASE_URL` + `SUPABASE_KEY` (anon, RLS read em `engine_control`)
+>
+> **No Vercel (ZEUS Command):**
+> - [ ] `ZEUS_WEBHOOK_SECRET` (= `GENERIC_WEBHOOK_SECRET` do bot) — ⚠️ se setar no Vercel sem setar no bot, o ingest barra TUDO (401)
+> - [ ] `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY`
+> - [ ] (opcional) `ZEUS_CONTROL_SECRET` — trava a rota `/api/control` (senão painel é privado-por-URL)
+> - [ ] (notificações) VAPID (`NEXT_PUBLIC_VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` + `VAPID_SUBJECT`), Resend (`RESEND_API_KEY` + `ALERT_EMAIL_TO/FROM`)
+>
+> **No Supabase:** rodar `frontend/supabase/schema.sql` (idempotente) — cria `service_status` (heartbeat) + `engine_control` (toggle).
+
 > ## 📍 ESTADO ATUAL (2026-06-15)
 >
 > **Pronto (código):** 4 contratos v8 SPLIT — EIP-170 (BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator;
@@ -50,6 +69,73 @@
 > Motor 3 ao vivo precisa mempool premium · audit externo (capital > $50k).
 >
 > **Lucro real até hoje: US$ 0** — lógica provada em fork, contratos ainda em Sepolia (NÃO mainnet). (Detalhes no relatório PDF, §5.5/5.6.)
+>
+
+---
+
+## 🆕 SESSÃO 2026-06-25 (parte 3) — Painel: login MAZARI + branding + UX (deployado na Vercel)
+
+**Feito (tudo na `main`, pushed + deployado):**
+- **Login completo (Supabase Auth)** + cadastro por **link de indicação** (só admin gera) + **aprovação do admin**.
+  Membro = só vê; **armar o bot = admin-only** (UI + `requireAdmin` no servidor). Tabelas `profiles`/`invites` +
+  RLS + rotas `/api/auth/signup`, `/api/admin/invite|approve`, `/api/control`. Guia `frontend/AUTH_SETUP.md`.
+- **Supabase configurado ao vivo** (tabelas+RLS+conta admin `humbertodeassuncao@gmail.com` approved). Token do
+  Humberto **revogado** após o setup.
+- **Branding:** logo oficial ZEUS FLASHLOAN no login + rodapé MAZARI · app icon (PWA home) + favicon.
+- **UX:** ZeusLoader (spinner) + `app/loading.tsx` · **splash de entrada ≥4s** · **crossfade** splash→login ·
+  **botão Sair** na topbar · **selo de MODO real** (DRY-RUN/ARMADO/LIVE, substitui o "MAINNET" hardcoded).
+- Frontend: `tsc` limpo · `next build` OK · vitest **35/35**.
+
+**🔜 Pendências (operação do Humberto):**
+- [ ] **Trocar a senha do admin** (passou pelo chat).
+- [ ] (opcional) 3 chaves **VAPID** na Vercel → push no celular. Reinstalar o PWA → ícone novo.
+- [ ] **Checklist de subida da VM (Fly.io)** pra ligar o **DRY_RUN** (próximo passo combinado).
+
+## 🆕 SESSÃO 2026-06-25 (parte 2) — Reuso cross-motor: gorjeta auto-ligável + paridade defensiva M2 + plano triangular
+
+**Feito (tudo na `main`):**
+- **Gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (`20c2a2e`): `calculateCompetitiveBribe` (teto de lucro) wireada no arbDispatcher, OFF por default; ZEUS auto-liga em evidência `gas_outbid` e avisa no painel. Helper `shouldAutoEnableCompetitiveBribe` + detector 5min + heartbeat. Ganho **modesto na Base (FCFS)**.
+- **Paridade defensiva M2 ↔ M1** (`57f5ebf`): reorg awareness (`FinalityTracker`/`OrphanRecoveryManager`/`TxStateMachine`/`ReorgAnalytics`) + auto-pause de saúde (`AutoPauseManager`/`BlockStalenessCheck`/`ProcessCheck` — health server antes "vazio") + latência (`LatencyTracker`). Reuso de `execution-utils`, dormente em DRY_RUN, guard opcional (zero regressão). 4 testes novos.
+- **Plano + gatilho da arb TRIANGULAR** (`d1bee82`): detecção segue read-only; `docs/TRIANGULAR_EXECUTION_PLAN.md` descreve a cola off-chain que falta (atrás do MESMO toggle, sub-flag `TRIANGULAR_EXECUTION_ENABLED` default OFF). Banner na Home "Lucro provado, hora de implementar a ligação da arb triangular" (dispara: net M2 ≥ $50 E ops ≥ 20, ao vivo).
+
+**🔜 Falta (próximo passo combinado):**
+- [ ] **Checklist de subida do DRY_RUN** (VM Fly.io + `GENERIC_WEBHOOK_URL` + envs Vercel) — pra tirar o DRY_RUN do papel.
+- [ ] (M2) Ligar `GasReserveTracker` (lacuna pequena restante vs Motor 1).
+- [ ] **DRY_RUN é PORTÃO, não checkbox**: precisa PROVAR o edge (M1 fino = só Morpho; M2 não-provado). Só depois: deploy mainnet (hoje Sepolia) + owner=multisig + operador + re-audit v9.
+
+## 🆕 SESSÃO 2026-06-24 — Painel real + prontidão mainnet Motor 1/2 + validação ABI on-chain
+
+**Feito (tudo na `main`):**
+- **Painel**: cobertura de dados Fases 1/2/2b + insights + toggle DEMO/LIVE + veredito de bribe dinâmico + responsividade mobile. Supabase: colunas jsonb em `service_status` + tabela `wallet_snapshots`. Detalhes em `docs/FRONTEND_DATA_COVERAGE.md`.
+- **Motor 1 prontidão mainnet (v9 de contrato)**: whitelist on-chain de routers + stale-check Morpho/Moonwell + OrphanRecoveryManager no dispatch. Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+- **Toggle remoto de execução Motor 1** (engine_control(motor1), armado-mas-travado) + **bribe competitor-aware com teto de lucro** (opt-in).
+- **Validação on-chain (fork tests no CI, Alchemy archive)**: liquidação Aave(+lucro)/Morpho/Compound/Moonwell + dex quoters + flashloan Aave/Morpho/Balancer no arb. `forge test` **147/0**. Novos forks: ZeusMoonwell/ZeusCompound/ZeusMorpho-Liquidator.fork + dexQuotes.fork + arb Morpho/Balancer.
+
+**🔜 Falta (operacional, do Humberto):**
+- [ ] **Redeploy v9 na Sepolia** (whitelist + stale-check + OrphanRecovery) — o que está deployado é v8 (`approvedRouter` reverte no cast).
+- [ ] **Moonwell**: `revive()` + `setOperator()` (`isKilled()=true` confirmado on-chain).
+- [ ] **DRY_RUN mainnet ~2 semanas**: subir VM Fly.io + `GENERIC_WEBHOOK_URL` no `.env` do bot.
+- [x] ~~secret `BASE_RPC_ARCHIVE` no GitHub~~ — FEITO (CI de fork verde).
+- [ ] Amanhã: mesma varredura de validação no **Motor 2**.
+
+## 🆕 SESSÃO 2026-06-23 — DEX Motor 2 + toggle + cola do painel
+
+**✅ Concluído (na `main`, commits `fcfc7be`→`f57222d`; detalhes em `CLAUDE.md`):**
+- Expansão de DEX do Motor 2 (Slipstream + forks UniV3/UniV2) + **adapter `PancakeV3Lib`/`DexType.PancakeV3`** (Sushi V3 na Base também usa deadline — verificado on-chain).
+- DexType unificado (fonte única `shared-types` + pin test).
+- **Endereços de venue verificados on-chain** (Alchemy archive) — dackieswap-v2 e rocketswap removidos.
+- **RPC = Alchemy primário** (dRPC free descartado) + `BASE_RPC_ARCHIVE` + `pnpm contracts:test:fork`.
+- **CI:** fix `forge install` (sem `--no-commit`) + pin libs + job `contracts-fork` (trap de endereços).
+- **Redeploy Base Sepolia v8** (com adapters): novos endereços + `revive()` + `setOperator(0xE060…)` nos 2 executors.
+- **Cola do painel:** Supabase criado/verificado; `genericWebhookSink` com `x-zeus-secret`; mis-scanner liga sink + emite `zeus.heartbeat`.
+
+**🔜 Falta (próxima sessão):**
+- [ ] **Vercel:** setar 4 envs (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ZEUS_WEBHOOK_SECRET) + redeploy → painel sai do demo.
+- [ ] **Bot `.env`:** preencher `GENERIC_WEBHOOK_URL` = `<URL do painel Vercel>/api/ingest`.
+- [ ] **GitHub:** setar secret `BASE_RPC_ARCHIVE` (ativa o trap `contracts-fork` do CI).
+- [ ] **Moonwell testnet:** `revive()` + `setOperator()` (se usar Motor 1 Moonwell — ficou kill switch ativo).
+- [ ] **Subir a VM na Fly.io** + secrets; depois **2 semanas DRY_RUN**.
+- [ ] **Mainnet (futuro):** owner=multisig + operador separado (no testnet ficou owner==operador).
 >
 > **Achado OEV (CRÍTICO pra estratégia):** liquidação na Base está se fechando por OEV capture (Aave SVR ~85%, Compound ~85%,
 > Moonwell MEV tax ~99%). **Morpho Blue = único edge real (recapture 0%)** — o liquidator agora prioriza Morpho via gate EV pós-OEV.

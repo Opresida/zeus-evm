@@ -46,6 +46,20 @@ describe('SenderRegistry — Item 5 F1', () => {
     expect(profile!.gas.avg_priority_fee_gwei).toBeCloseTo(2.5);
   });
 
+  it('recordWinAgainstUs cria/incrementa o contador head-to-head (Fase 2b)', () => {
+    const winner = '0xdead' as `0x${string}`;
+    // cria do zero (competidor ainda não observado)
+    registry.recordWinAgainstUs(winner, { txHash: '0x1' });
+    let p = registry.get(winner)!;
+    expect(p).toBeDefined();
+    expect(p.threat.wins_against_us).toBe(1);
+    expect(p.threat.last_win_against_us_at).toBeGreaterThan(0);
+    // segunda vitória incrementa
+    registry.recordWinAgainstUs(winner);
+    p = registry.get(winner)!;
+    expect(p.threat.wins_against_us).toBe(2);
+  });
+
   it('observe agrega txs do mesmo sender', () => {
     for (let i = 0; i < 5; i++) {
       registry.observe({

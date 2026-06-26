@@ -78,17 +78,17 @@ export const BASE_MAINNET: ChainConfig = {
   },
 
   // ─── DEXes UniswapV2-compatíveis (Motor 2 — execução via DexType.UniswapV2) ───
-  // ⚠️ VERIFICAR on-chain (factory.getPair de um par conhecido != address(0)) antes de mainnet.
-  //    BaseSwap já estava no repo (verificado pelo time). AlienBase/SwapBased dos docs oficiais.
-  // Adicionar um fork UniV2 novo = SÓ mais uma linha aqui (UniswapV2Lib já cobre on-chain; sem redeploy).
+  // ✅ VERIFICADO on-chain 2026-06-23 (router/factory têm código + factory.getPair(WETH,USDC)!=0).
+  //    Adicionar um fork UniV2 novo = SÓ mais uma linha aqui (UniswapV2Lib já cobre on-chain; sem redeploy).
+  //    REMOVIDOS na verificação: dackieswap-v2 (router 0x195FBc…dd457 sem bytecode = morto) e
+  //    rocketswap (router OK, mas SEM par dos curados — WETH/USDC, cbETH/WETH, AERO/WETH, cbETH/USDC,
+  //    DAI/USDC, USDC/USDbC todos inexistentes → era só custo de RPC). Re-adicionar só com par vivo.
   univ2Dexes: [
     { name: 'baseswap',      router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', factory: '0xFDa619b6d20975be80A10332cD39b9a4b0FAa8BB' },
     { name: 'alienbase',     router: '0x8c1A3cF8f83074169FE5D7aD50B978e1cD6b37c7', factory: '0x3E84D913803b02A4a7f027165E8cA42C14C0FdE7' },
     { name: 'swapbased',     router: '0xaaa3b1F1bd7BCc97fD1917c18ADE665C5D31F066', factory: '0x04C9f118d21e8B767D2e50C946f0cC9F6C367300' },
     { name: 'pancakeswap-v2', router: '0x8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb', factory: '0x02a84c1b3BBD7401a5f7fa98a384EBC70bB5749E' },
     { name: 'sushiswap-v2',   router: '0x6BDED42c6DA8FBf0d2bA55B2fa120C5e0c8D7891', factory: '0x71524B4f93c58fcbF659783284E38825f0622859' },
-    { name: 'dackieswap-v2',  router: '0x195FBc5B8Fbe5f50d26c1b426B27a020E15Dd457', factory: '0x591f122D1df761E616c13d265006fcbf4c6d6551' },
-    { name: 'rocketswap',     router: '0x4cf76043B3f97ba06917cBd90F9e3A2AAC1B306e', factory: '0x1B8eea9315bE495187D873DA7773a874545D9D48' },
   ],
 
   // ─── Forks Uniswap V3 (Motor 2) ───
@@ -119,7 +119,8 @@ export const BASE_MAINNET: ChainConfig = {
   ],
 
   // ─── Aerodrome Slipstream (concentrated liquidity — execução via DexType.Slipstream) ───
-  // ⚠️ VERIFICAR on-chain antes de mainnet (CLFactory.getPool(tokenA, tokenB, tickSpacing) != 0).
+  // ✅ VERIFICADO on-chain 2026-06-23 (factory/quoter/swapRouter têm código; pools WETH/USDC em
+  //    tickSpacing 1/50/100/200) + swap real no fork test (SlipstreamLib).
   //    tickSpacings Slipstream Base: 1 (stable), 50/100/200 (volatile tiers), 2000 (exótico).
   slipstream: {
     factory: '0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A',

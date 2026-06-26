@@ -62,14 +62,14 @@ export function buildCompoundLiquidationTx(
     bribe,
   } = opts;
 
-  const swapRouter = chainConfig.uniswapV3.swapRouter02;
-
-  // minAmountOut do swap (collateral → baseToken)
+  // Multi-DEX: swapPlan do calculator (UniV3/Aero/Slipstream) ou fallback UniV3 legado.
+  const plan = decision.swapPlan;
+  const swapRouter = plan?.router ?? chainConfig.uniswapV3.swapRouter02;
+  const dexType = plan?.dexType ?? (DexType.UniswapV3 as number);
+  const extraData = plan?.extraData ?? encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  const baseOutput = plan?.expectedOutput ?? expectedSwapOutput;
   const slippageNumerator = 10_000n - BigInt(slippageBps);
-  const minAmountOut = (expectedSwapOutput * slippageNumerator) / 10_000n;
-
-  // extraData = abi.encode(uint24 fee)
-  const extraData = encodeAbiParameters([{ type: 'uint24' }], [preferredFeeTier]);
+  const minAmountOut = (baseOutput * slippageNumerator) / 10_000n;
 
   const swapSteps = [
     {
@@ -78,7 +78,7 @@ export function buildCompoundLiquidationTx(
       tokenOut: position.baseToken,
       amountIn: 0n, // 0 = use saldo atual (= collateral comprado pós buyCollateral)
       minAmountOut,
-      dexType: DexType.UniswapV3 as number,
+      dexType,
       extraData,
     },
   ];

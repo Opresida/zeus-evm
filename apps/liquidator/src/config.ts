@@ -160,21 +160,6 @@ export const envSchema = z.object({
   MIN_DEBT_USD: z.coerce.number().positive().default(100),
   MIN_LIQUIDATION_PROFIT_USD: z.coerce.number().positive().default(5),
 
-  // ─── Controle remoto de execução (toggle do Frontend via Supabase engine_control) ───
-  // Modelo ARMADO-MAS-TRAVADO: em testnet/mainnet, o ENVIO só passa quando o painel ligar (motor1).
-  // Sem SUPABASE_URL → controle remoto INATIVO (preserva comportamento atual: envia conforme o mode).
-  // Com SUPABASE_URL → sobe TRAVADO (fail-safe) e só o toggle remoto libera. Gateia o Motor 1 inteiro
-  // (liquidação clássica + pré-liquidação). O bot só LÊ; a escrita é exclusiva das rotas /api do front.
-  // NOTA: o liquidator e o mis-scanner compartilham o MESMO .env raiz. O mis-scanner usa
-  // ENGINE_CONTROL_MOTOR=motor2 — por isso o liquidator usa uma var PRÓPRIA (default motor1),
-  // pra não colidir. SUPABASE_URL/KEY são compartilhados (mesmo projeto Supabase).
-  SUPABASE_URL: optionalUrl(),
-  SUPABASE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
-  /** Identificador do motor na tabela engine_control. Liquidator = motor1 (default — não precisa setar). */
-  LIQUIDATOR_ENGINE_CONTROL_MOTOR: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('motor1')),
-  /** Reconsulta o toggle a cada N ticks de discovery (barato; fail-safe interno trava em erro). */
-  LIQUIDATOR_ENGINE_CONTROL_POLL_EVERY: z.coerce.number().int().positive().default(3),
-
   // ─── Liquidator-específico ───
   /** Polling interval entre ciclos de busca (segundos). Caminho A = 60s. */
   LIQUIDATOR_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
@@ -279,11 +264,24 @@ export const envSchema = z.object({
   /** URL genérica pra POST JSON dos eventos crus (sem formatação Discord).
    *  Útil pra Telegram bot, mini server local, n8n, futuro WebSocket gateway. */
   GENERIC_WEBHOOK_URL: optionalUrl(),
+  /** Segredo compartilhado enviado no header `x-zeus-secret` de cada POST (autentica no /api/ingest
+   *  do ZEUS Command). DEVE bater com `ZEUS_WEBHOOK_SECRET` no Vercel. Sem ele, o ingest barra (401)
+   *  se exigir secret, ou fica aberto se não. */
+  GENERIC_WEBHOOK_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   /** Filtro de severidades pro Discord (comma-separated). Default: 'warn,critical' (sem info pra evitar spam).
    *  Override pra 'info,warn,critical' se quiser ver TUDO durante calibração. */
   DISCORD_SEVERITIES: z.string().default('warn,critical'),
   /** Filtro de severidades pro generic webhook. Default: 'info,warn,critical' (envia tudo). */
   GENERIC_SEVERITIES: z.string().default('info,warn,critical'),
+  // ── Controle remoto de execução (toggle do painel via Supabase engine_control) ──
+  /** URL base do Supabase (REST) pra LER o toggle de execução. Sem ela → execução TRAVADA (fail-safe). */
+  SUPABASE_URL: optionalUrl(),
+  /** Chave Supabase (anon/service) pro REST read do engine_control. Sem ela → TRAVADA (fail-safe). */
+  SUPABASE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Motor desta instância na tabela engine_control. Default 'motor1' (liquidator). */
+  ENGINE_CONTROL_MOTOR: z.string().default('motor1'),
+  /** Cadência do poll do toggle (segundos). Default 15. */
+  ENGINE_CONTROL_POLL_SEC: z.coerce.number().positive().default(15),
 
   // ─── Bribe (V7) — opt-in pra liquidator competir via bundle privado ───
   /** Se true, usa funções v7 `*WithBribe` em vez das v6. Default false (mantém v6).
@@ -302,6 +300,15 @@ export const envSchema = z.object({
   /** % do profit pra bribe quando BRIBE_ENABLED=true. Calibrar via observação.
    *  Default 50% — equilibrado entre competir e preservar profit. */
   BRIBE_DEFAULT_BPS: z.coerce.number().int().min(100).max(9_500).default(5_000),
+
+  // ─── Bribe competitor-aware com teto de lucro (Motor 1 — priority fee dinâmico) ───
+  /** Auto-ajusta o priority fee (o bribe na Base) pra ganhar corridas, SEMPRE limitado pelo lucro
+   *  da oportunidade (nunca prejuízo). Opt-in — default false (usa o priority fee estático). */
+  COMPETITIVE_BRIBE_ENABLED: z.coerce.boolean().default(false),
+  /** Percentil de mercado alvo pra ganhar a corrida. Default 'p75'. */
+  BRIBE_TARGET_PERCENTILE: z.enum(['p50', 'p75', 'p95']).default('p75'),
+  /** Teto RÍGIDO de priority fee (gwei) — sanidade extra além do teto de lucro. Default 5. */
+  MAX_BRIBE_GWEI: z.coerce.number().positive().default(5),
 
   // ─── Bundle relays (V7) ───
   /** URL Flashbots Protect (Ethereum L1 ou compatible). Vazio = sem Flashbots. */

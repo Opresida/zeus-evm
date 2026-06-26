@@ -17,14 +17,16 @@ import {
   quoteUniswapV3,
   quoteUniswapV3MultiHop,
   buildCandidateRoutes,
+  bestSwapAcrossDexes,
   isQuote,
   type Quote,
 } from '@zeus-evm/dex-adapters';
+import type { ChainConfig } from '@zeus-evm/chain-config';
 import { cachedQuoteUniswapV3, estimateUsd } from '@zeus-evm/execution-utils';
 import { FlashSource } from '../../types';
 
 import type { LiquidatorEnv } from '../../config';
-import type { MorphoLiquidatablePosition, LiquidationDecision } from '../../types';
+import type { MorphoLiquidatablePosition, LiquidationDecision, SwapPlan } from '../../types';
 import { planLiquidation, type LiquidationPlan } from './math';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -37,6 +39,8 @@ export interface MorphoCalculatorOpts {
   env: LiquidatorEnv;
   client: AnyPublicClient;
   quoterAddress: Address;
+  /** Chain config — habilita o swap multi-DEX (UniV3/Aero/Slipstream). Ausente = só UniV3 + multi-hop. */
+  chainConfig?: ChainConfig;
   /** Intermediates pra multi-hop swap (WETH/USDC). Vazio = só single-hop. */
   multiHopIntermediates?: readonly Address[];
 }
@@ -58,6 +62,21 @@ async function bestCollateralToLoanQuote(
   amountIn: bigint,
   opts: MorphoCalculatorOpts,
 ): Promise<Quote | null> {
+  // Multi-DEX (single-hop UniV3/Aero/Slipstream) quando chainConfig presente. Substitui o multi-hop
+  // legado (que NÃO era executável single-hop pelo contrato) — estimativa == execução + ganho LSD.
+  if (opts.chainConfig) {
+    return bestSwapAcrossDexes({
+      client: opts.client,
+      chainConfig: opts.chainConfig,
+      tokenIn: position.collateralToken,
+      tokenOut: position.loanToken,
+      amountIn,
+      decimalsIn: position.collateralTokenDecimals,
+      decimalsOut: position.loanTokenDecimals,
+    });
+  }
+
+  // Legado (sem chainConfig): UniV3 single-hop + multi-hop.
   let best: Quote | null = null;
 
   for (const fee of UNI_V3_FEE_TIERS) {
@@ -158,6 +177,12 @@ export async function calculateOptimalMorphoLiquidation(
     };
   }
 
+  // Multi-DEX: o `quote` já é o melhor venue single-hop (quando chainConfig presente) e carrega
+  // router/dex/extraData → vira o swapPlan executável. Legado (UniV3) não tem router → fallback no builder.
+  const swapPlan: SwapPlan | undefined = quote.router
+    ? { dexType: quote.dex as number, router: quote.router, extraData: quote.extraData, expectedOutput: quote.amountOut }
+    : undefined;
+
   const decision: LiquidationDecision = {
     flashloanAmount: plan.expectedRepaidAssets,
     expectedProfitWei: profitWei,
@@ -167,6 +192,7 @@ export async function calculateOptimalMorphoLiquidation(
     // Default Aave; pipeline sobrescreve via seletor (Morpho 0% é o ganho óbvio aqui).
     flashSource: FlashSource.Aave,
     flashPremiumBps: AAVE_FLASHLOAN_PREMIUM_BPS,
+    swapPlan,
   };
 
   return { ok: true, decision, plan, expectedSwapOutputWei: quote.amountOut };

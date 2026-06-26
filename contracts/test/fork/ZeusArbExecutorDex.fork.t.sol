@@ -49,7 +49,8 @@ contract ZeusArbExecutorDexForkTest is Test {
     address public profitReceiver = makeAddr("profitReceiver");
 
     function setUp() public {
-        string memory rpc = vm.envOr("BASE_RPC_HTTP", string(""));
+        // Prefere BASE_RPC_ARCHIVE (endpoint archive dedicado p/ fork) → cai pra BASE_RPC_HTTP.
+        string memory rpc = vm.envOr("BASE_RPC_ARCHIVE", vm.envOr("BASE_RPC_HTTP", string("")));
         if (bytes(rpc).length == 0) {
             vm.skip(true);
             return;
@@ -62,6 +63,11 @@ contract ZeusArbExecutorDexForkTest is Test {
         vm.startPrank(owner);
         arb.setOperator(operator, true);
         arb.revive();
+        // Whitelist on-chain de routers (Fase Motor 1 mainnet) — aprova os routers exercitados.
+        arb.setApprovedRouter(BASESWAP_ROUTER, true);
+        arb.setApprovedRouter(SLIPSTREAM_SWAP_ROUTER, true);
+        arb.setApprovedRouter(PANCAKE_V3_SWAP_ROUTER, true);
+        arb.setApprovedRouter(SUSHI_V3_SWAP_ROUTER, true);
         vm.stopPrank();
     }
 

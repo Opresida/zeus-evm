@@ -34,7 +34,10 @@ export type ZeusEvent =
   | BackrunDispatchedEvent
   | BackrunRejectedEvent
   | PnlReconciledEvent
-  | FailureRecordedEvent;
+  | FailureRecordedEvent
+  | CalibrationAppliedEvent
+  | WalletSnapshotEvent
+  | ZeusHeartbeatEvent;
 
 interface BaseEvent {
   /** ISO timestamp da emissão */
@@ -64,21 +67,27 @@ export interface TxConfirmedEvent extends BaseEvent {
   type: 'tx.confirmed';
   severity: 'info';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). Liquidações usam `borrower`. */
+  pair?: string;
   profitUsd: number | null;
   gasCostUsd: number;
   netProfitUsd: number | null;
   profitDeltaBps: number;
   blockNumber: string;
+  /** DEX usada na troca colateral→dívida (multi-DEX do Motor 1): 'uniswap-v3' | 'aerodrome' | 'slipstream'. */
+  swapVenue?: string;
 }
 
 export interface TxRevertedOnChainEvent extends BaseEvent {
   type: 'tx.reverted_on_chain';
   severity: 'warn';
   txHash: `0x${string}`;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq' | 'arb';
   borrower: Address;
+  /** Par negociado — preenchido pelo Motor 2 (arb). */
+  pair?: string;
   gasUsdLost: number;
   blockNumber: string;
 }
@@ -240,4 +249,204 @@ export interface FailureRecordedEvent extends BaseEvent {
   /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
   gasUsdLost?: number;
   reason?: string;
+  /** Post-mortem (Fase 5b): alias do competidor que nos ganhou, quando resolvido. */
+  competitorAlias?: string;
+}
+
+/**
+ * Auto-calibração aplicada (Fase 2b): emitido SÓ quando `ADAPTIVE_THRESHOLDS_ENABLED=true` e o
+ * threshold de EV mudou de fato (honesto — não emite quando é só log). Alimenta o card de
+ * auto-calibração do painel via a tabela `events` (payload jsonb).
+ */
+export interface CalibrationAppliedEvent extends BaseEvent {
+  type: 'calibration.applied';
+  severity: 'info';
+  /** Dimensão calibrada (hoje 'global' — o threshold é único; por-protocolo no futuro). */
+  dimension: string;
+  /** Threshold de EV antigo (USD), antes da injeção. */
+  oldThresholdUsd: number;
+  /** Threshold de EV novo (USD), recém-calculado. */
+  newThresholdUsd: number;
+  /** Protocolo top do ranking que motivou (quando disponível). */
+  topProtocol?: string | null;
+  /** Motivo curto/legível. */
+  reason?: string;
+}
+
+/**
+ * Snapshot diário do saldo da wallet (Fase 2b): emitido 1×/dia (virada de dia UTC) pra desenhar o
+ * gráfico de saldo 30d. Vai pra tabela própria `wallet_snapshots` (série temporal), não pra `events`.
+ */
+export interface WalletSnapshotEvent extends BaseEvent {
+  type: 'wallet.snapshot';
+  severity: 'info';
+  /** Serviço que emitiu (liquidator | ...). */
+  service: string;
+  /** Saldo em ETH no momento do snapshot. */
+  balanceEth: number;
+  /** Saldo em USD no momento do snapshot (quando há preço). */
+  balanceUsd?: number;
+}
+
+// ─── Heartbeat (estado ao vivo) ─────────────────────────────────────────
+// Os outros eventos são DELTAS (disparam num limiar). Pra gauges contínuos do painel
+// (gás-agora, uptime, EV adaptativo, estado REAL do toggle) precisa de um snapshot periódico.
+// Emitido a cada ~30s reusando valores já coletados no loop de métricas. No /api/ingest do
+// painel, NÃO entra na tabela `events` (inundaria) — vira UPSERT em `service_status` (1 linha/serviço).
+
+/** Stats resumidas por motor (pro mini-card do painel). */
+export interface MotorStat {
+  /** Identificador do motor ('motor1' | 'motor2' | 'motor3' ou nome do serviço). */
+  tag: string;
+  ops: number;
+  netPnl24hUsd: number;
+}
+
+/**
+ * Pulso do "radar" de descoberta (último tick de varredura). Vai no heartbeat (não como evento
+ * próprio) pra não inundar a tabela `events` — `discovery.tick_completed` dispara a cada varredura.
+ * Deixa o painel mostrar "scanner vivo · viu N posições · há Xs".
+ */
+export interface HeartbeatDiscovery {
+  /** Total de posições liquidáveis vistas no último tick (soma dos protocolos). */
+  positions: number;
+  /** Quantas foram despachadas (ou simuladas em dryrun) no último tick. */
+  dispatched: number;
+  /** Quantas foram rejeitadas pelos gates no último tick. */
+  rejected: number;
+  /** ISO do último tick de descoberta. */
+  atIso: string;
+}
+
+/**
+ * Agregados de inteligência que o bot JÁ computa no loop de métricas (market-bribe, competidores,
+ * calibração) — anexados ao heartbeat pra o painel mostrar os valores REAIS em vez de mock.
+ * Esses dados vivem no DuckDB/Prometheus local do bot; o heartbeat é a ponte pro Vercel.
+ */
+export interface HeartbeatIntel {
+  /** Lance de mercado mediano dos competidores (priority fee gwei). */
+  marketBribeP50Gwei?: number;
+  /** Lance de mercado agressivo (p95) — quanto custa ganhar a corrida. */
+  marketBribeP95Gwei?: number;
+  /** Competidores ativos na janela. */
+  competitorsActive?: number;
+  /** Drift médio realizado-vs-esperado (bps) — calibração. */
+  driftBps?: number;
+  /** Alertas de drift sustentado acumulados ("o bot está mentindo pra si mesmo"). */
+  sustainedAlerts?: number;
+  /** Lance de mercado p75 (priority fee gwei) — entre o mediano e o agressivo. */
+  marketBribeP75Gwei?: number;
+  /** NOSSO lance atual (priority fee gwei) — na Base o priority fee É o bribe prático. */
+  ourBribeGwei?: number;
+  /** true se o ZEUS auto-ajustou o bribe pra cima por competição (dentro do lucro) — POR DISPATCH. */
+  bribeAutoRaised?: boolean;
+  /** Motivo do auto-ajuste ('raised-to-market' | 'capped-by-profit'). */
+  bribeReason?: string;
+  /** Motor 2: true quando o ZEUS LIGOU sozinho a feature de bribe competitivo (nível-feature). */
+  competitiveBribeAutoEnabled?: boolean;
+  /** Por que ligou (ex.: "N corridas perdidas no gás na última hora"). */
+  bribeAutoEnableReason?: string;
+}
+
+/**
+ * Blocos extras do heartbeat (Fase 2 da cobertura do painel) — todos REUSAM valores que o loop de
+ * métricas do bot já computa (health/competidores/cooldowns/kill-switch/edge-pairs). Vão em colunas
+ * jsonb de `service_status`. Opcionais → motor que não tem o dado simplesmente omite o bloco.
+ */
+export interface HeartbeatHealth {
+  /** Prontidão dos componentes (espelha o /readyz): nome + ok + detalhe curto. */
+  components: { name: string; ok: boolean; detail?: string }[];
+}
+export interface HeartbeatCompetitor {
+  /** Alias conhecido ou endereço encurtado. */
+  alias: string;
+  /** Categoria inferida (liquidator | generic_arber | mev_searcher | unknown). */
+  category: string;
+  /** Total de txs observadas do competidor. */
+  txs: number;
+  /** Lance médio do competidor (priority fee gwei). */
+  bribeGwei: number;
+  /** Score de ameaça [0..1]. */
+  threat: number;
+  /** Fase 2b — nº de corridas que ele nos ganhou (head-to-head); 0/omitido até a execução rodar. */
+  wonVsUs?: number;
+}
+export interface HeartbeatCooldown {
+  /** Rótulo curto (ex.: "auto-pause"). */
+  label: string;
+  /** Motivo legível. */
+  reason: string;
+  /** Ainda ativo? */
+  active: boolean;
+}
+export interface HeartbeatKillSwitch {
+  /** Perda acumulada na janela de 24h (USD). */
+  loss24hUsd: number;
+  /** Limite que dispara o kill switch (USD). */
+  limitUsd: number;
+  /** Já disparou? */
+  triggered: boolean;
+}
+export interface HeartbeatLatency {
+  /** Latência mediana de dispatch (submit→confirmação), em ms. */
+  p50Ms: number;
+  /** Latência p95 de dispatch, em ms. */
+  p95Ms: number;
+  /** Nº de amostras na janela (0 = ainda não despachou nada; bloco é omitido). */
+  samples: number;
+}
+export interface HeartbeatReorgs {
+  /** Reorgs detectadas na janela (rolling do FinalityTracker). */
+  window24h: number;
+  /** Tx órfãs recuperadas (re-submetidas com sucesso) pós-reorg. */
+  orphansRecovered: number;
+  /** Tx órfãs detectadas no total (recuperadas + skip + falha). */
+  orphansDetected: number;
+}
+export interface HeartbeatEdgePair {
+  /** Par/grupo (ex.: "WETH/USDC"). */
+  pair: string;
+  /** Score de persistência empírica. */
+  score: number;
+  /** Razão de persistência formatada (ex.: "62%"). */
+  persistPct: string;
+  /** Divergência média (bps). */
+  avgBps: number;
+  /** Nº de amostras. */
+  samples: number;
+}
+
+export interface ZeusHeartbeatEvent extends BaseEvent {
+  type: 'zeus.heartbeat';
+  severity: 'info';
+  /** Nome do serviço que emitiu (liquidator | backrun-engine | mis-scanner). */
+  service: string;
+  uptimeSec: number;
+  /** Reserva de gás da wallet ativa. */
+  gasReserveEth?: number;
+  gasReserveUsd?: number;
+  /** Threshold de EV adaptativo atual (USD), quando aplicável. */
+  adaptiveMinEvUsd?: number;
+  /** Estado REAL de execução: true = pausado/travado (no Motor 2 = toggle OFF). */
+  autoPaused: boolean;
+  motorStats?: MotorStat[];
+  /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
+  discovery?: HeartbeatDiscovery;
+  /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */
+  intel?: HeartbeatIntel;
+  // ── Fase 2 (cobertura do painel): blocos extras, todos opcionais e reusando o loop de métricas ──
+  /** Prontidão dos componentes (tela Saúde). */
+  health?: HeartbeatHealth;
+  /** Top competidores observados (tela Inteligência). */
+  competitors?: HeartbeatCompetitor[];
+  /** Cooldowns / motivos de auto-pause ativos (tela Saúde). */
+  cooldowns?: HeartbeatCooldown[];
+  /** Estado do kill switch (perda 24h vs limite) (tela Saúde). */
+  killSwitch?: HeartbeatKillSwitch;
+  /** Ranking de pares com edge persistente (Motor 2 / tela Inteligência). */
+  edgePairs?: HeartbeatEdgePair[];
+  /** Latência de dispatch p50/p95 (Fase 2b) — omitido enquanto não há dispatch real. */
+  latency?: HeartbeatLatency;
+  /** Resiliência de reorg (Motor 1 mainnet) — reorgs na janela + órfãs recuperadas. */
+  reorgs?: HeartbeatReorgs;
 }

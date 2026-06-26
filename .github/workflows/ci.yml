@@ -44,21 +44,66 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
 
       # libs ficam fora do git (.gitignore) — instala as deps usadas pelos remappings.
+      # Pinado nas versões que compilam localmente. forge 1.x REMOVEU --no-commit (quebrava o CI);
+      # sem pin o CI pegava "latest" e podia quebrar; aave-v3-core não tem import/remapping → fora.
       - name: Install forge libs
         working-directory: contracts
         run: |
-          forge install foundry-rs/forge-std \
-                        OpenZeppelin/openzeppelin-contracts \
-                        Uniswap/v3-core \
-                        Uniswap/v3-periphery \
-                        aave/aave-v3-core \
-                        --no-commit
+          forge install \
+            foundry-rs/forge-std@v1.16.1 \
+            OpenZeppelin/openzeppelin-contracts@v5.6.1 \
+            Uniswap/v3-core@v1.0.0 \
+            Uniswap/v3-periphery@v1.3.0
 
       - name: Forge build
         working-directory: contracts
         run: forge build
 
-      # Fork tests precisam de RPC (secrets) → fora do CI. Roda só os unit.
+      # Fork tests rodam no job `contracts-fork` (precisam de RPC archive via secret). Aqui só unit.
       - name: Forge test (unit, sem fork)
         working-directory: contracts
         run: forge test --no-match-path 'test/fork/**' -vvv
+
+  contracts-fork:
+    name: Contracts (fork test — valida endereços DEX on-chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      # Pinado nas versões que compilam localmente. forge 1.x REMOVEU --no-commit (quebrava o CI);
+      # sem pin o CI pegava "latest" e podia quebrar; aave-v3-core não tem import/remapping → fora.
+      - name: Install forge libs
+        working-directory: contracts
+        run: |
+          forge install \
+            foundry-rs/forge-std@v1.16.1 \
+            OpenZeppelin/openzeppelin-contracts@v5.6.1 \
+            Uniswap/v3-core@v1.0.0 \
+            Uniswap/v3-periphery@v1.3.0
+
+      # TRAP PERMANENTE (só o teste de ENDEREÇOS — ZeusArbExecutorDex.fork): faz swaps reais contra
+      # os routers/factories da Base. Endereço morto/errado → swap reverte → ESTE job fica vermelho.
+      # Os fork tests PESADOS (MotorsProfit/ZeusLiquidator — sims de lucro) ficam FORA do CI: fazem
+      # milhares de leituras de storage e estouram a cota free do RPC (HTTP 429). Rodar local com
+      # `pnpm contracts:test:fork` quando precisar deles.
+      # ⚠️ Pra o trap ficar ATIVO, configure o secret `BASE_RPC_ARCHIVE` no repo (Settings > Secrets):
+      #    Alchemy Base (free já serve archive). Sem o secret, os fork tests dão skip (vm.skip) e o job
+      #    passa — então o aviso abaixo falha de propósito pra você não esquecer de setar.
+      - name: Exige RPC archive (senão o trap fica inativo)
+        env:
+          ARCHIVE: ${{ secrets.BASE_RPC_ARCHIVE }}
+        run: |
+          if [ -z "$ARCHIVE" ]; then
+            echo "::error::Secret BASE_RPC_ARCHIVE ausente — fork tests dariam skip e NÃO validariam os endereços. Configure em Settings > Secrets and variables > Actions (Alchemy Base, free serve archive)."
+            exit 1
+          fi
+
+      - name: Forge test (fork — swaps reais on-chain)
+        working-directory: contracts
+        env:
+          BASE_RPC_ARCHIVE: ${{ secrets.BASE_RPC_ARCHIVE }}
+          BASE_RPC_HTTP: ${{ secrets.BASE_RPC_ARCHIVE }}
+        run: forge test --match-path 'test/fork/ZeusArbExecutorDex.fork.t.sol' -vvv

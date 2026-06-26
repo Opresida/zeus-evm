@@ -81,6 +81,35 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-25 parte 3 (resumo — detalhes em `CLAUDE.md`)
+- **Painel (ZEUS Command) com login real + marca MAZARI** (deployado na Vercel): **Supabase Auth** com
+  **cadastro por indicação** (só admin gera) + **aprovação do admin**; membro **só vê**, **armar o bot = admin-only**
+  (UI + `requireAdmin` no servidor). Supabase configurado ao vivo (tabelas/RLS/conta admin). Branding: **logo
+  oficial ZEUS FLASHLOAN** no login (rodapé "Tecnologia exclusiva do Grupo MAZARI CORP"), **app icon** (PWA) +
+  favicon. UX: **ZeusLoader** + **splash ≥4s** + **crossfade** splash→login + **botão Sair** + **selo de MODO
+  real** (DRY-RUN/ARMADO/LIVE, substitui o "MAINNET" hardcoded).
+- **DRY_RUN esclarecido:** liga **subindo a VM** (`ARB_MODE=dryrun`), não por botão; o toggle do painel arma o
+  **live** (só em mainnet). Próximo: **checklist de subida da VM**. Pendências do Humberto: trocar senha admin;
+  (opcional) VAPID na Vercel + reinstalar PWA.
+
+### 🆕 Sessão 2026-06-25 parte 2 (resumo — detalhes em `CLAUDE.md`)
+- **Reuso cross-motor** (sem código novo de lógica; tudo de `execution-utils`): **gorjeta competitiva AUTO-LIGÁVEL no Motor 2** (OFF default; ZEUS liga em evidência `gas_outbid` e avisa no painel — ganho **modesto na Base FCFS**) · **paridade defensiva M2 ↔ M1** (reorg awareness + auto-pause de saúde + latência; o health server do M2 antes era "vazio") · **plano + gatilho da arb triangular** (`docs/TRIANGULAR_EXECUTION_PLAN.md` + banner "Lucro provado, hora de implementar a ligação da arb triangular" na Home).
+- **Estado honesto M1+M2:** maduros **como software** e no mesmo nível de defesa. **"Falta só DRY_RUN" é otimista:** o DRY_RUN ainda não roda (VM/webhook/Vercel), é **PORTÃO** que precisa PROVAR o edge (M1 fino = só Morpho; M2 não-provado), e mainnet exige deploy mainnet + multisig + operador + re-audit v9. Próximo: **checklist de subida do DRY_RUN**.
+
+### 🆕 Sessão 2026-06-24 (resumo — detalhes em `CLAUDE.md`)
+- **Painel REAL fim-a-fim:** cobertura de dados Fases 1/2/2b + insights, toggle DEMO/LIVE, veredito de bribe dinâmico, responsividade mobile. Supabase: colunas jsonb em `service_status` + tabela `wallet_snapshots`. (`docs/FRONTEND_DATA_COVERAGE.md`)
+- **Motor 1 prontidão mainnet (v9 de contrato):** whitelist on-chain de routers + stale-check Morpho/Moonwell + OrphanRecoveryManager no dispatch. Runbook `docs/MAINNET_READINESS_MOTOR1.md`.
+- **Toggle remoto de execução do Motor 1** (engine_control, armado-mas-travado) + **bribe competitor-aware com teto de lucro** (opt-in, nunca prejuízo).
+- **Validação ABI on-chain (fork tests no CI, Alchemy archive):** liquidação Aave(+lucro)/Morpho/Compound/Moonwell + dex quoters + flashloan Aave/Morpho/Balancer no arb. `forge test` **147/0**. (Provam ABI/wiring, não lucro — exceto Aave/Dex.)
+- **Falta (operacional):** redeploy **v9** Sepolia (deployado é v8) + `revive()`/`setOperator()` Moonwell (`isKilled()=true`) · **DRY_RUN mainnet ~2 semanas** (VM Fly.io + `GENERIC_WEBHOOK_URL`). `BASE_RPC_ARCHIVE` no CI = feito.
+
+### 🆕 Sessão 2026-06-23 (resumo — detalhes em `CLAUDE.md`)
+- **Motor 2 — expansão de DEX + toggle remoto MERGEADOS na `main`** (Slipstream + forks UniV3/UniV2 + adapter `PancakeV3Lib`/`DexType.PancakeV3`; Sushi V3 na Base também usa deadline). DexType unificado (fonte única + pin test).
+- **Endereços verificados on-chain** (Alchemy archive); dackie/rocket removidos. **RPC = Alchemy primário**.
+- **CI** com job `contracts-fork` (trap de endereços) + fix `forge install`. **Redeploy testnet v8** (revive + setOperator nos 2 executors).
+- **Cola do painel:** Supabase criado/verificado + `genericWebhookSink` com `x-zeus-secret` + `zeus.heartbeat` no Motor 2.
+- **Falta:** 4 envs na Vercel + redeploy · `GENERIC_WEBHOOK_URL` (URL do painel) · secret `BASE_RPC_ARCHIVE` no GitHub · Moonwell revive/setOperator · Fly.io + 2 semanas DRY_RUN.
+
 ### ✅ Concluído
 
 **Camada on-chain (4 contratos v8 split — resolve EIP-170):**

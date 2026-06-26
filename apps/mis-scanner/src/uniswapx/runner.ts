@@ -7,14 +7,14 @@
  */
 
 import type { Address, PublicClient, WalletClient } from 'viem';
-import { quoteUniswapV3, type Quote } from '@zeus-evm/dex-adapters';
+import { quoteUniswapV3, DexType, type Quote } from '@zeus-evm/dex-adapters';
 import { cachedQuoteUniswapV3, estimateUsd, type GasOracle } from '@zeus-evm/execution-utils';
 
 import { fetchOpenOrders } from './orderFeed';
 import { evaluateFill } from './evaluator';
 import { buildFillTx } from './builder';
 import { UNISWAPX_REACTORS_BASE } from './abi';
-import { quoteUniswapV4, V4_QUOTER_BASE } from './v4/quoter';
+import { quoteUniswapV4, v4QuoteToQuote, V4_QUOTER_BASE } from './v4/quoter';
 import type { NormalizedOrder } from './types';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -75,6 +75,18 @@ async function bestQuote(
     );
     if (q && 'amountOut' in q && (!best || q.amountOut > best.amountOut)) best = q;
   }
+
+  // V4 (F1b): cota e, se ganhar de V3, retorna um Quote V4 EXECUTÁVEL (router=UR, extraData=PoolKey).
+  if (d.v4QuoteEnabled) {
+    try {
+      const v4 = await quoteUniswapV4({ client: d.client, quoter: d.v4Quoter ?? V4_QUOTER_BASE, tokenIn, tokenOut, amountIn });
+      if (v4 && (!best || v4.amountOut > best.amountOut)) {
+        best = v4QuoteToQuote(v4, tokenIn, tokenOut, amountIn);
+      }
+    } catch {
+      // cotação V4 best-effort
+    }
+  }
   return best;
 }
 
@@ -93,13 +105,11 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
     if (order.exclusiveFiller && d.account && order.exclusiveFiller.toLowerCase() !== d.account.toLowerCase()) continue;
 
     let keptQuote: Quote | null = null;
-    let v3Out = 0n;
     const evaluation = await evaluateFill(order, {
       quote: async (tokenIn, tokenOut, amountIn) => {
         const q = await bestQuote(d, tokenIn, tokenOut, amountIn);
         keptQuote = q;
-        v3Out = q ? q.amountOut : 0n;
-        return v3Out > 0n ? v3Out : null;
+        return q && q.amountOut > 0n ? q.amountOut : null;
       },
       estimateUsd: (token, amountWei) => {
         const m = d.tokenMeta(token);
@@ -123,26 +133,9 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
       `🎯 fill candidato: lucro ~$${evaluation.profitUsd?.toFixed(2)}`,
     );
 
-    // F1a — mede o UPLIFT de cobrir V4 (só leitura; execução segue V3 até a F1b).
-    if (d.v4QuoteEnabled) {
-      try {
-        const v4 = await quoteUniswapV4({
-          client: d.client,
-          quoter: d.v4Quoter ?? V4_QUOTER_BASE,
-          tokenIn: order.input.token,
-          tokenOut: evaluation.profitToken!,
-          amountIn: order.input.amount,
-        });
-        if (v4 && v4.amountOut > v3Out && v3Out > 0n) {
-          const upliftBps = Number(((v4.amountOut - v3Out) * 10_000n) / v3Out);
-          d.logger.info(
-            { orderHash: order.orderHash, v3Out: v3Out.toString(), v4Out: v4.amountOut.toString(), upliftBps, poolFee: v4.poolKey.fee },
-            `🔵 V4 daria +${upliftBps}bps que perdemos hoje (gap p/ F1b)`,
-          );
-        }
-      } catch {
-        // cotação V4 best-effort — nunca derruba o tick
-      }
+    // F1b — a melhor rota (V3 ou V4) já foi escolhida no bestQuote. Loga quando V4 venceu.
+    if (keptQuote && (keptQuote as Quote).dex === DexType.UniswapV4) {
+      d.logger.info({ orderHash: order.orderHash, source: (keptQuote as Quote).source }, '🔵 rota V4 venceu — fill via Uniswap V4');
     }
 
     // DRY_RUN ou sem contrato/wallet → só observa.

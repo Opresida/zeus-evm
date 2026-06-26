@@ -14,6 +14,7 @@ import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 import {SlipstreamLib} from "./libraries/SlipstreamLib.sol";
 import {UniswapV2Lib} from "./libraries/UniswapV2Lib.sol";
 import {PancakeV3Lib} from "./libraries/PancakeV3Lib.sol";
+import {UniswapV4Lib} from "./libraries/UniswapV4Lib.sol";
 
 /// @title ZeusUniswapXFiller — filler UniswapX (contrato satélite, Motor 2).
 /// @notice SEPARADO dos demais (EIP-170). Modelo dex-sourced: o reactor entrega o token de entrada no
@@ -156,6 +157,8 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
                 UniswapV2Lib.swap(steps[i]);
             } else if (dt == DexType.PancakeV3) {
                 PancakeV3Lib.swap(steps[i]);
+            } else if (dt == DexType.UniswapV4) {
+                UniswapV4Lib.swap(steps[i]);
             } else {
                 revert InvalidDexType(uint8(dt));
             }

@@ -24,6 +24,7 @@ describe('DexType pin (espelha contracts/src/interfaces/IZeusExecutor.sol)', () 
     expect(DexType.Balancer).toBe(4);
     expect(DexType.Slipstream).toBe(5);
     expect(DexType.PancakeV3).toBe(6);
+    expect(DexType.UniswapV4).toBe(7);
   });
 
   it('re-export aponta pra fonte única (shared-types) — não há enum duplicado', () => {

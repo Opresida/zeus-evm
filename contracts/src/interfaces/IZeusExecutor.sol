@@ -11,7 +11,8 @@ enum DexType {
     Curve,        // 3 (futuro)
     Balancer,     // 4 (futuro)
     Slipstream,   // 5 — Aerodrome Slipstream concentrated liquidity via SlipstreamLib
-    PancakeV3     // 6 — Pancake V3 (exactInputSingle COM deadline na struct) via PancakeV3Lib
+    PancakeV3,    // 6 — Pancake V3 (exactInputSingle COM deadline na struct) via PancakeV3Lib
+    UniswapV4     // 7 — Uniswap V4 (singleton PoolManager) via Universal Router → UniswapV4Lib
 }
 
 /// @notice Fonte do flashloan que financia uma operação. Selecionada off-chain por

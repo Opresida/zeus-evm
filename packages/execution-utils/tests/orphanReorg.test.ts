@@ -123,7 +123,11 @@ describe('OrphanRecoveryManager — Item 9 R5', () => {
 
 describe('ReorgAnalytics — Item 9 R7', () => {
   function makeEvent(depth: number, hour: number, builder: string): ReorgEvent {
-    const ts = Date.UTC(2026, 4, 27, hour, 0, 0);
+    // Ancora em ONTEM na hora UTC pedida — dentro da janela rolante (datas fixas envelheciam pra fora dela).
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 1);
+    d.setUTCHours(hour, 0, 0, 0);
+    const ts = d.getTime();
     return {
       detectedAt: ts,
       commonAncestorBlock: 99n,

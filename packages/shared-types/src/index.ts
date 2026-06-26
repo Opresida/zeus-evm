@@ -21,6 +21,7 @@ export enum DexType {
   Balancer = 4,
   Slipstream = 5, // Aerodrome Slipstream CL — SlipstreamLib
   PancakeV3 = 6, // Pancake V3 (struct exactInputSingle COM deadline) — PancakeV3Lib
+  UniswapV4 = 7, // Uniswap V4 (singleton PoolManager) via Universal Router — UniswapV4Lib
 }
 
 /**

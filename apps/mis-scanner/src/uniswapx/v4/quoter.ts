@@ -9,12 +9,15 @@
  * mexe em fundo — caminho separado e cuidadoso). Aqui não montamos swap V4.
  */
 
-import { encodeFunctionData, decodeFunctionResult, type Address, type PublicClient } from 'viem';
+import { encodeFunctionData, decodeFunctionResult, encodeAbiParameters, type Address, type PublicClient } from 'viem';
+import { DexType, type Quote } from '@zeus-evm/dex-adapters';
 
 type AnyPublicClient = PublicClient<any, any>;
 
 /** V4Quoter na Base (confirmado on-chain). */
 export const V4_QUOTER_BASE = '0x0d5e0F971ED27FBfF6c2837bf31316121532048D' as Address;
+/** Universal Router na Base (executa o swap V4 — confirmado on-chain). */
+export const UNIVERSAL_ROUTER_BASE = '0x6fF5693b99212Da76ad316178A184AB56D299b43' as Address;
 
 /** Configs de pool vanilla mais comuns (fee em pips, tickSpacing). hooks=0. */
 export const V4_CANDIDATE_CONFIGS: ReadonlyArray<{ fee: number; tickSpacing: number }> = [
@@ -139,4 +142,46 @@ export async function quoteUniswapV4(opts: {
     }
   }
   return best;
+}
+
+/** PoolKey codificado p/ o extraData do SwapStep (bate com a struct da UniswapV4Lib.sol). */
+const POOLKEY_ABI = [
+  {
+    type: 'tuple',
+    components: [
+      { type: 'address', name: 'currency0' },
+      { type: 'address', name: 'currency1' },
+      { type: 'uint24', name: 'fee' },
+      { type: 'int24', name: 'tickSpacing' },
+      { type: 'address', name: 'hooks' },
+    ],
+  },
+] as const;
+
+/**
+ * Converte uma cotação V4 num `Quote` executável: dex=UniswapV4, router=Universal Router, extraData =
+ * abi.encode(PoolKey). O builder do filler já usa quote.dex/router/extraData → vira um SwapStep V4.
+ */
+export function v4QuoteToQuote(
+  v4: V4Quote,
+  tokenIn: Address,
+  tokenOut: Address,
+  amountIn: bigint,
+  router: Address = UNIVERSAL_ROUTER_BASE,
+): Quote {
+  const extraData = encodeAbiParameters(POOLKEY_ABI, [v4.poolKey]);
+  return {
+    dex: DexType.UniswapV4,
+    source: `UniV4 fee${v4.poolKey.fee}`,
+    poolOrRouter: router,
+    router,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    amountOut: v4.amountOut,
+    effectivePrice: 0,
+    fetchedAt: 0,
+    blockNumber: 0n,
+    extraData,
+  };
 }

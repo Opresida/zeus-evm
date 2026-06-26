@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { encodeAbiParameters, decodeFunctionData, type Address } from 'viem';
-import { sortCurrencies, makeQuoteArgs, quoteUniswapV4, V4_QUOTER_ABI } from './quoter';
+import { sortCurrencies, makeQuoteArgs, quoteUniswapV4, v4QuoteToQuote, V4_QUOTER_ABI, UNIVERSAL_ROUTER_BASE } from './quoter';
+import { DexType } from '@zeus-evm/dex-adapters';
 
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address;
 const WETH = '0x4200000000000000000000000000000000000006' as Address;
@@ -62,5 +63,23 @@ describe('quoteUniswapV4 — varre configs, pega a melhor (client mockado)', () 
     } as never;
     const q = await quoteUniswapV4({ client, tokenIn: WETH, tokenOut: USDC, amountIn: 10n ** 18n });
     expect(q).toBeNull();
+  });
+});
+
+describe('v4QuoteToQuote — vira Quote executável (dex=UniswapV4 + extraData=PoolKey)', () => {
+  it('produz Quote com router=UR e extraData codificado', () => {
+    const v4 = {
+      amountOut: 1_569_000_000n,
+      poolKey: { currency0: WETH, currency1: USDC, fee: 3000, tickSpacing: 60, hooks: '0x0000000000000000000000000000000000000000' as Address },
+      zeroForOne: true,
+    };
+    const q = v4QuoteToQuote(v4, WETH, USDC, 10n ** 18n);
+    expect(q.dex).toBe(DexType.UniswapV4);
+    expect(q.router).toBe(UNIVERSAL_ROUTER_BASE);
+    expect(q.amountOut).toBe(1_569_000_000n);
+    expect(q.tokenIn).toBe(WETH);
+    expect(q.tokenOut).toBe(USDC);
+    // extraData = abi.encode(PoolKey): 5 palavras de 32 bytes = 320 hex + '0x'
+    expect(q.extraData.length).toBe(2 + 320);
   });
 });

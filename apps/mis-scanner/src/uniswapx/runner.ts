@@ -14,6 +14,7 @@ import { fetchOpenOrders } from './orderFeed';
 import { evaluateFill } from './evaluator';
 import { buildFillTx } from './builder';
 import { UNISWAPX_REACTORS_BASE } from './abi';
+import { quoteUniswapV4, V4_QUOTER_BASE } from './v4/quoter';
 import type { NormalizedOrder } from './types';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -42,6 +43,9 @@ export interface FillerRunnerDeps {
   gasOracle?: GasOracle;
   /** Lido a cada dispatch — toggle remoto do painel (engine_control). */
   liveExecutionEnabled: () => boolean;
+  /** V4Quoter (F1a) — compara V3 vs V4 e LOGA o uplift potencial (não executa V4 ainda). */
+  v4Quoter?: Address;
+  v4QuoteEnabled?: boolean;
 }
 
 /** Melhor cotação UniV3 input→output (single-hop, varre fee tiers). V4 entra aqui na F1. */
@@ -89,10 +93,13 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
     if (order.exclusiveFiller && d.account && order.exclusiveFiller.toLowerCase() !== d.account.toLowerCase()) continue;
 
     let keptQuote: Quote | null = null;
+    let v3Out = 0n;
     const evaluation = await evaluateFill(order, {
       quote: async (tokenIn, tokenOut, amountIn) => {
-        keptQuote = await bestQuote(d, tokenIn, tokenOut, amountIn);
-        return keptQuote && 'amountOut' in keptQuote ? keptQuote.amountOut : null;
+        const q = await bestQuote(d, tokenIn, tokenOut, amountIn);
+        keptQuote = q;
+        v3Out = q ? q.amountOut : 0n;
+        return v3Out > 0n ? v3Out : null;
       },
       estimateUsd: (token, amountWei) => {
         const m = d.tokenMeta(token);
@@ -115,6 +122,28 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
       { orderHash: order.orderHash, profitToken: evaluation.profitToken, profitUsd: evaluation.profitUsd?.toFixed(2) },
       `🎯 fill candidato: lucro ~$${evaluation.profitUsd?.toFixed(2)}`,
     );
+
+    // F1a — mede o UPLIFT de cobrir V4 (só leitura; execução segue V3 até a F1b).
+    if (d.v4QuoteEnabled) {
+      try {
+        const v4 = await quoteUniswapV4({
+          client: d.client,
+          quoter: d.v4Quoter ?? V4_QUOTER_BASE,
+          tokenIn: order.input.token,
+          tokenOut: evaluation.profitToken!,
+          amountIn: order.input.amount,
+        });
+        if (v4 && v4.amountOut > v3Out && v3Out > 0n) {
+          const upliftBps = Number(((v4.amountOut - v3Out) * 10_000n) / v3Out);
+          d.logger.info(
+            { orderHash: order.orderHash, v3Out: v3Out.toString(), v4Out: v4.amountOut.toString(), upliftBps, poolFee: v4.poolKey.fee },
+            `🔵 V4 daria +${upliftBps}bps que perdemos hoje (gap p/ F1b)`,
+          );
+        }
+      } catch {
+        // cotação V4 best-effort — nunca derruba o tick
+      }
+    }
 
     // DRY_RUN ou sem contrato/wallet → só observa.
     if (d.mode === 'dryrun' || !d.fillerAddress || !d.wallet || !d.account) continue;

@@ -410,6 +410,7 @@ async function main(): Promise<void> {
       profitReceiver: (arbExec?.deps.profitReceiver ?? ZERO) as Address,
       gasOracle: arbExec?.deps.gasOracle,
       liveExecutionEnabled: () => !!arbExec?.deps.liveExecutionEnabled,
+      v4QuoteEnabled: env.UNISWAPX_V4_QUOTE_ENABLED,
     };
     logger.info(
       { mode: fillerDeps.mode, filler: fillerDeps.fillerAddress ?? '(ausente → só DRY_RUN)' },

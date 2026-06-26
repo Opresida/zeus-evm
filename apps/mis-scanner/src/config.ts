@@ -65,6 +65,8 @@ const envSchema = z.object({
   UNISWAPX_MIN_PROFIT_USD: z.coerce.number().positive().default(1),
   /** Intervalo de polling de ordens UniswapX (segundos). API rate-limit ~6 rps. */
   UNISWAPX_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(3),
+  /** F1a: cota V4 nos candidatos pra MEDIR o uplift de cobrir V4 (só log; execução segue V3). */
+  UNISWAPX_V4_QUOTE_ENABLED: boolDefault(true),
   /** Circuit breaker off-chain: cap absoluto do trade em ETH (espelha MAX_TRADE_ETH do contrato). */
   MAX_TRADE_ETH: num(0.5),
   /** Mínimo de profit líquido (USD) pra disparar. */

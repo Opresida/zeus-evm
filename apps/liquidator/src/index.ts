@@ -1114,7 +1114,7 @@ export async function boot(): Promise<LiquidatorState> {
   const remoteControlActive = env.LIQUIDATOR_MODE !== 'dryrun' && !!env.SUPABASE_URL;
   if (remoteControlActive) {
     logger.warn(
-      { motor: env.ENGINE_CONTROL_MOTOR, mode: env.LIQUIDATOR_MODE },
+      { motor: env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, mode: env.LIQUIDATOR_MODE },
       '🎛️ Motor 1 ARMADO-MAS-TRAVADO — envio (clássico + pré-liq) travado até o toggle do painel (engine_control)',
     );
   } else if (env.LIQUIDATOR_MODE !== 'dryrun') {
@@ -2094,13 +2094,13 @@ async function main() {
     const next = await fetchEngineControlEnabled({
       supabaseUrl: state.env.SUPABASE_URL,
       supabaseKey: state.env.SUPABASE_KEY,
-      motor: state.env.ENGINE_CONTROL_MOTOR,
+      motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR,
     });
     const prev = !!state.liveExecutionEnabled;
     if (next !== prev) {
       state.liveExecutionEnabled = next; // lido fresco em cada dispatch
       logger.warn(
-        { motor: state.env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
+        { motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
         next
           ? '🟢 TOGGLE REMOTO: Motor 1 LIGADO — envios passam a ser submetidos (circuit breakers seguem valendo)'
           : '🔴 TOGGLE REMOTO: Motor 1 DESLIGADO — envios travados (simula+observa apenas)',
@@ -2110,7 +2110,7 @@ async function main() {
   if (state.remoteControlActive) {
     await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
     logger.info(
-      { motor: state.env.ENGINE_CONTROL_MOTOR, pollEvery: state.env.ENGINE_CONTROL_POLL_EVERY },
+      { motor: state.env.LIQUIDATOR_ENGINE_CONTROL_MOTOR, pollEvery: state.env.LIQUIDATOR_ENGINE_CONTROL_POLL_EVERY },
       '🎛️ controle remoto de execução ATIVO (poll via Supabase)',
     );
   }
@@ -2126,7 +2126,7 @@ async function main() {
   setInterval(() => {
     tickCount++;
     // Reconsulta o toggle remoto a cada N ticks (barato; fail-safe interno mantém travado em erro).
-    if (state.remoteControlActive && tickCount % state.env.ENGINE_CONTROL_POLL_EVERY === 0) {
+    if (state.remoteControlActive && tickCount % state.env.LIQUIDATOR_ENGINE_CONTROL_POLL_EVERY === 0) {
       void pollEngineControl();
     }
     discoveryTick(state).catch((err) =>

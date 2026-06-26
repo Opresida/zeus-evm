@@ -118,6 +118,8 @@ export interface ChainConfig {
 
   morpho?: {
     morphoBlue: Address;
+    /** PreLiquidationFactory (CREATE2) — opcional; usada pela discovery de pré-liquidação (Motor 1). */
+    preLiquidationFactory?: Address;
   };
 
   /** Balancer V2 Vault — fonte de flashloan 0% (endereço canônico em todas as chains EVM).

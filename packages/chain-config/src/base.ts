@@ -137,6 +137,9 @@ export const BASE_MAINNET: ChainConfig = {
   // ─── Morpho ───
   morpho: {
     morphoBlue: '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb',
+    // PreLiquidationFactory (CREATE2) — confirmada on-chain na Fase 0 (bytecode + isPreLiquidation).
+    // Fonte: morpho-org/sdks (morpho-ts/addresses.ts, BaseMainnet). Usada pela discovery de pré-liquidação.
+    preLiquidationFactory: '0x8cd16b62E170Ee0bA83D80e1F80E6085367e2aef',
   },
 
   // ─── Balancer V2 Vault (fonte de flashloan 0% — endereço canônico em toda chain EVM) ───

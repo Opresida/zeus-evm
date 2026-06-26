@@ -124,7 +124,7 @@ export function Settings({ vm, ui, actions }: ScreenProps) {
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 20px;")}>Execução, notificações, canais, tema e conta</p>
 
       <ExecutionControl motor="motor1" label="Motor 1 (liquidações + pré-liq)" />
-      <ExecutionControl motor="motor2" label="Motor 2 (arbitragem)" />
+      <ExecutionControl motor="motor2" label="Motor 2 (arbitragem + filler UniswapX)" />
 
       <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px;")}>
         <div style={css(card)}>

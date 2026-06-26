@@ -53,6 +53,16 @@ const envSchema = z.object({
   EXECUTOR_PRIVATE_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional()),
   ARB_EXECUTOR_ADDRESS: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
   ARB_PROFIT_RECEIVER: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
+
+  // ─── Filler UniswapX (Motor 2 — F3) — DESLIGADO por padrão (DRY_RUN first) ───
+  /** Liga a ingestão+avaliação de ordens UniswapX. Execução segue a trava ARB (armado-mas-travado). */
+  UNISWAPX_FILLER_ENABLED: boolDefault(false),
+  /** Endereço do ZeusUniswapXFiller deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
+  UNISWAPX_FILLER_ADDRESS: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
+  /** Base da API UniswapX (polling de ordens abertas). */
+  UNISWAPX_API_BASE: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('https://api.uniswap.org/v2')),
+  /** Lucro líquido mínimo (USD) pra preencher uma ordem. */
+  UNISWAPX_MIN_PROFIT_USD: z.coerce.number().positive().default(1),
   /** Circuit breaker off-chain: cap absoluto do trade em ETH (espelha MAX_TRADE_ETH do contrato). */
   MAX_TRADE_ETH: num(0.5),
   /** Mínimo de profit líquido (USD) pra disparar. */

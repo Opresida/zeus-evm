@@ -9,6 +9,7 @@ import { ZeusLiquidator } from "../src/ZeusLiquidator.sol";
 import { ZeusArbExecutor } from "../src/ZeusArbExecutor.sol";
 import { ZeusMoonwellLiquidator } from "../src/ZeusMoonwellLiquidator.sol";
 import { ZeusMorphoPreLiquidator } from "../src/ZeusMorphoPreLiquidator.sol";
+import { ZeusUniswapXFiller } from "../src/ZeusUniswapXFiller.sol";
 
 /**
  * @notice Deploy script v8 — deploya 2 contratos separados:
@@ -77,7 +78,8 @@ contract DeployScript is Script {
             ZeusLiquidator liquidator,
             ZeusArbExecutor arbExecutor,
             ZeusMoonwellLiquidator moonwellLiquidator,
-            ZeusMorphoPreLiquidator morphoPreLiquidator
+            ZeusMorphoPreLiquidator morphoPreLiquidator,
+            ZeusUniswapXFiller uniswapXFiller
         )
     {
         address aavePool = _resolveAavePool();
@@ -126,6 +128,11 @@ contract DeployScript is Script {
         //    setApprovedPreLiquidation(<mercados-alvo>) — whitelist default-deny.
         morphoPreLiquidator = new ZeusMorphoPreLiquidator(owner, maxTradeWei);
 
+        // 6) Deploy ZeusUniswapXFiller (Motor 2 — filler UniswapX; satélite dex-sourced, sem flashloan).
+        //    Construtor mínimo (owner, maxTradeWei). Pós-deploy: revive() + setOperator() +
+        //    setApprovedReactor(<reactors UniswapX>) — whitelist default-deny.
+        uniswapXFiller = new ZeusUniswapXFiller(owner, maxTradeWei);
+
         vm.stopBroadcast();
 
         console2.log("BribeManager deployed:", address(bribeManager));
@@ -140,6 +147,7 @@ contract DeployScript is Script {
         console2.log("ZeusMoonwellLiquidator deployed:", address(moonwellLiquidator));
         console2.log("  AAVE_V3_POOL():", moonwellLiquidator.AAVE_V3_POOL());
         console2.log("ZeusMorphoPreLiquidator deployed:", address(morphoPreLiquidator));
+        console2.log("ZeusUniswapXFiller deployed:", address(uniswapXFiller));
         console2.log("  maxTradeWei():", morphoPreLiquidator.maxTradeWei());
         console2.log("");
         console2.log("Next steps (CADA executor - Liquidator + ArbExecutor):");

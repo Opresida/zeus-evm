@@ -8,6 +8,16 @@ Visão consolidada do projeto. Atualizado a cada fase aprovada.
 
 **ZEUS EVM** é um bot de MEV on-chain em EVM, **flashloan-first** (Aave V3), com **3 motores descorrelacionados** coexistindo no mesmo codebase: **Liquidations** (Motor 1), **Cross-DEX Arb** (Motor 2 — MIS scanner virou motor de execução cross-DEX/triangular, **execução OFF por default**) e **Backrun** (Motor 3).
 
+> **🆕 2026-06-26 — 2 edges novos prontos (código na `main`, NÃO posicionados na mainnet):**
+> - **Motor 1 ganhou a Pré-liquidação Morpho** (`ZeusMorphoPreLiquidator` + `protocols/morpho-preliq/`): pega o
+>   tomador ANTES do limite (faixa preLltv<LTV<LLTV), callback+swap **sem flashloan/capital**, stable-only. A "caça"
+>   é AUTOMÁTICA (varre a chain, igual o MIS — não recebe ordem). Edge = nicho long-tail sub-servido. **Wallet-pool**
+>   (N EOAs paralelos + breaker AGREGADO) plugado pra competir por presença. KILL_SWITCH real. Deployado Sepolia.
+> - **Motor 2 ganhou o Filler UniswapX** (`ZeusUniswapXFiller` + `mis-scanner/uniswapx/`): preenche ordens que
+>   CHEGAM (feed da API, reativo — ≠ MIS que varre) + **execução Uniswap V4** (Universal Router + Permit2, provada
+>   em fork). Edge fino/disputado (long-tail 20-120 bps); construir-barato, faturar-modesto.
+> - **Posicionamento (deploy mainnet + DRY_RUN + ligar) = pendente.** Observabilidade dos motores novos pro painel = próxima sessão.
+
 **Chain inicial:** Base (Coinbase L2). Por quê?
 - Gas barato (~$0.01/tx) viabiliza testes massivos
 - Menos competição MEV que mainnet

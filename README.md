@@ -8,8 +8,15 @@
 **Chain inicial:** Base (Coinbase L2) · **Code-ready:** Arbitrum · Optimism · Polygon · Avalanche
 **Time:** Humberto (product/strategy) + Claude (engineering)
 
+**🆕 2026-06-26 (detalhes em `CLAUDE.md`):** **2 edges novos prontos, mergeados na `main`.** **Motor 1 ganhou a
+Pré-liquidação Morpho** (`ZeusMorphoPreLiquidator`, deployado Sepolia; callback+swap **sem flashloan/capital**;
+a "caça" é automática no loop; **wallet-pool** com breaker AGREGADO + **KILL_SWITCH real**). **Motor 2 ganhou o
+Filler UniswapX** (`ZeusUniswapXFiller`; recebe ordens do feed; **execução Uniswap V4** via Universal Router +
+Permit2, **provada em fork** = 1568 USDC real). Verde: **contratos 190/0** · typecheck monorepo 0. **Posicionamento
+na MAINNET = pendente** (deploy mainnet + DRY_RUN + ligar). Observabilidade dos motores novos pro painel = próxima sessão.
+
 **Status (snapshot 2026-06-15):**
-- **4 contratos (v8 split, EIP-170):** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator
+- **6 contratos:** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator + **ZeusMorphoPreLiquidator** + **ZeusUniswapXFiller**
 - **Flashloan 3 fontes** (Aave V3 / Morpho Blue / Balancer V2) — Morpho e Balancer com **0% fee** (multi-fonte) + multi-hop N steps
 - **5 protocolos de lending** (Motor 1): Aave V3 · Compound III · Morpho Blue · Seamless · Moonwell
 - **Motor 2 (MIS) virou motor de execução cross-DEX** — varre ineficiência por persistência + sizing de flashloan + **detecção triangular** + inteligência espelhada; **execução OFF por default** (`ARB_EXECUTION_ENABLED=false` / `ARB_MODE=dryrun` → só observa e grava no ledger)

@@ -25,8 +25,23 @@ Especificação detalhada dos smart contracts do bot. Incluindo padrões, audit 
 
 ## 🧭 Visão geral
 
-ZEUS EVM tem **4 contratos v8** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager) + libraries-adapter inline por DEX (UniV3, Aerodrome, **UniswapV2Lib, SlipstreamLib, PancakeV3Lib**). Toda a lógica hot-path passa por esses contratos atômicos.
+ZEUS EVM tem **6 contratos** (ZeusArbExecutor + ZeusLiquidator + ZeusMoonwellLiquidator + BribeManager + **ZeusMorphoPreLiquidator** + **ZeusUniswapXFiller**) + libraries-adapter inline por DEX (UniV3, Aerodrome, UniswapV2Lib, SlipstreamLib, PancakeV3Lib, **UniswapV4Lib**). Toda a lógica hot-path passa por esses contratos atômicos.
 
+> **🆕 2026-06-26 — 2 satélites novos (Motor 1 pré-liq + Motor 2 filler) + execução Uniswap V4:**
+> - **`ZeusMorphoPreLiquidator.sol`** (satélite, ~10,5 KB) — pré-liquidação Morpho: `executePreMorphoLiquidation`
+>   chama `PreLiquidation.preLiquidate` → callback `onPreLiquidate` (vende colateral seizado → loanToken, **sem
+>   flashloan/capital**, stable-only). Whitelist default-deny de PreLiquidation + flag transiente anti-hijack +
+>   kill switch + maxTrade. 17 unit + 3 fork. **Deployado+verified Base Sepolia `0x5797E24C…E534`.**
+> - **`ZeusUniswapXFiller.sol`** (satélite, ~10,5 KB) — filler UniswapX: `executeFill` chama
+>   `Reactor.executeWithCallback` → callback `reactorCallback` (swap input→saída via `_executeSwaps`, aprova as
+>   saídas; **dex-sourced, sem capital**). Whitelist default-deny de reactors + flag transiente. 17 unit + 2 fork.
+>   **Não deployado (build/fork só).** Reactors Base: V2 `0x000000001Ec5656…`, V3 `0x000000008a8330…`.
+> - **`DexType.UniswapV4=7`** (append; fonte única `shared-types`, espelho Solidity, pin test) + **`UniswapV4Lib.sol`**
+>   — swap exact-in-single via **Universal Router** (`0x6fF5693b…`) + comando `V4_SWAP` (actions SWAP/SETTLE/TAKE_ALL)
+>   + Permit2 (`0x0000…78BA3`). PoolKey no `extraData`. **PROVADO EM FORK** (WETH→USDC V4 real = 1568 USDC).
+>   V4 PoolManager `0x498581fF…`, V4Quoter `0x0d5e0F97…` (confirmados on-chain). EIP-170 folga grande (~14 KB).
+> - **`forge test` 190/0** (1 skip). **Mergeado na `main`.** Deploy mainnet dos 2 satélites = pendente (posicionamento).
+>
 > **🆕 2026-06-24 — v9: whitelist de routers + cobertura de fork ampliada (NÃO redeployado):**
 > - **Whitelist on-chain de routers** nos 3 contratos: `mapping(address=>bool) approvedRouter` público + `setApprovedRouter(router,bool) onlyOwner` + check **default-deny** `if (!approvedRouter[step.router]) revert RouterNotApproved()` no `_executeSwaps`. `Deploy.s.sol` aprova o UniV3 SwapRouter; demais via runbook. EIP-170 ok (ZeusLiquidator 21.403 B / folga 3.173 B).
 > - **Cobertura ABI on-chain ampliada (fork tests Alchemy archive):** novos `ZeusMoonwellLiquidator.fork` (liquidateBorrow), `ZeusCompoundLiquidator.fork` (Comet.absorb), `ZeusMorphoLiquidator.fork` (Morpho.liquidate → `"position is healthy"`) + `ZeusArbExecutor.fork` com flashSource Morpho/Balancer. **`forge test` 147/0.** Provam ABI/wiring, não lucro (round-trips) — exceto Aave/Dex (lucro end-to-end).

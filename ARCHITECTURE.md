@@ -31,6 +31,15 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 > - **Cola de eventos (bot → painel):** `apps/mis-scanner` liga o `genericWebhookSink` (header `x-zeus-secret`) ao eventBus → POST em `frontend/app/api/ingest` → Supabase `events` → Realtime → painel. Emite `zeus.heartbeat` (30s) direto pelo sink (não pelo bus → fora do ledger DuckDB). Toggle reverso: painel → `/api/control` → Supabase `engine_control` → bot poll.
 > - **RPC:** Alchemy primário (archive no free). Fork tests via `BASE_RPC_ARCHIVE` (`pnpm contracts:test:fork`).
 >
+> **🆕 2026-06-26 — módulos novos (mergeado na `main`):**
+> - **Motor 1 / Pré-liquidação:** `apps/liquidator/src/protocols/morpho-preliq/` (math/factory/discovery/calculator/
+>   builder/simulator/runner — a "caça" automática roda no `discoveryTick`) + `apps/liquidator/src/walletPool/`
+>   (walletPool/noncePool/exposureBreaker/funding/**orchestrator** plugado no dispatch). Default OFF.
+> - **Motor 2 / Filler:** `apps/mis-scanner/src/uniswapx/` (types/abi/evaluator/builder/orderFeed/runner/tokens +
+>   `v4/quoter`) — recebe ordens do feed da API UniswapX (reativo), bestQuote compara V3 vs **V4**. Default OFF.
+> - **Contratos:** satélites `ZeusMorphoPreLiquidator` + `ZeusUniswapXFiller` + `UniswapV4Lib` (Universal Router + Permit2).
+> - ⚠️ **Observabilidade pendente:** filler só loga (não emite pro Supabase); pré-liq não reporta candidatos do DRY_RUN ao painel. Fiar na próxima sessão.
+>
 > **🆕 2026-06-25 parte 3 — Painel: login MAZARI + branding + UX (deployado na Vercel):**
 > - **Auth:** painel atrás de **Supabase Auth** (login obrigatório em prod; demo sem login local). Tabelas
 >   `profiles` (role/status) + `invites` + `is_admin()` + RLS (events/service_status/wallet → `authenticated`;

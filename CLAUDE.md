@@ -181,6 +181,39 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-26 — Motor 1 (pré-liq) + Motor 2 (filler UniswapX + V4) COMPLETOS, mergeado na `main`
+
+Maratona (~28 commits). **Os 2 motores ficaram 100% de CÓDIGO na `main`, testados.** Merge complexo resolvido
+(a `main` tinha reimplementado o engine_control do Motor 1 em paralelo → adotei o da `main`, removi meus
+duplicados, religuei pré-liq+wallet-pool no `liveExecutionEnabled` da `main`, preservando 100% do trabalho único).
+
+**Motor 1 — Pré-liquidação Morpho (NOVO edge, complementar à liquidação clássica):**
+- Contrato satélite `ZeusMorphoPreLiquidator.sol` (callback `onPreLiquidate`, dex-sourced, **sem flashloan/capital**,
+  stable-only, whitelist default-deny + flag transiente). **Deployado+verified Base Sepolia**
+  `0x5797E24C6eCb0fEb14fB39cbe11ff9B5b347E534`. 17 unit + 3 fork.
+- Pipeline off-chain `apps/liquidator/src/protocols/morpho-preliq/` (math replica `preLiquidate`, factory/discovery/
+  calculator/builder/simulator/runner). A "caça" é AUTOMÁTICA no discoveryTick (varre on-chain, não recebe ordem).
+- **KILL_SWITCH real** (mainnet recusa subir se != false) + corrigido footgun `z.coerce.boolean("false")===true` → helper `boolEnv`.
+- **Wallet-pool** (`apps/liquidator/src/walletPool/`): N EOAs de 1 seed-mestre + breaker AGREGADO (nega no teto) +
+  nonce-pool + funding planner + **orquestrador plugado no dispatch** (opt-in). Cobre os 4 cuidados do Humberto.
+- Gated OFF (`MORPHO_PRELIQ_ENABLED`, `WALLET_POOL_ENABLED`).
+
+**Motor 2 — Filler UniswapX (pivô; recon deu viável-mas-disputado):**
+- Recon A/B/C/D + margem medida na Dune (long-tail 20-120 bps, dex-sourced 80%). Doc `COMPETITOR_RECON_UNISWAPX.md`.
+- Contrato satélite `ZeusUniswapXFiller.sol` (callback `reactorCallback`, dex-sourced sem capital). 17 unit + 2 fork.
+- App `apps/mis-scanner/src/uniswapx/` (avaliador+builder+feed). Feed **validado contra a API REAL** (corrigiu:
+  type→reactor, cosignerData.outputOverrides, exclusiveFiller). Obedece o toggle motor2.
+- **Execução Uniswap V4 on-chain** (`DexType.UniswapV4=7` + `UniswapV4Lib.sol` via Universal Router + Permit2) —
+  **PROVADA EM FORK** (WETH→USDC real = 1568 USDC, encoding V4_SWAP correto). bestQuote usa V4 quando ganha.
+
+**Verde na `main`:** contratos **190/0** · execution-utils 355 (flake DuckDB corrigido c/ singleFork) · liquidator 93 ·
+mis-scanner 47 · dex-adapters 8 (pin) · **typecheck monorepo 0**.
+
+**⏳ POSICIONAMENTO PENDENTE (decisão Humberto):** código pronto na `main` MAS **não na MAINNET**. Falta: deploy
+mainnet (M1 só Sepolia; M2 filler em nenhuma rede) + cadastrar mercados/reactors + DRY_RUN + virar a chave. **Próxima
+sessão registrada:** fiar observabilidade dos motores novos (filler + pré-liq DRY_RUN) → Supabase → frontend (hoje o
+filler só loga, a caça da pré-liq não reporta candidatos no painel).
+
 ## 🆕 SESSÃO 2026-06-25 (parte 3) — Painel: login MAZARI + branding + UX (tudo na `main`, deployado na Vercel)
 
 Sessão focada no **ZEUS Command (frontend)**: autenticação real + identidade visual MAZARI + acabamento.

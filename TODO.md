@@ -1,5 +1,33 @@
 # TODO — ZEUS EVM
 
+> ## 📍 POSICIONAMENTO NA MAINNET (próximo passo — 2026-06-26)
+>
+> **Estado:** Motor 1 (pré-liquidação Morpho) e Motor 2 (filler UniswapX + execução V4) **100% de código
+> na `main`, testados** — mas **NÃO posicionados** (não estão na mainnet faturando). "Sabemos onde atacar e
+> a arma está pronta, mas ainda no quartel." Descoberta + construção = feitas; posicionamento = pendente.
+>
+> **Pra LIGAR o Motor 1 (pré-liquidação):**
+> - [ ] Deploy do `ZeusMorphoPreLiquidator` na **Base mainnet** (hoje só Sepolia `0x5797E24C…E534`)
+> - [ ] `setApprovedPreLiquidation(<mercados-alvo>)` — long-tail sub-servido (bsdETH/eUSD, cbETH/MAI, cbLTC/USDC)
+> - [ ] `.env`: `PRE_LIQUIDATOR_ADDRESS=<mainnet>` + `MORPHO_PRELIQ_ENABLED=true` + (opcional) `WALLET_POOL_*`
+> - [ ] Rodar **DRY_RUN** uns dias (lucro honesto; fork test infla via mock de oráculo)
+> - [ ] Virar a chave: `LIQUIDATOR_MODE=mainnet` + `KILL_SWITCH=false` + botão do painel (motor1)
+>
+> **Pra LIGAR o Motor 2 (filler UniswapX):**
+> - [ ] Deploy do `ZeusUniswapXFiller` na **Base mainnet** (não está em rede nenhuma ainda)
+> - [ ] `.env`: `UNISWAPX_FILLER_ADDRESS` + `UNISWAPX_FILLER_ENABLED=true`; `setApprovedReactor(V2,V3)`
+> - [ ] **DRY_RUN** contra a API real → medir win-rate + uplift do V4 (F1a já loga)
+> - [ ] Virar a chave: `ARB_MODE=mainnet` + botão do painel (motor2)
+>
+> **Observabilidade (registrada p/ próxima sessão — pré-requisito do DRY_RUN ter "olhos" no painel):**
+> - [ ] **Filler** (`uniswapx/runner.ts`) só loga candidatos → fazer EMITIR pro eventBus → webhook → Supabase
+> - [ ] **Pré-liq** a caça (`stats.preliq`) fica local → emitir os candidatos do DRY_RUN pro frontend
+> - [ ] **Heartbeat** detalhar os motores novos (motorStats por motor)
+> - [ ] (opcional) cards no painel pra pré-liq/filler
+>
+> **Pré-condições já garantidas:** KILL_SWITCH real (mainnet recusa se != false) · wallet-pool com breaker
+> AGREGADO (cuidado #1) · contratos com whitelist default-deny + minProfitWei + kill switch · tudo OFF por default.
+
 > ## 🔧 REMEDIAÇÃO DE FIOS SOLTOS (auditoria 2026-06-18) — ver [docs/LOOSE_WIRES.md](./docs/LOOSE_WIRES.md)
 >
 > **Realidade honesta:** dos 3 motores, só o **Motor 1 (liquidator)** fatura hoje — e estrangulado.

@@ -72,11 +72,12 @@ Morpho singleton (`0xbbbb…ffcb`).
 - **3/10 têm 0 swaps** = modo **inventário** (pré-funda USDC, repaga, **fica com o cbBTC** — usa capital).
   O #1 mistura **callback+swap** (sem capital) e **inventário** (com capital). **0 reverts = gate preciso.**
 
-## Reabrir wallet-pool/rotação (gatilho ATINGIDO)
-O líder usa **44 EOAs em paralelo** e a competição é **presença/paralelismo**, não latência. Isso é
-**exatamente** o gatilho "evidência de fingerprint/rotação do adversário" da memória
-`project_zeus_evm_wallet_pool_decision`. Multi-EOA deixa de ser higiene anti-fingerprint e vira a **alavanca
-central de throughput** pra competir no grind. **Decisão a reabrir com o Humberto.**
+## Wallet-pool/rotação — DECISÃO TOMADA (2026-06-26): SIM, no roteiro do pre-liq
+O líder usa **44 EOAs em paralelo** e a competição é **presença/paralelismo**, não latência → com 1 sender
+ficamos na cauda por construção (1 fatia/bloco). **Decidido (Humberto): wallet-pool ENTRA no roteiro do
+Motor 1 pre-liquidation**, escala inicial **~22 EOAs (metade do líder)**, observar e escalar rumo a 44 se
+pagar. Derivar de 1 seed (HD), hot keys só com gás (caminho feliz é flashloan-free). Entra junto/depois da
+Fase 1 do contrato. Reverte a decisão de maio (ver memória `project-zeus-evm-wallet-pool-decision`).
 
 ## O que falta medir (próxima camada — B/C/D em profundidade)
 - **B1 — Latência de reação** (blocos entre cruzar `preLltv` e a tx landar): o número que define se "sair da

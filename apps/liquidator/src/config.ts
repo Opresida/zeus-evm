@@ -139,6 +139,8 @@ export const envSchema = z.object({
   WALLET_POOL_START_INDEX: z.coerce.number().int().min(0).default(0),
   /** ⚠️ Teto de exposição AGREGADA (ETH) somando TODOS os senders (cuidado #1). Pré-condição HARD. */
   WALLET_POOL_MAX_AGGREGATE_ETH: z.coerce.number().positive().default(0.2),
+  /** ⚠️ Máx de fills SIMULTÂNEAS entre todos os senders (breaker agregado v1 = limita o N× concorrente). */
+  WALLET_POOL_MAX_CONCURRENT: z.coerce.number().int().positive().default(8),
   /** Gatilho de top-up de gás por EOA (ETH): abaixo disso, reabastece. */
   WALLET_POOL_GAS_MIN_ETH: z.coerce.number().positive().default(0.003),
   /** Alvo de gás por EOA pós-top-up (ETH). Deve ser ≥ WALLET_POOL_GAS_MIN_ETH. */

@@ -50,7 +50,9 @@ import { buildMorphoMarketCache, type MorphoMarketCache } from './protocols/morp
 import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discovery';
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
+import { createWalletClient, http } from 'viem';
 import { fetchEngineControlEnabled } from './engineControl';
+import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from './walletPool/orchestrator';
 import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
 import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
 import type { PreLiquidationContractInfo, PrePosition } from './protocols/morpho-preliq/types';
@@ -155,6 +157,8 @@ interface LiquidatorState {
   preLiquidationCache?: PreLiquidationContractInfo[];
   /** BorrowerCache acumulativo por market id de pré-liquidação. */
   preLiquidationBorrowerCaches: Map<string, BorrowerCache>;
+  /** Wallet-pool da pré-liquidação (opt-in, mode != dryrun). Undefined = sender único de sempre. */
+  preLiqSenderPool?: WalletPoolOrchestrator;
   /**
    * Toggle remoto de execução (painel via engine_control). MUTÁVEL — o poll atualiza em runtime.
    * `false` = travado pelo painel; `true` = liberado; `undefined` = controle remoto inativo.
@@ -1129,6 +1133,25 @@ export async function boot(): Promise<LiquidatorState> {
     );
   }
 
+  // ─── Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela) ───
+  // Gated: WALLET_POOL_ENABLED + mode != dryrun + seed-mestre. Em dryrun não há envio → sem pool.
+  let preLiqSenderPool: WalletPoolOrchestrator | undefined;
+  if (env.WALLET_POOL_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && env.WALLET_POOL_MNEMONIC) {
+    preLiqSenderPool = buildWalletPoolOrchestrator({
+      mnemonic: env.WALLET_POOL_MNEMONIC,
+      size: env.WALLET_POOL_SIZE,
+      startIndex: env.WALLET_POOL_START_INDEX,
+      // Breaker AGREGADO v1 = limita fills SIMULTÂNEAS entre todos os senders (cuidado #1).
+      maxAggregateWei: BigInt(env.WALLET_POOL_MAX_CONCURRENT),
+      makeWallet: (sender) =>
+        createWalletClient({ account: sender.account, chain: ctx.wallet?.chain ?? null, transport: http(ctx.rpcUrl) }),
+    });
+    logger.warn(
+      { senders: preLiqSenderPool.size, maxConcurrent: env.WALLET_POOL_MAX_CONCURRENT },
+      `🏊 Wallet-pool da pré-liquidação ATIVO — ${preLiqSenderPool.size} senders paralelos (breaker agregado: ${env.WALLET_POOL_MAX_CONCURRENT} fills simultâneas)`,
+    );
+  }
+
   return {
     env,
     ctx,
@@ -1142,6 +1165,7 @@ export async function boot(): Promise<LiquidatorState> {
     moonwellBorrowerCaches,
     preLiquidationCache,
     preLiquidationBorrowerCaches,
+    preLiqSenderPool,
     liveExecutionEnabled: remoteControlActive ? false : undefined,
     remoteControlActive,
     pnlTracker,
@@ -1640,6 +1664,7 @@ export async function processMorphoPreLiquidationOpportunity(
     autoPauseManager: state.autoPauseManager,
     tracer: state.tracer,
     liveExecutionEnabled: state.liveExecutionEnabled,
+    senderPool: state.preLiqSenderPool,
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });
 }

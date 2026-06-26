@@ -118,6 +118,8 @@ export interface PipelineDeps {
    * Gateia o Motor 1 inteiro (clássico + pré-liq).
    */
   liveExecutionEnabled?: boolean;
+  /** Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela). Default ausente. */
+  senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
 }
 
 /**
@@ -1386,6 +1388,8 @@ async function _runMorphoPreLiquidationPipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    senderPool: deps.senderPool,
+    poolExposureWei: 1n, // 1 unidade/fill → o breaker agregado limita a CONCORRÊNCIA (N× exposição)
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,

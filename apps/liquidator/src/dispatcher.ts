@@ -62,6 +62,14 @@ export interface DispatchInput {
    * Os circuit breakers do contrato (MAX_TRADE, minProfit, sim+EV gate) seguem valendo por cima.
    */
   liveExecutionEnabled?: boolean;
+  /**
+   * Wallet-pool (opt-in). Quando presente + mode != dryrun + liberado, o envio sai por UM sender do
+   * pool (selecionado + nonce local + reserva no breaker AGREGADO) em vez do sender único. `acquire`
+   * retorna null se o teto coletivo estouraria → a tx é SEGURADA (não dispara). Default ausente = sender único.
+   */
+  senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  /** Exposição (wei) a reservar no breaker agregado por esta tx (ex: tamanho do trade). */
+  poolExposureWei?: bigint;
   /** Resumo pra logging contextual */
   summary: Record<string, unknown>;
   /** Confirmação de simulação prévia (true = pré-flight passou) */
@@ -132,6 +140,8 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     to,
     data,
     liveExecutionEnabled,
+    senderPool,
+    poolExposureWei,
     summary,
     simulationOk,
     simulationGas,
@@ -196,8 +206,21 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     return { status: 'dryrun_skipped', reason: 'execução travada pelo painel (engine_control OFF)' };
   }
 
+  // Wallet-pool (opt-in): adquire UM sender sob o teto AGREGADO + nonce local. null = teto estourado → segura.
+  let acquired: import('./walletPool/orchestrator').AcquiredSender | null = null;
+  if (senderPool) {
+    acquired = await senderPool.acquire(client, poolExposureWei ?? 0n);
+    if (!acquired) {
+      logger.warn({ ...summary, ...senderPool.stats() }, '🛑 wallet-pool: teto AGREGADO atingido — tx segurada');
+      return { status: 'reverted_pre_dispatch', reason: 'wallet-pool aggregate exposure cap reached' };
+    }
+  }
+  const sendWallet = acquired?.wallet ?? wallet;
+  const sendAccount = acquired?.sender.address ?? account;
+
   // Gate 3: wallet obrigatória em testnet/mainnet
-  if (!wallet || !account) {
+  if (!sendWallet || !sendAccount) {
+    if (acquired) acquired.release(false);
     logger.error({ ...summary }, 'Wallet ausente em modo testnet/mainnet — abortando');
     return { status: 'reverted_pre_dispatch', reason: 'wallet missing in non-dryrun mode' };
   }
@@ -208,10 +231,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
     const fees = gasOracle ? await gasOracle.getFees(client) : null;
 
     const txParams: Record<string, unknown> = {
-      account,
+      account: sendAccount,
       to,
       data,
-      chain: wallet.chain ?? null,
+      chain: sendWallet.chain ?? null,
+      ...(acquired ? { nonce: acquired.nonce } : {}),
     };
     if (fees) {
       txParams.maxFeePerGas = fees.maxFeePerGas;
@@ -228,7 +252,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
 
     logger.info({ ...summary, mode }, `🚀 SUBMETENDO tx (${mode})...`);
     const dispatchStart = Date.now(); // Fase 7b — cronômetro do dispatch (submit→confirm)
-    const txHash = await wallet.sendTransaction(txParams as any);
+    const txHash = await sendWallet.sendTransaction(txParams as any);
 
     logger.info({ ...summary, txHash, mode }, `📤 Tx submetida: ${txHash}`);
 
@@ -347,12 +371,15 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         },
         `💥 Tx REVERTIDA on-chain: ${txHash} | gas perdido $${revertGasUsd.toFixed(4)}`,
       );
+      acquired?.release(false); // libera exposição + invalida nonce (re-sync) no sender do pool
       return {
         status: 'reverted_on_chain',
         txHash,
         reason: `reverted at block ${receipt.blockNumber}`,
       };
     }
+
+    acquired?.release(true); // tx confirmada com sucesso → libera a exposição reservada
 
     // Decode profit REAL do event LiquidationExecuted (ou *Executed)
     const decoded = decodeLiquidationEvent(receipt, to);
@@ -525,6 +552,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
       profitAssetSymbol,
     };
   } catch (err) {
+    acquired?.release(false); // erro no envio/confirmação → libera exposição + invalida nonce
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ ...summary, err: msg }, `💥 Dispatch falhou: ${msg.slice(0, 200)}`);
     return { status: 'reverted_pre_dispatch', reason: msg.slice(0, 200) };

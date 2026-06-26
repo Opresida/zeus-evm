@@ -15,3 +15,4 @@ export { WalletPool, type PooledSender } from './walletPool';
 export { NoncePool } from './noncePool';
 export { AggregatedExposureBreaker, type ExposureStats } from './exposureBreaker';
 export { planGasTopUps, planGasSweeps, totalTopUpWei, type GasTopUp, type GasSweep } from './funding';
+export { WalletPoolOrchestrator, buildWalletPoolOrchestrator, type AcquiredSender } from './orchestrator';

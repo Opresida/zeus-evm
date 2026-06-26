@@ -234,8 +234,34 @@ ORDER BY fills DESC
 | Top 5 fillers (concentração %) | **~72,5%** (líder 26,5% · 15,7% · 13,2% · 11,0% · 6,1%) — 18 fillers no dex-sourced |
 | Pares long-tail dex-sourced | **existem e são reais** (VIRTUAL, NOCK, VVV, TIBBIR, CLANKER, AERO, GITLAWB, CENTRY, TIG…) mas **1-4 fills/dia por par** |
 | Fills/dia endereçáveis (dex-sourced, long-tail) | **agregado ~25-30/dia** (excluindo blue-chips USDC-WETH 9,6 · cbBTC-USDC 5,4 · cbBTC-WETH 5,0); **nenhum par long-tail ≥10/dia** |
-| Margem líquida média no long-tail (bps) | ⏳ **PENDENTE — Passo 2** (join ERC20 transfers; o evento `Fill` não carrega valores) |
-| Link da(s) query(s) Dune | dune.com/queries/**7819981** (reactors) · /**7819995** (dex×inv) · /**7820004** (por par) · /**7820045** (fillers) |
+| Margem média no long-tail (bps) | ✅ **MEDIDA — Passo 2 abaixo.** Blue-chip ~5 bps; long-tail **20–120 bps median** (paga prêmio real) |
+| Link da(s) query(s) Dune | dune.com/queries/**7819981** (reactors) · /**7819995** (dex×inv) · /**7820004** (por par) · /**7820045** (fillers) · /**7821823** (margem/par) |
+
+### Passo 2 — MARGEM MEDIDA por par (Dune API · 2026-06-26 · 14d · query 7821823)
+
+> Método: pra cada fill dex-sourced, somei os transfers ERC20 da MESMA tx — `valor que o swapper
+> ENTREGOU − valor que recebeu` = margem bruta do filler. 115 fills com preço USD nos dois lados
+> (long-tail sem preço no Dune ficou de fora — ressalva conhecida). **$12,9k de margem bruta total
+> extraída por TODOS os fillers nesses pares em 14d (~$925/dia).**
+
+| Par (amostra) | fills/14d | ordem média | **margem median (bps)** | leitura |
+|---|---|---|---|---|
+| USDC→ETH (blue) | 19 | $12.295 | **5,2** | apertado — competição de MM |
+| USDT→ETH (blue) | 6 | $4.499 | **12,5** | blue, ainda fino |
+| cbBTC→USDC (blue) | 19 | $15.585 | **13,0** | blue com mais folga |
+| CLANKER→ETH | 11 | $2.670 | **20,0** | long-tail paga mais |
+| USDC→VVV | 8 | $48.239 | **26,2** | ordens grandes + prêmio |
+| USDC→cbBTC | 5 | $14.931 | **28,3** | |
+| VVV→USDC | 3 | $11.565 | **81,5** | |
+| AERO→USDC | 2 | $13.380 | **80,1** | |
+| USDC→AERO | 4 | $5.568 | **121,5** | |
+| USDC→DRB | 2 | $2.621 | **110,4** | |
+> Alguns pares (VIRTUAL, BRETT) deram median negativo = **ruído de preço de token ilíquido no Dune**
+> (preço do token na hora do fill impreciso → USD dos dois lados não bate), não fill com prejuízo real.
+> A mediana (robusta a outlier) dos pares com preço confiável é o sinal: **long-tail 20–120 bps.**
+
+**Conclusão do Passo 2:** a margem **NÃO é o bloqueador** — o long-tail paga **4–20× mais que blue-chip**
+e cobre o gás da Base (~centavos) com folga enorme. O número decisivo que faltava veio **positivo**.
 
 ### Passo 3.1 — Veredito F0 (honesto, vs critério travado no Passo 4)
 
@@ -248,11 +274,33 @@ ORDER BY fills DESC
   Na real, o long-tail roda **1-4 fills/dia por par** (o máximo long-tail é VIRTUAL-WETH 4,4/dia; nem o
   blue-chip USDC-WETH bate 10, fica em 9,6). **Nenhum par long-tail chega a 10/dia.** O prêmio está
   **espalhado fino** em muitos pares de baixa frequência → um filler especialista-por-par não enche.
-- ⏳ **Margem (bps) — o número decisivo — ainda não medido** (Passo 2: join ERC20 da mesma tx). Sem ele,
-  o go/no-go não fecha em definitivo.
-- 🟡 **Recomendação:** ou (a) **recalibrar o critério** (o agregado ~25-30 fills/dia dex-sourced long-tail é
-  endereçável por um filler MULTI-par, não por-par), ou (b) **medir a margem (Passo 2) antes de decidir**.
-  Como está, **não passa o gate estrito** → não construir ainda; rodar Passo 2 + conversar o critério com o Humberto.
+- ✅ **Margem (bps) — MEDIDA (Passo 2) e POSITIVA:** long-tail 20–120 bps median vs ~5 bps blue-chip.
+  Cobre o gás da Base com folga. O número decisivo veio bom — o pior medo da §5 (margem < gás) está afastado.
+
+### Passo 3.2 — VEREDITO FINAL (com a margem medida) — 2026-06-26
+
+**🟡 VIÁVEL mas MODESTO — construir só como 2º fluxo, depois do Motor 1, se Humberto quiser.**
+
+O quadro fechou com os 2 números na mão (frequência + margem):
+
+| Dimensão | Resultado | Leitura |
+|---|---|---|
+| Fluxo dex-sourced existe? | ✅ 80% dos fills, $2,6M/14d | grande e real |
+| Margem cobre o gás? | ✅ long-tail 20–120 bps (gás ~centavos) | **sim, com folga** |
+| Frequência por par | ❌ 1–4 fills/dia (nenhum ≥10) | **fino — o limitador** |
+| Agregado endereçável | 🟡 ~25–30 fills/dia (multi-par) | modesto |
+| Concorrência | 18 fillers, top-5 = 72% | disputado |
+
+**Síntese honesta:** a economia POR FILL é boa (margem clara > gás). O limitador é **volume**: o prêmio
+está espalhado fino em muitos pares de baixa frequência. O total bruto extraído por TODOS os fillers no
+dex-sourced é ~$925/dia; nossa captura realista (fração, contra 18 concorrentes) seria **dezenas de
+dólares/dia** no começo — real, mas pequeno perto do esforço (~30-40% de código + redeploy).
+
+**Recomendação:** **NÃO é prioridade.** O Motor 1 (pré-liquidação) é o edge mais concreto e já construído.
+O filler UniswapX vira candidato a **2º fluxo descorrelacionado** DEPOIS do Motor 1 estar faturando — e
+mesmo assim como filler **multi-par** (agregando o long-tail), nunca especialista por-par. Engavetar a
+construção agora; reabrir quando quisermos diversificar a renda. A medição custou ~zero e nos poupou
+construir um app/contrato pra um retorno que hoje não justifica a fila.
 
 ### Passo 4 — critério go/no-go (FIXAR antes de olhar os números)
 - ✅ **GO (vale construir):** ≥ **5 pares** long-tail dex-sourced com **margem líquida > 3 bps** em

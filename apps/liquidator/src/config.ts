@@ -127,6 +127,23 @@ export const envSchema = z.object({
   /** Lookback de blocos pra enumerar contratos PreLiquidation via CreatePreLiquidation events. */
   MORPHO_PRELIQ_FACTORY_LOOKBACK: z.coerce.number().int().min(100000).max(20000000).default(5000000),
 
+  // ─── Wallet-pool (Motor 1 — presença paralela no grind de pré-liquidação) ───
+  // Default DESLIGADO. Wiring no dispatch + movimentação real de fundo = fase mainnet (pós-DRY_RUN).
+  /** Liga o pool de N EOAs paralelos. Requer WALLET_POOL_MNEMONIC. Fail-safe: sem seed → erro no boot. */
+  WALLET_POOL_ENABLED: boolEnv(false),
+  /** Seed-mestre BIP-39 do pool (CHAVE-MESTRA — dedicada, nunca reusar de outro projeto). */
+  WALLET_POOL_MNEMONIC: optionalString(),
+  /** Nº de EOAs no pool (~22 = metade do líder de 44; subir conforme o edge). */
+  WALLET_POOL_SIZE: z.coerce.number().int().min(1).max(200).default(22),
+  /** Índice HD inicial da derivação (m/44'/60'/0'/0/N). */
+  WALLET_POOL_START_INDEX: z.coerce.number().int().min(0).default(0),
+  /** ⚠️ Teto de exposição AGREGADA (ETH) somando TODOS os senders (cuidado #1). Pré-condição HARD. */
+  WALLET_POOL_MAX_AGGREGATE_ETH: z.coerce.number().positive().default(0.2),
+  /** Gatilho de top-up de gás por EOA (ETH): abaixo disso, reabastece. */
+  WALLET_POOL_GAS_MIN_ETH: z.coerce.number().positive().default(0.003),
+  /** Alvo de gás por EOA pós-top-up (ETH). Deve ser ≥ WALLET_POOL_GAS_MIN_ETH. */
+  WALLET_POOL_GAS_TARGET_ETH: z.coerce.number().positive().default(0.01),
+
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:
   //   - MIN_DEBT_USD >= 100 (defaults de prod, não os baixos de calibração)
@@ -370,6 +387,22 @@ export const envSchema = z.object({
       path: ['KILL_SWITCH'],
       message:
         'KILL_SWITCH=true bloqueia LIQUIDATOR_MODE=mainnet (capital real). Pra liberar, set explicitamente KILL_SWITCH=false no .env.',
+    });
+  }
+  // Wallet-pool: ligado SEM seed-mestre → recusa (fail-safe; não derivar de seed vazia/lixo).
+  if (cfg.WALLET_POOL_ENABLED && !cfg.WALLET_POOL_MNEMONIC) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WALLET_POOL_MNEMONIC'],
+      message: 'WALLET_POOL_ENABLED=true exige WALLET_POOL_MNEMONIC (seed-mestre BIP-39 dedicada).',
+    });
+  }
+  // Top-up de gás coerente: alvo nunca menor que o gatilho.
+  if (cfg.WALLET_POOL_GAS_TARGET_ETH < cfg.WALLET_POOL_GAS_MIN_ETH) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['WALLET_POOL_GAS_TARGET_ETH'],
+      message: 'WALLET_POOL_GAS_TARGET_ETH deve ser ≥ WALLET_POOL_GAS_MIN_ETH.',
     });
   }
 });

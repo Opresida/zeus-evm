@@ -154,6 +154,96 @@ qualquer código** — é barata, honesta, e pode nos poupar a empreitada. Prior
 
 ---
 
+## Anexo A — F0: como medir no Dune (passo a passo, sem construir o bot)
+
+> **Objetivo:** responder, com dado real da Base, *"existe long-tail onde fillers buscam liquidez em
+> DEX (não inventário) com margem positiva?"* — ANTES de escrever qualquer contrato/app.
+> **Quem roda:** Antigravity no PC (o cloud não tem login no Dune nem RPC da Base). Aqui só preparamos.
+
+### Passo 0 — o que o Antigravity confirma ANTES de rodar (3 coisas)
+1. **Endereço(s) do Reactor UniswapX na Base** (Basescan — pode haver mais de um: `ExclusiveDutchOrderReactor`,
+   `V2DutchOrderReactor`, `V3DutchOrderReactor`, `PriorityOrderReactor`). _(A página oficial de deployments
+   bloqueou o fetch do cloud; confirmar no Basescan/GitHub Uniswap/UniswapX.)_
+2. **Nome exato da tabela decodificada no Dune** — abrir o contrato Reactor no Dune → aba "Decoded events" →
+   achar o evento `Fill`. O namespace costuma ser algo como `uniswap_x_base.<Reactor>_evt_Fill` (CONFIRMAR;
+   substituir nos `<<...>>` abaixo).
+3. **`dex.trades` cobre as DEX da Base** que os fillers usam (Uniswap/Aerodrome/etc.) — geralmente sim.
+
+### Passo 1 — como rodar no Dune
+1. Criar conta grátis em `dune.com` → **New Query** → selecionar engine **DuneSQL**.
+2. Colar a query → **Run** → ver a tabela.
+3. Salvar (fica reproduzível + linkável). Repetir pra cada query abaixo.
+
+### Query A — contexto: quem preenche na Base e quanto (14 dias) · runnable
+```sql
+-- Confirma que o fluxo existe + concentração (quem domina)
+SELECT
+  filler,
+  count(*)                AS fills,
+  count(distinct swapper) AS usuarios
+FROM <<uniswap_x_base.ExclusiveDutchOrderReactor_evt_Fill>>   -- << confirmar nome (Passo 0.2)
+WHERE evt_block_time > now() - interval '14' day
+GROUP BY 1
+ORDER BY fills DESC
+```
+
+### Query B — a F0: classifica DEX-sourced × inventário · draft (refinar margem no Passo 2)
+```sql
+-- Regra: se na MESMA tx do fill houve swap em DEX → o filler buscou liquidez (competimos de igual).
+-- Se NÃO houve → preencheu do próprio inventário (não competimos).
+WITH fills AS (
+  SELECT evt_block_time AS t, evt_tx_hash AS tx, filler, swapper
+  FROM <<uniswap_x_base.ExclusiveDutchOrderReactor_evt_Fill>>   -- << confirmar nome
+  WHERE evt_block_time > now() - interval '14' day
+),
+dex AS (
+  SELECT tx_hash AS tx, count(*) AS hops, sum(amount_usd) AS sourced_usd
+  FROM dex.trades
+  WHERE blockchain = 'base' AND block_time > now() - interval '14' day
+  GROUP BY 1
+)
+SELECT
+  CASE WHEN d.tx IS NULL THEN 'inventario' ELSE 'dex_sourced' END AS fonte,
+  count(*)              AS fills,
+  count(distinct f.filler) AS fillers,
+  round(sum(d.sourced_usd), 0) AS volume_sourced_usd
+FROM fills f
+LEFT JOIN dex d ON f.tx = d.tx
+GROUP BY 1
+ORDER BY fills DESC
+```
+> **Passo 2 (margem, refinamento):** o evento `Fill` **não carrega os valores** da ordem — pra calcular a
+> margem é preciso juntar os **transfers ERC20 da mesma tx** (token que saiu do `swapper` = entrada; token que
+> entrou no `swapper` = saída). Margem ≈ `valor_entregue_ao_swapper − sourced_usd − gas_usd`. Adicionar
+> esse join (via `tokens.transfers`/`erc20_base.evt_Transfer` por `tx_hash`) depois que A e B rodarem.
+> Agrupar por **par de token** pra achar o long-tail.
+
+### Passo 3 — tabela de resultados (preencher e gravar AQUI no doc)
+| Métrica | Valor (preencher) |
+|---|---|
+| Total de fills na Base (14d) | |
+| % dex-sourced vs inventário | |
+| Top 5 fillers (concentração %) | |
+| Pares long-tail dex-sourced com margem líquida > critério | |
+| Fills/dia endereçáveis (dex-sourced, long-tail) | |
+| Margem líquida média no long-tail (bps) | |
+| Link da(s) query(s) Dune | |
+
+### Passo 4 — critério go/no-go (FIXAR antes de olhar os números)
+- ✅ **GO (vale construir):** ≥ **5 pares** long-tail dex-sourced com **margem líquida > 3 bps** em
+  ≥ **10 fills/dia** cada. _(Números iniciais — ajustar com o Humberto, mas travar ANTES de ver o resultado.)_
+- ❌ **NO-GO (engaveta):** quase tudo inventário, OU margem < gas no long-tail, OU volume irrelevante.
+- 🟡 **Talvez:** sinais mistos → repetir com janela maior (30d) antes de decidir.
+
+### Ressalvas honestas da medição
+- "Inventário" é **aproximação** (fill sem swap na mesma tx). Um filler poderia sourcing em tx/bloco separado
+  (raro num fill atômico, mas anotar se aparecer padrão estranho).
+- `amount_usd` pode faltar pra tokens long-tail sem preço no Dune → esses fills aparecem com volume nulo;
+  tratar à parte (são justamente candidatos a long-tail — vale inspecionar manualmente alguns).
+- Confirmar se há **mais de um Reactor** ativo na Base e unir todos (UNION ALL) pra não subcontar.
+
+---
+
 ## Fontes
 
 - **Solver/filler reqs:** [UniswapX — Filler Overview (`IReactorCallback`)](https://docs.uniswap.org/contracts/uniswapx/fillers/filleroverview) · [Filling on Mainnet (polling, 6rps)](https://docs.uniswap.org/contracts/uniswapx/fillers/mainnet/createfiller) · [Become a Quoter (RFQ só em L1)](https://docs.uniswap.org/contracts/uniswapx/fillers/mainnet/becomequoter) · [CoW — Joining the Solver Competition (KYC/bond)](https://docs.cow.fi/cow-protocol/tutorials/solvers/onboard)

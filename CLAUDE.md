@@ -282,6 +282,11 @@ Nota competitiva honesta: **~7,5 como software, ~4,5 como competidor** hoje.
 - Provider RPC: **dRPC** primário + Alchemy fallback
 - Owner = **carteira testnet dedicada** `0xE060821b253ec9dad4BDe139c5661Bc07A6AcBB4` (testnet-only)
 - Contratos ainda na **SEPOLIA (testnet)** — **NÃO mainnet**. Lucro real **US$ 0** (provado em fork).
+  - **ZeusMorphoPreLiquidator (pré-liquidação Morpho) — Base Sepolia 2026-06-26:**
+    `0x5797E24C6eCb0fEb14fB39cbe11ff9B5b347E534` (verified · owner=operator=`0xE060…cBB4` ·
+    revive() OK, isKilled=false · maxTradeWei 0.01 ETH). Cadastro de mercados
+    (`setApprovedPreLiquidation`) + DRY_RUN ficam pra **MAIN** (Sepolia não tem markets reais).
+    No redeploy mainnet: novo endereço + `PRE_LIQUIDATOR_ADDRESS` no `.env`.
   - _Histórico v6 (pré-split, contrato único): Base Sepolia `0xe38298B4d242d0D1C45696a96c4C588926Cf1139`,
     Arb/OP Sepolia `0xe48473D75805886Ac4162B1304EAB6b8F93C5faa`. Anteriores arquivados: Base v2
     `0xe53cb8c...`, Arb/OP v1 `0xd7e8fde...`. Endereços v8 (split) atualizar ao redeploy._

@@ -8,7 +8,11 @@ export interface PreLiquidationContractInfo {
   /** Market Morpho coberto. */
   marketId: `0x${string}`;
   loanToken: Address;
+  loanTokenSymbol: string;
+  loanTokenDecimals: number;
   collateralToken: Address;
+  collateralTokenSymbol: string;
+  collateralTokenDecimals: number;
   /** Oracle do MARKET (marketParams.oracle). */
   marketOracle: Address;
   irm: Address;
@@ -24,7 +28,10 @@ export interface PrePosition {
   marketId: `0x${string}`;
   borrower: Address;
   loanToken: Address;
+  loanTokenSymbol: string;
+  loanTokenDecimals: number;
   collateralToken: Address;
+  collateralTokenDecimals: number;
   /** Oracle da pré-liquidação (preço usado na math). */
   preLiquidationOracle: Address;
   borrowShares: bigint;

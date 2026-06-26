@@ -16,6 +16,11 @@ import type { PreLiquidationContractInfo } from './types';
 type AnyPublicClient = PublicClient<any, any>;
 const FREE_TIER_BLOCK_RANGE_LIMIT = 9_999;
 
+const ERC20_VIEW_ABI = [
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+] as const;
+
 type PreParamsResult = {
   preLltv: bigint;
   preLCF1: bigint;
@@ -80,7 +85,9 @@ export async function buildPreLiquidationCache(opts: {
   ]);
   const res = await client.multicall({ contracts: calls, allowFailure: true, batchSize: 50 });
 
-  const out: PreLiquidationContractInfo[] = [];
+  // 1ª passada: junta os pares válidos e coleta os tokens únicos (decimals/symbol em 1 multicall).
+  const valid: Array<{ addr: Address; cfg: PreParamsResult; m: MarketParamsResult }> = [];
+  const tokens = new Set<string>();
   for (let i = 0; i < addresses.length; i++) {
     const pp = res[i * 2];
     const mp = res[i * 2 + 1];
@@ -88,11 +95,41 @@ export async function buildPreLiquidationCache(opts: {
     const cfg = pp.result as PreParamsResult;
     const m = mp.result as MarketParamsResult;
     if (collateralAllowlist && !collateralAllowlist.has(m.collateralToken.toLowerCase())) continue;
+    valid.push({ addr: addresses[i]!, cfg, m });
+    tokens.add(m.loanToken.toLowerCase());
+    tokens.add(m.collateralToken.toLowerCase());
+  }
+  if (valid.length === 0) return [];
+
+  const uniqueTokens = Array.from(tokens) as Address[];
+  const metaCalls = uniqueTokens.flatMap((t) => [
+    { address: t, abi: ERC20_VIEW_ABI, functionName: 'decimals' as const },
+    { address: t, abi: ERC20_VIEW_ABI, functionName: 'symbol' as const },
+  ]);
+  const metaRes = await client.multicall({ contracts: metaCalls, allowFailure: true, batchSize: 100 });
+  const decByToken = new Map<string, number>();
+  const symByToken = new Map<string, string>();
+  for (let i = 0; i < uniqueTokens.length; i++) {
+    const dec = metaRes[i * 2];
+    const sym = metaRes[i * 2 + 1];
+    const key = uniqueTokens[i]!.toLowerCase();
+    if (dec?.status === 'success') decByToken.set(key, Number(dec.result));
+    if (sym?.status === 'success') symByToken.set(key, String(sym.result));
+  }
+
+  const out: PreLiquidationContractInfo[] = [];
+  for (const { addr, cfg, m } of valid) {
+    const loanKey = m.loanToken.toLowerCase();
+    const collKey = m.collateralToken.toLowerCase();
     out.push({
-      preLiquidation: addresses[i]!,
+      preLiquidation: addr,
       marketId: marketIdOf(m.loanToken, m.collateralToken, m.oracle, m.irm, m.lltv),
       loanToken: m.loanToken,
+      loanTokenSymbol: symByToken.get(loanKey) ?? '???',
+      loanTokenDecimals: decByToken.get(loanKey) ?? 18,
       collateralToken: m.collateralToken,
+      collateralTokenSymbol: symByToken.get(collKey) ?? '???',
+      collateralTokenDecimals: decByToken.get(collKey) ?? 18,
       marketOracle: m.oracle,
       irm: m.irm,
       preLiquidationOracle: cfg.preLiquidationOracle,

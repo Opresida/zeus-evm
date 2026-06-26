@@ -78,7 +78,7 @@ export interface DispatchInput {
   positionKey?: string;
   /** Protocolo da operação — pra registrar no PnL event.
    *  Restrito a protocolos de liquidação (sem 'backrun' que é outro app). */
-  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell';
+  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq';
   /** Event bus pra emitir eventos tipados (webhook/WebSocket futuro). */
   eventBus?: EventBus;
   /** Borrower address (pra emitir nos eventos de tx). */

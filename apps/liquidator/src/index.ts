@@ -18,7 +18,13 @@ import { loadConfig } from './config';
 import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
 import { getChainContext, type LiquidatorChainContext } from './chainContext';
-import { runAavePipeline, runCompoundPipeline, runMorphoPipeline, runMoonwellPipeline } from './pipeline';
+import {
+  runAavePipeline,
+  runCompoundPipeline,
+  runMorphoPipeline,
+  runMoonwellPipeline,
+  runMorphoPreLiquidationPipeline,
+} from './pipeline';
 import { AavePriceOracle } from './protocols/aave/oracle';
 import type {
   AaveLiquidatablePosition,
@@ -44,6 +50,9 @@ import { buildMorphoMarketCache, type MorphoMarketCache } from './protocols/morp
 import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discovery';
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
+import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
+import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
+import type { PreLiquidationContractInfo, PrePosition } from './protocols/morpho-preliq/types';
 import {
   slippageCache,
   PnlTracker,
@@ -141,6 +150,10 @@ interface LiquidatorState {
   moonwellMarketCache?: MoonwellMarketCache;
   /** BorrowerCache acumulativo por mToken Moonwell. */
   moonwellBorrowerCaches: Map<string, BorrowerCache>;
+  /** Cache de contratos PreLiquidation Morpho (config + market) — buildado 1x no boot */
+  preLiquidationCache?: PreLiquidationContractInfo[];
+  /** BorrowerCache acumulativo por market id de pré-liquidação. */
+  preLiquidationBorrowerCaches: Map<string, BorrowerCache>;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -434,6 +447,40 @@ export async function boot(): Promise<LiquidatorState> {
       logger.error(
         { err: err instanceof Error ? err.message : err },
         'Falha ao buildar Moonwell market cache — Moonwell discovery indisponível',
+      );
+    }
+  }
+
+  // PreLiquidation cache — scan da Factory (CreatePreLiquidation) → config + market de cada contrato.
+  let preLiquidationCache: PreLiquidationContractInfo[] | undefined;
+  const preLiquidationBorrowerCaches = new Map<string, BorrowerCache>();
+  if (env.MORPHO_PRELIQ_ENABLED && ctx.chainConfig.morpho?.preLiquidationFactory && ctx.chainConfig.morpho?.morphoBlue) {
+    try {
+      const currentBlock = await ctx.client.getBlockNumber();
+      const fromBlock = currentBlock > BigInt(env.MORPHO_PRELIQ_FACTORY_LOOKBACK)
+        ? currentBlock - BigInt(env.MORPHO_PRELIQ_FACTORY_LOOKBACK)
+        : 0n;
+      preLiquidationCache = await buildPreLiquidationCache({
+        client: ctx.client,
+        factory: ctx.chainConfig.morpho.preLiquidationFactory,
+        fromBlock,
+        logger,
+      });
+      for (const info of preLiquidationCache) {
+        preLiquidationBorrowerCaches.set(
+          info.marketId.toLowerCase(),
+          new BorrowerCache({
+            baseDir: resolvePath('logs', 'borrowers'),
+            chain: ctx.chainConfig.shortName,
+            market: `preliq-${info.collateralTokenSymbol}-${info.loanTokenSymbol}`,
+            logger,
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { err: err instanceof Error ? err.message : err },
+        'Falha ao buildar PreLiquidation cache — pré-liquidação indisponível',
       );
     }
   }
@@ -1063,6 +1110,8 @@ export async function boot(): Promise<LiquidatorState> {
     morphoBorrowerCaches,
     moonwellMarketCache,
     moonwellBorrowerCaches,
+    preLiquidationCache,
+    preLiquidationBorrowerCaches,
     pnlTracker,
     failureTracker,
     dedupTracker,
@@ -1528,6 +1577,37 @@ export async function processMoonwellOpportunity(
 }
 
 /**
+ * Roda o pipeline de PRÉ-liquidação Morpho — tx vai pro ZeusMorphoPreLiquidator separado.
+ */
+export async function processMorphoPreLiquidationOpportunity(
+  position: PrePosition,
+  state: LiquidatorState,
+): Promise<DispatchOutcome> {
+  return runMorphoPreLiquidationPipeline(position, {
+    env: state.env,
+    ctx: state.ctx,
+    callerAddress: state.callerAddress,
+    contractCapByDebtAsset: state.contractCapByDebtAsset,
+    pnlTracker: state.pnlTracker,
+    failureTracker: state.failureTracker,
+    dedupTracker: state.dedupTracker,
+    gasReserveTracker: state.gasReserveTracker,
+    eventBus: state.eventBus,
+    gasOracle: state.gasOracle,
+    metricRegistry: state.metricRegistry,
+    competitorResolver: state.competitorResolver,
+    blockPositionTracker: state.blockPositionTracker,
+    botSender: state.callerAddress,
+    aaveOracle: state.aaveOracle,
+    pnlReconciler: state.pnlReconciler,
+    failureCollector: state.failureCollector,
+    autoPauseManager: state.autoPauseManager,
+    tracer: state.tracer,
+    preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
+  });
+}
+
+/**
  * Multi-collateral evaluation (Grupo B): agrupa positions por borrower e roda
  * o calculator pra cada par (collateral_i, debt_j). Retorna 1 position por
  * borrower — a com MAIOR `expectedProfitUsd`.
@@ -1647,7 +1727,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const { env, ctx, compoundCometCache } = state;
 
   const startedAt = Date.now();
-  const stats = { aave: 0, compound: 0, morpho: 0, moonwell: 0, dispatched: 0, dryrun: 0, rejected: 0 };
+  const stats = { aave: 0, compound: 0, morpho: 0, moonwell: 0, preliq: 0, dispatched: 0, dryrun: 0, rejected: 0 };
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
   await state.gasReserveTracker.check(ctx.client, ctx.account);
@@ -1792,6 +1872,34 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     }
   } else if (!state.moonwellMarketCache) {
     logger.debug('moonwellMarketCache ausente — Moonwell discovery pulado');
+  }
+
+  // ─── Morpho PRÉ-liquidação (Motor 1, discovery on-chain via Factory + cache acumulativo) ───
+  if (state.preLiquidationCache && state.preLiquidationCache.length > 0) {
+    try {
+      const prePositions = await discoverPreLiquidatablePositions({
+        client: ctx.client,
+        morpho: ctx.chainConfig.morpho!.morphoBlue!,
+        cache: state.preLiquidationCache,
+        blockLookback: env.AAVE_ONCHAIN_BLOCK_LOOKBACK,
+        borrowerCacheFor: (marketId) => state.preLiquidationBorrowerCaches.get(marketId.toLowerCase()),
+        logger,
+      });
+      stats.preliq = prePositions.length;
+      state.scorer.observe({
+        chain: ctx.chainConfig.shortName,
+        protocol: 'morpho-preliq',
+        opportunities_seen: prePositions.length,
+      });
+      for (const position of prePositions) {
+        const outcome = await processMorphoPreLiquidationOpportunity(position, state);
+        updateStats(stats, outcome.status);
+      }
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : err }, 'Morpho pré-liquidação discovery falhou');
+    }
+  } else if (!state.preLiquidationCache) {
+    logger.debug('preLiquidationCache ausente — pré-liquidação pulada');
   }
 
   // Stats do cache de slippage (pra observar hit rate)

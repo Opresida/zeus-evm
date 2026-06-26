@@ -37,6 +37,11 @@ import { isLiquidatable as isMorphoLiquidatable } from './protocols/morpho/math'
 import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calculator';
 import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
 import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
+import { calculateOptimalPreLiquidation } from './protocols/morpho-preliq/calculator';
+import { buildPreLiquidationTx } from './protocols/morpho-preliq/builder';
+import { simulatePreLiquidation } from './protocols/morpho-preliq/simulator';
+import { preLiquidationBand } from './protocols/morpho-preliq/math';
+import type { PrePosition } from './protocols/morpho-preliq/types';
 import { selectFlashSource } from './flashSourceSelector';
 import { dispatch, triggerKillSwitchOnChain } from './dispatcher';
 import {
@@ -98,6 +103,8 @@ export interface PipelineDeps {
   aaveMarket?: { label: string; pool: Address; oracleAddress: Address };
   /** Endereço do ZeusMoonwellLiquidator (contrato SEPARADO). Necessário pro pipeline Moonwell. */
   moonwellLiquidatorAddress?: Address;
+  /** Endereço do ZeusMorphoPreLiquidator (contrato SEPARADO). Necessário pro pipeline de pré-liquidação Morpho. */
+  preLiquidatorAddress?: Address;
   /** MetricRegistry (Fase 7b) — cronometra calculator + dispatch (histogramas Prometheus). */
   metricRegistry?: import('@zeus-evm/execution-utils').MetricRegistry;
   /** Post-mortem de falhas (Fase 5b) — descobre quem nos ganhou + posição no bloco. */
@@ -1228,5 +1235,186 @@ async function _runMoonwellPipelineInner(
     expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
     opportunityId: position.borrower,
     venue: 'moonwell',
+  });
+}
+
+/**
+ * Pipeline pra PRÉ-liquidação Morpho (Motor 1). Tx vai pro ZeusMorphoPreLiquidator
+ * (contrato SEPARADO — preLiquidatorAddress, não o executor padrão).
+ *
+ * Diferenças vs liquidação clássica Morpho:
+ *   - SEM flashloan (o contrato PreLiquidation adianta o colateral pelo callback `onPreLiquidate`).
+ *   - SEM bribe na Fase 1 (o contrato satélite não tem variante WithBribe; o edge é presença, não gás).
+ *   - Lucro SEMPRE em loanToken (stable) — doutrina callback+swap, nunca inventário.
+ *   - Recapture OEV = 0 (mesmo perfil aberto do Morpho Blue) → edge inteiro preservado.
+ */
+export async function runMorphoPreLiquidationPipeline(
+  position: PrePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  if (deps.tracer) {
+    return deps.tracer.runInSpan('liquidator.runMorphoPreLiquidationPipeline', async (span) => {
+      span.setAttributes({
+        chain: deps.ctx.chainConfig.name,
+        borrower: position.borrower,
+        market: position.marketId,
+        protocol: 'morpho-preliq',
+      });
+      const result = await _runMorphoPreLiquidationPipelineInner(position, deps);
+      span.setAttribute('outcome', result.status);
+      return result;
+    });
+  }
+  return _runMorphoPreLiquidationPipelineInner(position, deps);
+}
+
+async function _runMorphoPreLiquidationPipelineInner(
+  position: PrePosition,
+  deps: PipelineDeps,
+): Promise<DispatchOutcome> {
+  const { env, ctx, callerAddress, pnlTracker, failureTracker, dedupTracker, gasReserveTracker } = deps;
+
+  // Gates compartilhados (kill / cooldown / gas / auto-pause)
+  if (pnlTracker?.isKillSwitchTriggered()) {
+    return { status: 'reverted_pre_dispatch', reason: `kill switch active: ${pnlTracker.killReason() ?? 'unknown'}` };
+  }
+  if (failureTracker?.inCooldown()) {
+    const remainingS = Math.ceil(failureTracker.remainingCooldownMs() / 1000);
+    return { status: 'reverted_pre_dispatch', reason: `cooldown ativo, retomada em ${remainingS}s` };
+  }
+  if (gasReserveTracker?.shouldBlockDispatch()) {
+    return { status: 'reverted_pre_dispatch', reason: `gas reserve critical (balance=${gasReserveTracker.stats().balanceEth} ETH)` };
+  }
+  if (deps.autoPauseManager?.shouldPause()) {
+    return { status: 'reverted_pre_dispatch', reason: `auto-pause active: ${deps.autoPauseManager.summary()}` };
+  }
+
+  // Gate dedup (key inclui marketId — separa pré-liq de liquidação clássica via sufixo).
+  const positionKey = `${morphoPositionKey(ctx.chainConfig.name, position.marketId, position.borrower)}:preliq`;
+  if (dedupTracker) {
+    const dedupCheck = dedupTracker.check(positionKey);
+    if (dedupCheck.blocked) {
+      return { status: 'reverted_pre_dispatch', reason: `dedup blocked: ${dedupCheck.status} há ${Math.round(dedupCheck.ageMs / 1000)}s` };
+    }
+  }
+
+  if (!ctx.chainConfig.uniswapV3?.quoterV2) {
+    return { status: 'reverted_pre_dispatch', reason: 'no UniswapV3 QuoterV2 configured' };
+  }
+  if (!deps.preLiquidatorAddress) {
+    return { status: 'reverted_pre_dispatch', reason: 'no ZeusMorphoPreLiquidator deployed (PRE_LIQUIDATOR_ADDRESS ausente)' };
+  }
+
+  // 1. Calculator (planPreLiquidation + quote colateral→loanToken, profit SEM flashloan fee).
+  const calcStart = Date.now();
+  const outcome = await calculateOptimalPreLiquidation(position, {
+    env,
+    client: ctx.client,
+    quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
+  });
+  observeCalc(deps, 'morpho-preliq', calcStart);
+
+  if (!outcome.ok || !outcome.plan || !outcome.quote) {
+    logger.debug(
+      { market: position.marketId, borrower: position.borrower, reason: outcome.reason },
+      `⏭️  Morpho pré-liq descartado: ${outcome.reason}`,
+    );
+    return { status: 'reverted_pre_dispatch', reason: outcome.reason ?? 'pré-liq calc falhou' };
+  }
+  const { plan, quote } = outcome;
+  const expectedProfitWei = outcome.expectedProfitWei ?? 0n;
+  const expectedProfitUsd = outcome.expectedProfitUsd ?? 0;
+  const minProfitWei = outcome.minProfitWei ?? 0n;
+
+  // OIE Etapa B — gate de edge ciente de OEV. Pré-liq Morpho tem recapture 0 → edge inteiro preservado.
+  const edge = liquidationEdgeGate(
+    'morpho-preliq',
+    { expectedProfitUsd, estimatedSlippageBps: outcome.estimatedSlippageBps },
+    deps,
+    position.borrower,
+  );
+  if (edge.skip) {
+    logger.info({ borrower: position.borrower, reason: edge.reason }, `⏭️  ${edge.reason}`);
+    return { status: 'reverted_pre_dispatch', reason: edge.reason };
+  }
+
+  // 2. Builder (encode executePreMorphoLiquidation — struct enxuta, sem flashloan).
+  const built = buildPreLiquidationTx(position, plan, {
+    executorAddress: deps.preLiquidatorAddress,
+    chainConfig: ctx.chainConfig,
+    profitReceiver: callerAddress,
+    slippageBps: env.MAX_SLIPPAGE_BPS,
+    quote,
+    expectedSwapOutput: outcome.expectedSwapOutputWei ?? 0n,
+    minProfitWei,
+  });
+
+  // 3. Simulator (eth_call do round-trip preLiquidate→onPreLiquidate→swap→repay).
+  const sim = await simulatePreLiquidation({
+    client: ctx.client,
+    executorAddress: built.to,
+    callerAddress,
+    calldata: built.data,
+  });
+
+  // 3.5 Stale check — re-confirma que a posição ainda está na faixa 'pre' antes do submit real.
+  if (env.STALE_CHECK_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && sim.success) {
+    const stillPre =
+      preLiquidationBand(
+        { borrowShares: position.borrowShares, collateral: position.collateral },
+        { totalBorrowAssets: position.totalBorrowAssets, totalBorrowShares: position.totalBorrowShares },
+        position.collateralPrice,
+        position.config,
+      ) === 'pre';
+    if (!stillPre) {
+      return { status: 'reverted_pre_dispatch', reason: 'stale position: saiu da faixa pré-liquidável' };
+    }
+  }
+
+  // 4. Dispatcher — protocol='morpho-preliq' na caixa-preta (reconciler/failure/pnl/eventBus).
+  return dispatch({
+    mode: env.LIQUIDATOR_MODE,
+    client: ctx.client,
+    wallet: ctx.wallet,
+    account: ctx.account,
+    to: built.to,
+    data: built.data,
+    summary: {
+      chain: ctx.chainConfig.name,
+      protocol: 'morpho-preliq',
+      market: `${position.collateralToken}/${position.loanTokenSymbol}`,
+      borrower: built.summary.borrower,
+      repaidShares: built.summary.repaidShares.toString(),
+      loanToken: built.summary.loanToken,
+      collateralToken: built.summary.collateralToken,
+      expectedProfitUsd: expectedProfitUsd.toFixed(2),
+      slippageBps: outcome.estimatedSlippageBps,
+    },
+    simulationOk: sim.success,
+    simulationGas: sim.gasUsed,
+    simulationReason: sim.revertReason,
+    expectedProfitWei,
+    profitAssetDecimals: position.loanTokenDecimals,
+    profitAssetSymbol: position.loanTokenSymbol,
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    pnlTracker,
+    failureTracker,
+    dedupTracker,
+    positionKey,
+    protocol: 'morpho-preliq',
+    eventBus: deps.eventBus,
+    borrower: position.borrower,
+    chain: ctx.chainConfig.name,
+    gasOracle: deps.gasOracle,
+    pnlReconciler: deps.pnlReconciler,
+    failureCollector: deps.failureCollector,
+    metricRegistry: deps.metricRegistry,
+    competitorResolver: deps.competitorResolver,
+    blockPositionTracker: deps.blockPositionTracker,
+    botSender: deps.botSender,
+    expectedGasUsd: env.GAS_COST_USD_ESTIMATE,
+    opportunityId: position.borrower,
+    venue: position.marketId,
   });
 }

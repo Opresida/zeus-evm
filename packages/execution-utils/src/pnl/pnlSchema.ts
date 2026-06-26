@@ -40,7 +40,7 @@ export interface PnlReconciliation {
   id: string;
   timestamp: number;
   chain: string;
-  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'backrun' | 'arb';
+  protocol: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq' | 'backrun' | 'arb';
   tx_hash: string;
   block_number: bigint;
 

@@ -104,6 +104,14 @@ const envSchema = z.object({
   /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
   MOONWELL_LIQUIDATOR_ADDRESS: optionalAddress(),
 
+  // ─── Morpho PRÉ-liquidação (Motor 1 — pre-liquidation) ───
+  /** Habilita discovery + pré-liquidação Morpho (faixa preLltv<LTV<LLTV, callback+swap zero-capital). */
+  MORPHO_PRELIQ_ENABLED: z.coerce.boolean().default(false),
+  /** Endereço do ZeusMorphoPreLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
+  PRE_LIQUIDATOR_ADDRESS: optionalAddress(),
+  /** Lookback de blocos pra enumerar contratos PreLiquidation via CreatePreLiquidation events. */
+  MORPHO_PRELIQ_FACTORY_LOOKBACK: z.coerce.number().int().min(100000).max(20000000).default(5000000),
+
   // ─── Strategy params ───
   // ⚠️ ATENÇÃO MAINNET PROD: ANTES de ativar LIQUIDATOR_MODE=mainnet, validar que:
   //   - MIN_DEBT_USD >= 100 (defaults de prod, não os baixos de calibração)

@@ -36,7 +36,7 @@ export interface PnlEvent {
   txHash?: `0x${string}`;
   chain?: string;
   /** Origem da operação. Suporta liquidator (3 protocolos) + backrun. */
-  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'backrun';
+  protocol?: 'aave-v3' | 'compound-v3' | 'morpho-blue' | 'moonwell' | 'morpho-preliq' | 'backrun';
   reason?: string;
 }
 

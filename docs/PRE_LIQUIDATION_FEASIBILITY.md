@@ -197,16 +197,57 @@ uma **discovery paralela**:
 
 ## 6. Riscos / pontos a confirmar
 
-- ⚠️ **Endereço da PreLiquidationFactory na Base** — não verificado on-chain (RPC bloqueado no sandbox).
-  Os scans achados eram BSC/Katana. **Fase 0 confirma.**
-- ⚠️ **Alvo do approve no callback** — provável Morpho singleton (quem faz o `transferFrom` no repay),
-  mas confirmar lendo o contrato.
-- ⚠️ **`seizedAssets` vs `repaidShares`** — escolher o modo (provável `repaidShares` limitado por
-  `preLCF`, espelhando o nosso modo clássico). Confirmar a math.
-- ⚠️ **Oracle do PreLiquidation** pode diferir do market oracle → discovery deve ler o
-  `PRE_LIQUIDATION_ORACLE` do contrato, não assumir o do market.
-- ⚠️ **Adoção ~30%** vem de snippet (abr/2026) — confirmar com dado on-chain (quantos PreLiquidation
-  contracts ativos na Base + TVL coberto) pra dimensionar o ganho antes de investir as 6 fases.
+### 6.1 ✅ FASE 0 CONFIRMADA on-chain (Antigravity via RPC Alchemy + cast + Dune · 2026-06-26)
+
+> Fonte de endereço: `morpho-org/sdks` (`packages/morpho-ts/src/addresses.ts`, bloco `BaseMainnet`).
+> Verificação: `cast` contra Base mainnet (Alchemy) + contagem de eventos via **Dune API** (`base.logs`).
+> Código do contrato: `morpho-org/pre-liquidation@main` (`PreLiquidation.sol`, interfaces, `EventsLib`).
+
+**1. Endereço da `PreLiquidationFactory` na Base (8453):**
+`0x8cd16b62E170Ee0bA83D80e1F80E6085367e2aef` — **verificado on-chain** (bytecode 8,4 KB presente;
+`isPreLiquidation(address)` responde `false` p/ addr aleatório = é a factory real). _(Ethereum mainnet é
+`0x6FF33615e792E35ed1026ea7cACCf42D9BF83476` — diferente; não confundir.)_
+
+**2. ABI exata (difere do que a nota assumia — a config vem AGRUPADA, não em views individuais):**
+- Entry: `preLiquidate(address borrower, uint256 seizedAssets, uint256 repaidShares, bytes data) → (uint256,uint256)`.
+- Config (1 view, struct): `preLiquidationParams() → (uint256 preLltv, uint256 preLCF1, uint256 preLCF2,
+  uint256 preLIF1, uint256 preLIF2, address preLiquidationOracle)`. **Não há** getters `PRE_LLTV()`/`PRE_LIF_1()`
+  individuais públicos — ler o struct.
+- Market: `marketParams() → (loanToken, collateralToken, oracle, irm, lltv)` + `MORPHO()` + `ID()` (públicos).
+- Callback (o que o NOSSO satélite implementa): `IPreLiquidationCallback.onPreLiquidate(uint256 repaidAssets, bytes data)`.
+
+**3. Alvo do approve no repay — CORREÇÃO: é o contrato `PreLiquidation`, NÃO o Morpho singleton.**
+Lendo `PreLiquidation.onMorphoRepay` (linha 181-192): (a) `MORPHO.withdrawCollateral(..., liquidator)` entrega
+o colateral **direto pra nós**; (b) chama `onPreLiquidate(repaidAssets, data)` (fazemos o swap); (c)
+`ERC20(LOAN_TOKEN).safeTransferFrom(liquidator, address(this), repaidAssets)` — quem faz o `transferFrom`
+é o **próprio contrato PreLiquidation** (`address(this)`). Logo **aprovamos o loanToken pro contrato
+PreLiquidation** (o spender), não pro Morpho. _(O PreLiquidation já aprova o Morpho no constructor — não é
+problema nosso.)_
+
+**4. Adoção real na Base (via Dune `base.logs`, eventos da Factory + `PreLiquidate`):**
+- **110 contratos `PreLiquidation` criados** (evento `CreatePreLiquidation`), cobrindo **107 markets distintos**
+  (1º: 2025-04-02 · último criado: 2026-02-17).
+- **USO REAL (decisivo): 3.342 pré-liquidações executadas** (evento `PreLiquidate`) — **966 nos últimos 90 dias**
+  (~**11/dia**), **última hoje (2026-06-26)**. **42 liquidadores distintos** competindo, em **22 markets ativos**
+  (de 107) via **23 contratos** (de 110). **NÃO é ~0 — é um mercado vivo, diário e competido.**
+- TVL coberto por market = medição mais profunda (somar posições dos borrowers autorizados por contrato);
+  pendente, mas o **volume de execução** (3.342 / ~11/dia) já responde a pergunta de adoção.
+
+**Veredito Fase 0 → GO.** Factory existe + verificada; ABI/fluxo confirmados; adoção viva (~11 pré-liq/dia,
+edge Morpho 0% recapture segue aberto). Ressalva honesta: **42 liquidadores = há competição** — mas a
+pré-liquidação é gradual/parcial (§4), menos winner-take-all, terreno OK pro nosso stack. **Próximo passo
+(ao dar GO): add `morpho.preLiquidationFactory: '0x8cd16b62E170Ee0bA83D80e1F80E6085367e2aef'` em
+`chain-config/src/base.ts` + Fase 1 (satélite `ZeusMorphoPreLiquidator`).**
+
+### 6.2 Itens originais (status pós-Fase 0)
+- ✅ ~~Endereço da PreLiquidationFactory na Base~~ — **confirmado** (§6.1).
+- ✅ ~~Alvo do approve no callback~~ — **confirmado: contrato PreLiquidation** (§6.1, corrige "provável Morpho singleton").
+- ⚠️ **`seizedAssets` vs `repaidShares`** — confirmado que `preLiquidate` aceita os DOIS modos (passar um, deixar
+  o outro 0). O contrato chama `MORPHO.repay(..., 0, repaidShares, ...)` internamente (modo por shares). Escolher
+  `repaidShares` limitado por `preLCF` (espelha o clássico). Math fina: Fase 4.
+- ✅ **Oracle do PreLiquidation** pode diferir do market oracle → confirmado: `preLiquidationParams().preLiquidationOracle`
+  é campo próprio. Discovery DEVE ler esse, não o do market.
+- ✅ ~~Adoção ~30%~~ — **medido na Base** (§6.1): 110 contratos / 3.342 execuções / ~11/dia. Real.
 
 ---
 

@@ -218,16 +218,41 @@ ORDER BY fills DESC
 > esse join (via `tokens.transfers`/`erc20_base.evt_Transfer` por `tx_hash`) depois que A e B rodarem.
 > Agrupar por **par de token** pra achar o long-tail.
 
-### Passo 3 — tabela de resultados (preencher e gravar AQUI no doc)
-| Métrica | Valor (preencher) |
+### Passo 3 — tabela de resultados (MEDIDO via Dune API · 2026-06-26 · janela 14d)
+
+> **Reactors UniswapX na Base (Passo 0.1 — CONFIRMADO on-chain):** a topic0 do `Fill` colide entre
+> protocolos → filtrar pelos reactors REAIS (vanity `0x000000…`, ✅ bytecode on-chain):
+> **V2DutchOrderReactor `0x000000001Ec5656dcdB24D90DFa42742738De729`** (396 fills/14d, o dominante) +
+> **V3DutchOrderReactor `0x000000008a8330B5d1F43A62Bf4C673A49f27ba0`** (113 fills/14d, novo, deploy 2026-05-07).
+> Confirma a ressalva do doc: **há >1 reactor → UNION obrigatório.** Medição feita via `base.logs`
+> (topic0 `Fill` = `0x78ad7ec0…`), sem depender de tabela decodificada.
+
+| Métrica | Valor MEDIDO |
 |---|---|
-| Total de fills na Base (14d) | |
-| % dex-sourced vs inventário | |
-| Top 5 fillers (concentração %) | |
-| Pares long-tail dex-sourced com margem líquida > critério | |
-| Fills/dia endereçáveis (dex-sourced, long-tail) | |
-| Margem líquida média no long-tail (bps) | |
-| Link da(s) query(s) Dune | |
+| Total de fills na Base (14d) | **~508** (V2+V3 UniswapX; 396 V2 + 113 V3; +11 em 2 reactors minúsculos) |
+| % dex-sourced vs inventário | **80,5% dex-sourced** (409 fills, **$2,6M** sourced) vs **19,5% inventário** (99 fills) |
+| Top 5 fillers (concentração %) | **~72,5%** (líder 26,5% · 15,7% · 13,2% · 11,0% · 6,1%) — 18 fillers no dex-sourced |
+| Pares long-tail dex-sourced | **existem e são reais** (VIRTUAL, NOCK, VVV, TIBBIR, CLANKER, AERO, GITLAWB, CENTRY, TIG…) mas **1-4 fills/dia por par** |
+| Fills/dia endereçáveis (dex-sourced, long-tail) | **agregado ~25-30/dia** (excluindo blue-chips USDC-WETH 9,6 · cbBTC-USDC 5,4 · cbBTC-WETH 5,0); **nenhum par long-tail ≥10/dia** |
+| Margem líquida média no long-tail (bps) | ⏳ **PENDENTE — Passo 2** (join ERC20 transfers; o evento `Fill` não carrega valores) |
+| Link da(s) query(s) Dune | dune.com/queries/**7819981** (reactors) · /**7819995** (dex×inv) · /**7820004** (por par) · /**7820045** (fillers) |
+
+### Passo 3.1 — Veredito F0 (honesto, vs critério travado no Passo 4)
+
+**🟡 Tende a NO-GO no critério ESTRITO — mas com surpresa positiva e 1 número decisivo faltando.**
+
+- ✅ **Surpresa boa:** **80% dos fills na Base são dex-sourced** (não inventário) — o OPOSTO do medo da §5.
+  O fluxo onde competimos de igual existe e é grande ($2,6M sourced/14d).
+- ✅ **Long-tail existe:** dezenas de pares medium-cap/exóticos (VIRTUAL, NOCK, VVV, CLANKER…) preenchidos via DEX.
+- ❌ **Frequência por par REPROVA o critério:** o gate era **≥10 fills/dia POR par** em ≥5 pares long-tail.
+  Na real, o long-tail roda **1-4 fills/dia por par** (o máximo long-tail é VIRTUAL-WETH 4,4/dia; nem o
+  blue-chip USDC-WETH bate 10, fica em 9,6). **Nenhum par long-tail chega a 10/dia.** O prêmio está
+  **espalhado fino** em muitos pares de baixa frequência → um filler especialista-por-par não enche.
+- ⏳ **Margem (bps) — o número decisivo — ainda não medido** (Passo 2: join ERC20 da mesma tx). Sem ele,
+  o go/no-go não fecha em definitivo.
+- 🟡 **Recomendação:** ou (a) **recalibrar o critério** (o agregado ~25-30 fills/dia dex-sourced long-tail é
+  endereçável por um filler MULTI-par, não por-par), ou (b) **medir a margem (Passo 2) antes de decidir**.
+  Como está, **não passa o gate estrito** → não construir ainda; rodar Passo 2 + conversar o critério com o Humberto.
 
 ### Passo 4 — critério go/no-go (FIXAR antes de olhar os números)
 - ✅ **GO (vale construir):** ≥ **5 pares** long-tail dex-sourced com **margem líquida > 3 bps** em

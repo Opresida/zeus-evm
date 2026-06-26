@@ -79,7 +79,39 @@ Motor 1 pre-liquidation**, escala inicial **~22 EOAs (metade do líder)**, obser
 pagar. Derivar de 1 seed (HD), hot keys só com gás (caminho feliz é flashloan-free). Entra junto/depois da
 Fase 1 do contrato. Reverte a decisão de maio (ver memória `project-zeus-evm-wallet-pool-decision`).
 
-## O que falta medir (próxima camada — B/C/D em profundidade)
+## B/D. Foco de mercado + revert + a PORTA DE ENTRADA (MEDIDO 2026-06-26)
+
+**12 mercados ativos (30d). O #1 só joga blue-chip; ignora o long-tail medium-cap = nossa porta.**
+
+| Contrato (mercado) | Par (colateral/dívida) | execs | #1 | #2 | #liq | Leitura |
+|---|---|---|---|---|---|---|
+| 0xa7272afc | **cbBTC/USDC** | 507 | 310 (61%) | 85 | 14 | trono do #1 (blue-chip) |
+| 0x9ca1dad9 | **WETH/USDC** | 125 | 8 (6%) | 97 | 10 | turf do #2 (blue-chip contestado) |
+| 0x9231db26 | **cbETH/USDC** | 101 | 77 | 23 | 3 | #1 domina, só 3 liq |
+| 0x742d1c11 | **WETH/EURC** | 44 | 43 (98%) | 0 | 2 | nicho do #1 |
+| **0x95c3b46a** | **bsdETH/eUSD** | 13 | **0** | 2 | 3 | 🚪 **#1 AUSENTE — LSD/medium-cap** |
+| **0xe0b8556b** | **cbETH/MAI** | 6 | **0** | 0 | **1** | 🚪 **#1 ausente, 1 liq — LSD** |
+| **0x757624b9** | cbBTC/USDC (2º) | 4 | **0** | 0 | **1** | 🚪 #1 ignora este contrato cbBTC |
+| **0xac22a696** | **cbLTC/USDC** | 2 | **0** | 0 | **1** | 🚪 **#1 ausente — medium-cap** |
+
+→ **Porta de entrada confirmada:** **bsdETH, cbETH/MAI, cbLTC** (e o long-tail Morpho em geral) — medium-cap/LSD
+onde o #1 (cbBTC-focado) **não aparece**, com **1-3 liquidadores**. É **exatamente o nosso edge sub-servido**.
+
+**Taxa de revert (30d, txs ao executor) — o grind é guerra de spam; precisão é janela nossa:**
+| | txs | landadas | **% revert** |
+|---|---|---|---|
+| #1 | 771 | 492 | **36%** (eficiente — simula bem antes de disparar) |
+| #2 | 2.158 | 464 | **78,5%** (esbanja gás) |
+| #3 | 525 | 67 | **87%** (queima gás à toa) |
+- O grind custa gás: disparam N tentativas, a maioria reverte (fatia já pega). **#1 vence também por PRECISÃO.**
+- **Nossa vantagem potencial:** a nossa **simulação eth_call + EV gate** (já temos) tende a revert MENOS que
+  #2/#3 → mais fatia ganha por gás gasto. Edge real e barato.
+
+## O que falta medir (resíduo — opcional)
+- **D — PnL líquido USD por pré-liq por mercado** (bônus `preLIF` − gás − overhead de revert): precisa preço dos
+  tokens. **Só o DRY_RUN responde de verdade** (overhead de revert agora medido = relevante).
+- **Decompilar o #1 (Dedaub):** baixa prioridade — o trace já provou contrato padrão (sem flashloan/multi-DEX);
+  só pra cravar 100%.
 - **B1 — Latência de reação** (blocos entre cruzar `preLltv` e a tx landar): o número que define se "sair da
   cauda" é fácil (rota mais barata, copiável) ou caro (RPC/Flashblocks). **Decisivo, ainda não medido.**
 - **B — Foco de mercado por competidor** (em quais dos 22 o #1 NÃO aparece = nossa porta), **close factor**

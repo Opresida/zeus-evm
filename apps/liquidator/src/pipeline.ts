@@ -1399,6 +1399,7 @@ async function _runMorphoPreLiquidationPipelineInner(
     env,
     client: ctx.client,
     quoterAddress: ctx.chainConfig.uniswapV3.quoterV2,
+    chainConfig: ctx.chainConfig,
     multiHopIntermediates: env.MULTI_HOP_SWAPS_ENABLED ? buildMultiHopIntermediates(ctx.chainConfig) : undefined,
   });
   observeCalc(deps, 'morpho-preliq', calcStart);

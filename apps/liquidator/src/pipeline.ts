@@ -130,6 +130,8 @@ export interface PipelineDeps {
   liveExecutionEnabled?: boolean;
   /** Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela). Default ausente. */
   senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
+  strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
   competitiveBribeEnabled?: boolean;
   bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
@@ -280,7 +282,15 @@ function liquidationEdgeGate(
       reason: `OIE edge gate: EV pós-OEV $${score.evUsd.toFixed(2)} < min $${env.MIN_OPPORTUNITY_EV_USD.toFixed(2)} (recapture=${Math.round(score.oevRecapture * 100)}% protocol=${protocol})`,
     };
   }
+  // Candidato lucrativo confirmado (passou o gate) → alimenta a comparação de estratégias do painel.
+  // Vale em DRY_RUN também (mostra o POTENCIAL). Ponto único — todos os runners chamam este gate.
+  deps.strategyTracker?.candidate(strategyOf(protocol), decision.expectedProfitUsd);
   return { skip: false };
+}
+
+/** Mapeia o protocolo da liquidação → estratégia da tela "Estratégias". */
+export function strategyOf(protocol: string): 'classic-liq' | 'pre-liq' {
+  return protocol === 'morpho-preliq' ? 'pre-liq' : 'classic-liq';
 }
 
 export async function runAavePipeline(
@@ -551,6 +561,7 @@ async function _runAavePipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    strategyTracker: deps.strategyTracker,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -854,6 +865,7 @@ async function _runCompoundPipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    strategyTracker: deps.strategyTracker,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1086,6 +1098,7 @@ async function _runMorphoPipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    strategyTracker: deps.strategyTracker,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1275,6 +1288,7 @@ async function _runMoonwellPipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    strategyTracker: deps.strategyTracker,
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1464,6 +1478,7 @@ async function _runMorphoPreLiquidationPipelineInner(
   return dispatch({
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
+    strategyTracker: deps.strategyTracker,
     senderPool: deps.senderPool,
     poolExposureWei: 1n, // 1 unidade/fill → o breaker agregado limita a CONCORRÊNCIA (N× exposição)
     client: ctx.client,

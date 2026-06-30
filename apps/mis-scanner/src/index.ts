@@ -33,6 +33,7 @@ import {
   DimensionMetricsExporter,
   startHealthServer,
   GasOracle,
+  StrategyStatsTracker,
   EventBus,
   EventIngester,
   createGenericWebhookSink,
@@ -474,6 +475,9 @@ async function main(): Promise<void> {
   const adaptiveTimer = setInterval(() => void runAdaptive(), env.ADAPTIVE_RECALC_INTERVAL_SEC * 1000);
   adaptiveTimer.unref();
 
+  // Tracker de estratégias (filler) — lido pelo heartbeat (tela "Estratégias" do painel).
+  const strategyTracker = new StrategyStatsTracker();
+
   // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
   // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
   const emitHeartbeat = () => {
@@ -493,6 +497,7 @@ async function main(): Promise<void> {
       // Latência de dispatch p50/p95 (paridade Motor 1) — omitida enquanto não há amostra real.
       ...(latencyTracker.stats().samples > 0 ? { latency: latencyTracker.stats() } : {}),
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+      strategyStats: strategyTracker.snapshot(),
       // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
       intel: (() => {
         const mkt = senderRegistry.marketBribeStats();
@@ -575,6 +580,7 @@ async function main(): Promise<void> {
       gasOracle: arbExec?.deps.gasOracle,
       liveExecutionEnabled: () => !!arbExec?.deps.liveExecutionEnabled,
       v4QuoteEnabled: env.UNISWAPX_V4_QUOTE_ENABLED,
+      strategyTracker,
     };
     logger.info(
       { mode: fillerDeps.mode, filler: fillerDeps.fillerAddress ?? '(ausente → só DRY_RUN)' },

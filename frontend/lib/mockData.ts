@@ -30,6 +30,12 @@ export const MOCK = {
     { tag: "M3", name: "Backrun", pnl: 8610, ops: 64, share: "25%", barPct: "25" },
   ],
 
+  strategyStats: [
+    { strategy: "classic-liq" as const, candidates24h: 34, candidateProfitUsd24h: 412.5, executed24h: 9, netUsd24h: 128.3 },
+    { strategy: "pre-liq" as const, candidates24h: 21, candidateProfitUsd24h: 689.2, executed24h: 6, netUsd24h: 241.7 },
+    { strategy: "filler" as const, candidates24h: 58, candidateProfitUsd24h: 173.9, executed24h: 12, netUsd24h: 47.1 },
+  ],
+
   insights: [
     { color: "var(--gold)", text: "Motor 2 (Arbitragem) respondeu por 63% do lucro hoje — concentração acima da média semanal." },
     { color: "var(--red)", text: "Drift do Morpho subiu ~300 bps nas últimas 2h; calibração de EV sugerida." },
@@ -192,6 +198,7 @@ export const EMPTY: typeof MOCK = {
   k: { today: 0, todayTx: 0, w7: 0, w7delta: "—", m30: 0, proj: 0, winRate: "—", ok: 0, fail: 0, w14sum: 0 },
   raw14: [],
   motors: [],
+  strategyStats: [],
   insights: [],
   ticker: [],
   allRows: [],

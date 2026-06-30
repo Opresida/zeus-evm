@@ -66,6 +66,8 @@ export interface DispatchInput {
    * retorna null se o teto coletivo estouraria → a tx é SEGURADA (não dispara). Default ausente = sender único.
    */
   senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  /** Tracker de estratégias — registra o resultado executado (clássica vs pré-liq) pro painel. */
+  strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   /** Exposição (wei) a reservar no breaker agregado por esta tx (ex: tamanho do trade). */
   poolExposureWei?: bigint;
   /** Resumo pra logging contextual */
@@ -646,6 +648,20 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         blockNumber: receipt.blockNumber.toString(),
         swapVenue: input.swapVenue,
       });
+    }
+
+    // Resultado executado → comparação de estratégias do painel (clássica vs pré-liq).
+    // Isolado num try próprio: a tx JÁ confirmou aqui. Observabilidade NUNCA pode lançar
+    // e cair no catch do dispatch (que reportaria 'reverted_pre_dispatch' + invalidaria o nonce).
+    try {
+      if (input.strategyTracker && protocol) {
+        input.strategyTracker.executed(protocol === 'morpho-preliq' ? 'pre-liq' : 'classic-liq', netProfitUsd ?? 0);
+      }
+    } catch (trackErr) {
+      logger.warn(
+        { err: trackErr instanceof Error ? trackErr.message : String(trackErr) },
+        'strategyTracker.executed falhou (ignorado — não afeta o resultado da tx)',
+      );
     }
 
     return {

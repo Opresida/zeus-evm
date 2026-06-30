@@ -36,6 +36,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     adaptive_min_ev_usd: null,
     auto_paused: partial.auto_paused ?? false,
     motor_stats: partial.motor_stats ?? null,
+    strategy_stats: partial.strategy_stats ?? null,
     discovery: partial.discovery ?? null,
     intel: partial.intel ?? null,
     health: partial.health ?? null,

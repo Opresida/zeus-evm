@@ -46,6 +46,8 @@ export interface FillerRunnerDeps {
   /** V4Quoter (F1a) — compara V3 vs V4 e LOGA o uplift potencial (não executa V4 ainda). */
   v4Quoter?: Address;
   v4QuoteEnabled?: boolean;
+  /** Tracker de estratégias — registra candidatos/executados do filler pro heartbeat (tela "Estratégias"). */
+  strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
 }
 
 /** Melhor cotação UniV3 input→output (single-hop, varre fee tiers). V4 entra aqui na F1. */
@@ -132,6 +134,8 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
       { orderHash: order.orderHash, profitToken: evaluation.profitToken, profitUsd: evaluation.profitUsd?.toFixed(2) },
       `🎯 fill candidato: lucro ~$${evaluation.profitUsd?.toFixed(2)}`,
     );
+    // Candidato lucrativo → comparação de estratégias do painel (vale em DRY_RUN = potencial).
+    d.strategyTracker?.candidate('filler', evaluation.profitUsd ?? 0);
 
     // F1b — a melhor rota (V3 ou V4) já foi escolhida no bestQuote. Loga quando V4 venceu.
     if (keptQuote && (keptQuote as Quote).dex === DexType.UniswapV4) {
@@ -161,6 +165,8 @@ export async function runFillerTick(d: FillerRunnerDeps): Promise<number> {
         ...(fees ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas } : {}),
       } as never);
       d.logger.info({ orderHash: order.orderHash, txHash }, '📤 fill submetido');
+      // Executado → resultado na comparação de estratégias (lucro líquido ≈ profit esperado pós-slippage).
+      d.strategyTracker?.executed('filler', evaluation.profitUsd ?? 0);
     } catch (err) {
       d.logger.warn(
         { orderHash: order.orderHash, err: err instanceof Error ? err.message : err },

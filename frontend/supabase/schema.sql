@@ -48,13 +48,15 @@ create table if not exists public.service_status (
   adaptive_min_ev_usd double precision,
   auto_paused         boolean,
   motor_stats         jsonb,
+  strategy_stats      jsonb,                      -- comparativo por estratégia: [{strategy,candidates24h,candidateProfitUsd24h,executed24h,netUsd24h}]
   discovery           jsonb,                      -- pulso do radar (item 2): {positions,dispatched,rejected,atIso}
   intel               jsonb,                      -- inteligência (item 3): {marketBribeP50Gwei,...,driftBps}
   updated_at          timestamptz not null default now()
 );
--- migração (tabela já existe): adiciona as 2 colunas sem quebrar.
+-- migração (tabela já existe): adiciona as colunas sem quebrar.
 alter table public.service_status add column if not exists discovery jsonb;
 alter table public.service_status add column if not exists intel jsonb;
+alter table public.service_status add column if not exists strategy_stats jsonb;
 
 -- ---------- realtime ----------
 -- habilita streaming de INSERT na tabela events + UPDATE/INSERT em service_status

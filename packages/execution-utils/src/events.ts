@@ -303,6 +303,24 @@ export interface MotorStat {
 }
 
 /**
+ * Agregado comparativo por ESTRATÉGIA (24h) — vai no heartbeat pra o painel mostrar qual estratégia
+ * daria/dá mais lucro: liquidação clássica × pré-liquidação Morpho × filler UniswapX. O bot conhece a
+ * estratégia com precisão (resolve a ambiguidade filler-vs-arb que existiria derivando da tabela `events`).
+ * Em DRY_RUN, `executed`/`netUsd` ficam 0 e `candidates`/`candidateProfitUsd` mostram o POTENCIAL.
+ */
+export interface HeartbeatStrategyStat {
+  strategy: 'classic-liq' | 'pre-liq' | 'filler';
+  /** Candidatos LUCRATIVOS vistos na janela (24h). */
+  candidates24h: number;
+  /** Soma do lucro esperado desses candidatos (USD). */
+  candidateProfitUsd24h: number;
+  /** Quantos foram disparados de verdade (0 em DRY_RUN). */
+  executed24h: number;
+  /** Lucro líquido realizado dos executados (USD). */
+  netUsd24h: number;
+}
+
+/**
  * Pulso do "radar" de descoberta (último tick de varredura). Vai no heartbeat (não como evento
  * próprio) pra não inundar a tabela `events` — `discovery.tick_completed` dispara a cada varredura.
  * Deixa o painel mostrar "scanner vivo · viu N posições · há Xs".
@@ -430,6 +448,8 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   /** Estado REAL de execução: true = pausado/travado (no Motor 2 = toggle OFF). */
   autoPaused: boolean;
   motorStats?: MotorStat[];
+  /** Agregado comparativo por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
+  strategyStats?: HeartbeatStrategyStat[];
   /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */

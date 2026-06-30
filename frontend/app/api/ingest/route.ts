@@ -6,6 +6,30 @@ import type { ZeusEvent } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const STRATEGY_KEYS = new Set(["classic-liq", "pre-liq", "filler"]);
+const finNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+/**
+ * Sanea `strategyStats` do heartbeat ANTES de gravar no jsonb (defesa de fronteira).
+ * Mesmo a rota sendo gated por x-zeus-secret, não confiamos cego no corpo: rejeita formato
+ * errado, descarta chave fora do allowlist, força número finito e limita o tamanho do array.
+ */
+function sanitizeStrategyStats(raw: unknown) {
+  if (!Array.isArray(raw)) return null;
+  const out = raw
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+    .filter((s) => STRATEGY_KEYS.has(s.strategy as string))
+    .slice(0, 8)
+    .map((s) => ({
+      strategy: s.strategy as string,
+      candidates24h: Math.max(0, finNum(s.candidates24h)),
+      candidateProfitUsd24h: finNum(s.candidateProfitUsd24h),
+      executed24h: Math.max(0, finNum(s.executed24h)),
+      netUsd24h: finNum(s.netUsd24h),
+    }));
+  return out.length ? out : null;
+}
+
 /** Mapeia um ZeusEvent para colunas da tabela `events`. */
 function toRow(e: ZeusEvent) {
   return {
@@ -68,7 +92,7 @@ export async function POST(req: Request) {
       adaptive_min_ev_usd: e.adaptiveMinEvUsd ?? null,
       auto_paused: e.autoPaused ?? null,
       motor_stats: e.motorStats ?? null,
-      strategy_stats: e.strategyStats ?? null, // comparativo por estratégia (tela "Estratégias")
+      strategy_stats: sanitizeStrategyStats(e.strategyStats), // comparativo por estratégia (saneado na fronteira)
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
       // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).

@@ -269,15 +269,17 @@ export function deriveSnapshot(
   const stratAcc: Record<string, { candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }> = {};
   for (const k of STRATS) stratAcc[k] = { candidates24h: 0, candidateProfitUsd24h: 0, executed24h: 0, netUsd24h: 0 };
   let sawStrat = false;
+  // Guarda de número finito: se o jsonb tiver lixo (string/NaN/null), soma 0 em vez de poluir o agregado com NaN.
+  const fin = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   for (const s of statuses) {
     for (const st of s.strategy_stats ?? []) {
       const a = stratAcc[st.strategy];
       if (!a) continue;
       sawStrat = true;
-      a.candidates24h += st.candidates24h;
-      a.candidateProfitUsd24h += st.candidateProfitUsd24h;
-      a.executed24h += st.executed24h;
-      a.netUsd24h += st.netUsd24h;
+      a.candidates24h += fin(st.candidates24h);
+      a.candidateProfitUsd24h += fin(st.candidateProfitUsd24h);
+      a.executed24h += fin(st.executed24h);
+      a.netUsd24h += fin(st.netUsd24h);
     }
   }
   if (sawStrat) snap.strategyStats = STRATS.map((strategy) => ({ strategy, ...stratAcc[strategy] }));

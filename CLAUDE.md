@@ -169,7 +169,7 @@ zeus-evm/
 │   │                       #   + scoring (chainProfitability/opportunity/dimension/dimensionStatsQuery)
 │   │                       #   + prometheus + health + MarketInefficiencyScanner + bribeSlippageFloor + Tracer
 │   └── shared-types/
-├── docs/                   # OIE_PROGRESS + FIRST_FLIGHT + INFRA_EVOLUTION + MOTOR3_REFIT + NO_EDGE_TOKENS + grafana/
+├── docs/                   # OIE_PROGRESS + FIRST_FLIGHT + INFRA_EVOLUTION + MOTOR3_REFIT + NO_EDGE_TOKENS + ATENA_AGENT_DESIGN + grafana/
 │   └── refs/               # MDs externos pra expandir conhecimento da IA
 ├── frontend/               # ZEUS Command — painel Next.js (Vercel) que espelha o backend.
 │                           # App STANDALONE (package.json próprio, FORA do pnpm workspace;
@@ -178,6 +178,47 @@ zeus-evm/
 │                           # + Web Push/Email. LER frontend/HANDOFF.md ANTES de mexer.
 └── deploy/fly/             # Dockerfile raiz + detector/liquidator/mis-scanner.toml (volume persistente)
 ```
+
+---
+
+## 🆕 SESSÃO 2026-06-30 — Tela Estratégias + pentest + pré-liq multi-DEX + design da Atena (tudo na `main`)
+
+Sessão de observabilidade + higiene + visão. **4 merges na `main`**, sweep verde com RPC ligado a cada passo
+(regra nova: **fork tests SEMPRE com RPC exportado → 0 SKIPPED**; e **re-alinhar a cada ~1M tokens** lendo
+este CLAUDE.md + git log).
+
+**1. Tela "Estratégias" (observabilidade candidatos × resultados):** nova tela no painel compara as 3
+estratégias de lucro — **clássica × pré-liquidação Morpho × filler UniswapX** — mostrando CANDIDATOS (o que
+cada uma lucraria, vale em DRY_RUN) × RESULTADOS (o que executou). Responde "quem dá mais lucro quando rodar".
+Todo o dado viaja no **heartbeat agregado** (`StrategyStatsTracker` → `service_status.strategy_stats` jsonb),
+**não infla `events`**, e o bot conhece a estratégia com precisão (resolve a ambiguidade filler-vs-arb). Sem
+mudança de contrato. `StrategyStatsTracker` em execution-utils (janela rolante 24h) + alimentado no
+`liquidationEdgeGate` (clássica+pré-liq) e `runFillerTick` (filler).
+
+**2. Pentest da feature (4 frentes paralelas):** segredos / injeção / DoS-memória / regressão-de-trading.
+**Zero bug crítico vivo.** 3 patches **defensivos** aplicados: (a) `dispatcher` isola `strategyTracker.executed()`
+num try/catch próprio — observabilidade NUNCA pode virar uma tx confirmada em falha reportada + nonce
+invalidado; (b) `/api/ingest` ganhou `sanitizeStrategyStats()` (allowlist + número finito + cap) na fronteira;
+(c) `live.ts` com guarda de finito no merge (lixo do jsonb → 0, nunca NaN).
+
+**3. Pré-liquidação multi-DEX (merge `claude/preliq-multidex`, "Achado 1" da revisão):** o calculator da pré-liq
+passa a cotar via `bestSwapAcrossDexes` (UniV3/Aero/Slipstream single-hop) quando há `chainConfig` — o
+multi-hop legado **não era executável single-hop pelo contrato → revertia**. Agora **estimativa == execução**
+e captura a liquidez CL funda de Aero/Slipstream nos colaterais LSD (cbETH/wstETH/cbBTC) da pré-liq.
+
+**4. 🦉 ATENA — design do agente de IA operacional (`docs/ATENA_AGENT_DESIGN.md`, doc-only):** conselheira
+estratégica que **lê** o dado que o ZEUS já emite (ledger OIE/Prometheus/competidores) e pensa/zela/aprende.
+**Autonomia graduada por consequência** (4 degraus: auto-ajuste+avisa → propõe+autoriza → aconselha+você-executa
+→ pulso verde), **5 travas** (mão longe das chaves; auto-freio se os ajustes dela correlacionam com PnL pior →
+ela congela a própria autonomia), triagem por domínio [INFRA]/[CÓDIGO]/[CAPITAL]/[COMPETIDOR]/[MERCADO]. Stack:
+**Claude Agent SDK + Opus/Haiku + Telegram + Fly.io**, plugada no `ADAPTIVE_THRESHOLDS_ENABLED` que já dorme.
+**Custo honesto: API ≠ Max** (conta de API separada, ~US$150-250/mês base). Rollout faseado 0→4; **Fase 4
+(agir sozinha) só amadurece no DRY_RUN.** Ainda **sem código** — é design.
+
+**Verde a cada merge (RPC ON):** typecheck 0 · execution-utils 359 · liquidator 114 (fork) · mis-scanner 52
+(fork) · frontend 35 · **`forge test` 190** (0 fail, 1 skip intencional). **750 testes, 0 falha.**
+
+**Branches mergeadas+limpas:** `strategy-observability`, `preliq-multidex`, `atena-agent-design`.
 
 ---
 
@@ -569,6 +610,7 @@ Eu, Claude, tenho limites em áreas como:
 | `docs/INFRA_EVOLUTION.md` | Evolução de infra |
 | `docs/MOTOR3_REFIT.md` | Refit do motor 3 (backrun) |
 | `docs/NO_EDGE_TOKENS.md` | Tokens sem edge (blacklist/filtro) |
+| `docs/ATENA_AGENT_DESIGN.md` | 🦉 Design da Atena (agente de IA operacional: autonomia graduada, 5 travas, custos API≠Max, rollout 0→4) |
 
 **docs/refs/ (conhecimento externo — outro agente cuida, não editar aqui):**
 

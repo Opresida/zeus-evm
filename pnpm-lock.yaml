@@ -176,6 +176,9 @@ importers:
       '@zeus-evm/chain-config':
         specifier: workspace:*
         version: link:../../packages/chain-config
+      '@zeus-evm/execution-utils':
+        specifier: workspace:*
+        version: link:../../packages/execution-utils
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -387,6 +390,9 @@ importers:
       '@zeus-evm/aave-discovery':
         specifier: workspace:*
         version: link:../aave-discovery
+      '@zeus-evm/chain-config':
+        specifier: workspace:*
+        version: link:../chain-config
       '@zeus-evm/dex-adapters':
         specifier: workspace:*
         version: link:../dex-adapters

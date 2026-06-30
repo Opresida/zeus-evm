@@ -30,6 +30,29 @@ function sanitizeStrategyStats(raw: unknown) {
   return out.length ? out : null;
 }
 
+const MOTOR_KEYS = new Set(["motor1", "motor2"]);
+const VERDICT_KEYS = new Set(["pass", "reject"]);
+
+/** Sanea `vettedUniverse` do heartbeat ANTES do jsonb (mesma defesa de fronteira do strategyStats). */
+function sanitizeVettedUniverse(raw: unknown) {
+  if (!Array.isArray(raw)) return null;
+  const out = raw
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+    .filter((t) => MOTOR_KEYS.has(t.motor as string) && VERDICT_KEYS.has(t.verdict as string))
+    .slice(0, 200)
+    .map((t) => ({
+      token: String(t.token ?? "0x"),
+      symbol: String(t.symbol ?? "?").slice(0, 16),
+      motor: t.motor as string,
+      verdict: t.verdict as string,
+      reason: String(t.reason ?? "").slice(0, 200),
+      exitDex: t.exitDex != null ? String(t.exitDex).slice(0, 40) : null,
+      liquidityUsd: Math.max(0, finNum(t.liquidityUsd)),
+      locked: Boolean(t.locked),
+    }));
+  return out.length ? out : null;
+}
+
 /** Mapeia um ZeusEvent para colunas da tabela `events`. */
 function toRow(e: ZeusEvent) {
   return {
@@ -93,6 +116,7 @@ export async function POST(req: Request) {
       auto_paused: e.autoPaused ?? null,
       motor_stats: e.motorStats ?? null,
       strategy_stats: sanitizeStrategyStats(e.strategyStats), // comparativo por estratégia (saneado na fronteira)
+      vetted_universe: sanitizeVettedUniverse(e.vettedUniverse), // porteiro de tokens (saneado na fronteira)
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
       // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).

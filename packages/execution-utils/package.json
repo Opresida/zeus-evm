@@ -13,6 +13,7 @@
   "dependencies": {
     "@duckdb/node-api": "^1.5.3-r.2",
     "@zeus-evm/aave-discovery": "workspace:*",
+    "@zeus-evm/chain-config": "workspace:*",
     "@zeus-evm/dex-adapters": "workspace:*",
     "@zeus-evm/strategy": "workspace:*",
     "viem": "catalog:"

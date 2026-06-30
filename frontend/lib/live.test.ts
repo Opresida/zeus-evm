@@ -37,6 +37,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     auto_paused: partial.auto_paused ?? false,
     motor_stats: partial.motor_stats ?? null,
     strategy_stats: partial.strategy_stats ?? null,
+    vetted_universe: partial.vetted_universe ?? null,
     discovery: partial.discovery ?? null,
     intel: partial.intel ?? null,
     health: partial.health ?? null,
@@ -201,6 +202,40 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     const snap = deriveSnapshot(rows);
     expect(snap.txRows?.[0].venue).toBe("slipstream");
     expect(snap.txRows?.[1].venue).toBeUndefined();
+  });
+
+  it("Tokens: funde vetted_universe dos 2 heartbeats por (token, motor) — LSD M1 pass + M2 reject", () => {
+    const snap = deriveSnapshot([], [
+      status({
+        service: "liquidator",
+        vetted_universe: [
+          { token: "0xcbETH", symbol: "cbETH", motor: "motor1", verdict: "pass", reason: "entrou: colateral vendável", exitDex: "Aerodrome", liquidityUsd: 1_000_000, locked: false },
+        ],
+      }),
+      status({
+        service: "mis-scanner",
+        vetted_universe: [
+          { token: "0xcbETH", symbol: "cbETH", motor: "motor2", verdict: "reject", reason: "rejeitado: sem edge", liquidityUsd: 1_000_000, locked: false },
+          { token: "0xSCAM", symbol: "SCAM", motor: "motor2", verdict: "reject", reason: "saiu: honeypot", liquidityUsd: 0, locked: false },
+        ],
+      }),
+    ]);
+    expect(snap.vettedUniverse).toHaveLength(3);
+    const m1 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor1");
+    const m2 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor2");
+    expect(m1?.verdict).toBe("pass");
+    expect(m2?.verdict).toBe("reject");
+  });
+
+  it("Tokens: lixo no jsonb (motor/verdict inválido) é descartado", () => {
+    const snap = deriveSnapshot([], [
+      status({
+        service: "mis-scanner",
+        // @ts-expect-error testando entrada malformada
+        vetted_universe: [{ token: "0x1", symbol: "X", motor: "motorX", verdict: "talvez", reason: "", liquidityUsd: "lixo", locked: false }],
+      }),
+    ]);
+    expect(snap.vettedUniverse).toBeUndefined();
   });
 
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {

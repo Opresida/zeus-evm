@@ -284,6 +284,27 @@ export function deriveSnapshot(
   }
   if (sawStrat) snap.strategyStats = STRATS.map((strategy) => ({ strategy, ...stratAcc[strategy] }));
 
+  // ----- Universo vetado (tela "Tokens") — funde os heartbeats por (token, motor) -----
+  // liquidator traz motor1; mis-scanner traz motor2. Chave (token+motor) → último heartbeat ganha.
+  const vettedByKey = new Map<string, NonNullable<LiveSnapshot["vettedUniverse"]>[number]>();
+  for (const s of statuses) {
+    for (const t of s.vetted_universe ?? []) {
+      if (t.motor !== "motor1" && t.motor !== "motor2") continue;
+      if (t.verdict !== "pass" && t.verdict !== "reject") continue;
+      vettedByKey.set(`${(t.token || "").toLowerCase()}:${t.motor}`, {
+        token: t.token,
+        symbol: t.symbol,
+        motor: t.motor,
+        verdict: t.verdict,
+        reason: t.reason ?? "",
+        exitDex: t.exitDex ?? undefined,
+        liquidityUsd: typeof t.liquidityUsd === "number" && Number.isFinite(t.liquidityUsd) ? t.liquidityUsd : 0,
+        locked: Boolean(t.locked),
+      });
+    }
+  }
+  if (vettedByKey.size) snap.vettedUniverse = Array.from(vettedByKey.values());
+
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");

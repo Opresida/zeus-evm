@@ -146,6 +146,25 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     return strategyCards.reduce((best, s) => ((s as never)[k] > (best as never)[k] ? s : best)).strategy;
   })();
 
+  // ---- Universo vetado (tela "Tokens"): porteiro por token (entrou/saiu + motivo PT-BR) ----
+  const tokenCards = (live?.vettedUniverse ?? M.vettedUniverse ?? []).map((t) => ({
+    token: t.token,
+    symbol: t.symbol,
+    motor: t.motor,
+    motorLabel: t.motor === "motor1" ? "M1 · Liquidação" : "M2 · Arb",
+    verdict: t.verdict,
+    pass: t.verdict === "pass",
+    reason: t.reason,
+    exitDex: t.exitDex ?? "—",
+    liquidity: t.liquidityUsd ? usd(t.liquidityUsd) : "—",
+    locked: t.locked,
+  }));
+  const tokenCounts = {
+    total: tokenCards.length,
+    pass: tokenCards.filter((t) => t.pass).length,
+    reject: tokenCards.filter((t) => !t.pass).length,
+  };
+
   // ---- Marco: "lucro provado" da arb de 2 pernas → hora de ligar a triangular ----
   // Gatilho REAL e conservador: lucro líquido ACUMULADO do Motor 2 (arb) >= limiar E nº de operações
   // confirmadas >= mínimo (pra um trade sortudo não disparar). Só no modo AO VIVO (não no demo).
@@ -443,6 +462,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     motors,
     strategyCards,
     strategyWinner,
+    tokenCards,
+    tokenCounts,
     insights,
     ticker,
     txFilters,

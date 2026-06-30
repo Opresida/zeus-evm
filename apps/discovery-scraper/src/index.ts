@@ -24,7 +24,7 @@ import {
   flushCache as flushSafetyCache,
   cacheStats as safetyCacheStats,
   type TokenSafety,
-} from './sources/tokenSafety';
+} from '@zeus-evm/execution-utils';
 import {
   fetchCompetitionStats,
   getCachedCompetition,
@@ -35,7 +35,7 @@ import {
   type CompetitionStats,
 } from './sources/onchainCompetition';
 import { applyHardFilters, isSameDexFamily, type CandidatePair } from './filters/hardFilters';
-import { applyPairSafetyFilters } from './filters/tokenSafetyFilters';
+import { applyPairSafetyFilters } from '@zeus-evm/execution-utils';
 import { compositeScore } from './scoring/composite';
 import { competitionScore, competitionSummary } from './scoring/competition';
 import { calcAgeDays } from './scoring/poolAge';

@@ -11,6 +11,11 @@ import { ZeusMoonwellLiquidator } from "../src/ZeusMoonwellLiquidator.sol";
 import { ZeusMorphoPreLiquidator } from "../src/ZeusMorphoPreLiquidator.sol";
 import { ZeusUniswapXFiller } from "../src/ZeusUniswapXFiller.sol";
 
+/// @dev Interface comum só pro deploy: os 5 contratos com swap expõem setApprovedRouter(address,bool).
+interface IRouterWhitelist {
+    function setApprovedRouter(address router, bool approved) external;
+}
+
 /**
  * @notice Deploy script v8 — deploya 2 contratos separados:
  *   - ZeusLiquidator: liquidations (Aave + Compound + Morpho) com/sem bribe
@@ -153,8 +158,10 @@ contract DeployScript is Script {
         //    setApprovedReactor(<reactors UniswapX>) — whitelist default-deny.
         uniswapXFiller = new ZeusUniswapXFiller(owner, maxTradeWei);
 
-        // v10: whitelist de router on-chain nos satélites (paridade com Liquidator/ArbExecutor).
+        // v10: whitelist de router on-chain nos satélites + Moonwell (paridade com Liquidator/ArbExecutor).
+        // Cobre o UniV3 em QUALQUER chain (inclui testnet). Os demais routers (mainnet) entram no bloco abaixo.
         if (owner == msg.sender && swapRouter != address(0)) {
+            moonwellLiquidator.setApprovedRouter(swapRouter, true);
             morphoPreLiquidator.setApprovedRouter(swapRouter, true);
             uniswapXFiller.setApprovedRouter(swapRouter, true);
         }
@@ -192,8 +199,8 @@ contract DeployScript is Script {
         console2.log("");
         console2.log("BribeManager nao precisa de revive/operator - eh stateless");
         console2.log("");
-        console2.log("v10: setApprovedComet (Compound) + caps por-token aplicados se chainid==8453.");
-        console2.log("     Aprovar routers DEX restantes (Aero/Slipstream/Pancake/Sushi) em CADA contrato via runbook.");
+        console2.log("v10: em mainnet (8453) o deploy ja aplica caps ~US$200k + Comets + TODOS os routers DEX.");
+        console2.log("     Mainnet: so faltam revive() + setOperator(<bot>) por contrato (gates deliberados).");
     }
 
     /// @dev v10 — config de Base mainnet: caps ~US$200k por token (Tema C) + Comets aprovados.
@@ -218,6 +225,35 @@ contract DeployScript is Script {
             moonwellLiquidator.setMaxTradePerToken(toks[i], caps[i]);
             morphoPreLiquidator.setMaxTradePerToken(toks[i], caps[i]);
             uniswapXFiller.setMaxTradePerToken(toks[i], caps[i]);
+        }
+
+        // TURNKEY: aprova TODOS os routers DEX da Base nos 5 contratos com swap (whitelist on-chain).
+        // Assim a mainnet sobe com os routers prontos — só revive()+setOperator(bot) ficam manuais (gates).
+        // Endereços do chain-config (packages/chain-config/src/base.ts). Tune via setApprovedRouter no multisig.
+        address[11] memory routers = [
+            0x2626664c2603336E57B271c5C0b26F421741e481, // Uniswap V3 SwapRouter02
+            0x6fF5693b99212Da76ad316178A184AB56D299b43, // Uniswap V4 Universal Router
+            0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43, // Aerodrome router
+            0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5, // Slipstream (Aerodrome CL) router
+            0x1b81D678ffb9C0263b24A97847620C99d213eB14, // PancakeSwap V3 SmartRouter
+            0xFB7eF66a7e61224DD6FcD0D7d9C3be5C8B049b9f, // SushiSwap V3 router
+            0x327Df1E6de05895d2ab08513aaDD9313Fe505d86, // BaseSwap (UniV2)
+            0x8c1A3cF8f83074169FE5D7aD50B978e1cD6b37c7, // AlienBase (UniV2)
+            0xaaa3b1F1bd7BCc97fD1917c18ADE665C5D31F066, // SwapBased (UniV2)
+            0x8cFe327CEc66d1C090Dd72bd0FF11d690C33a2Eb, // PancakeSwap V2
+            0x6BDED42c6DA8FBf0d2bA55B2fa120C5e0c8D7891 // SushiSwap V2
+        ];
+        address[5] memory swapContracts = [
+            address(liquidator),
+            address(arbExecutor),
+            address(moonwellLiquidator),
+            address(morphoPreLiquidator),
+            address(uniswapXFiller)
+        ];
+        for (uint256 c = 0; c < 5; c++) {
+            for (uint256 r = 0; r < 11; r++) {
+                IRouterWhitelist(swapContracts[c]).setApprovedRouter(routers[r], true);
+            }
         }
     }
 

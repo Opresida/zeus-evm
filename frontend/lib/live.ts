@@ -305,6 +305,19 @@ export function deriveSnapshot(
   }
   if (vettedByKey.size) snap.vettedUniverse = Array.from(vettedByKey.values());
 
+  // Estado do filtro por motor (OR entre serviços: motor2 do mis-scanner, motor1 do liquidator).
+  let sawEnforce = false;
+  let enfM1 = false;
+  let enfM2 = false;
+  for (const s of statuses) {
+    if (s.vetting_enforce) {
+      sawEnforce = true;
+      if (s.vetting_enforce.motor1) enfM1 = true;
+      if (s.vetting_enforce.motor2) enfM2 = true;
+    }
+  }
+  if (sawEnforce) snap.vettingEnforce = { motor1: enfM1, motor2: enfM2 };
+
   // ----- Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited -----
   const tokenEvts = rows.filter((r) => r.type === "token.entered" || r.type === "token.exited").slice(0, 20);
   if (tokenEvts.length) {

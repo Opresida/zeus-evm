@@ -50,6 +50,7 @@ create table if not exists public.service_status (
   motor_stats         jsonb,
   strategy_stats      jsonb,                      -- comparativo por estratégia: [{strategy,candidates24h,candidateProfitUsd24h,executed24h,netUsd24h}]
   vetted_universe     jsonb,                      -- porteiro de tokens: [{token,symbol,motor,verdict,reason,exitDex,liquidityUsd,locked}]
+  vetting_enforce     jsonb,                      -- estado do filtro por motor: {motor1?,motor2?}
   discovery           jsonb,                      -- pulso do radar (item 2): {positions,dispatched,rejected,atIso}
   intel               jsonb,                      -- inteligência (item 3): {marketBribeP50Gwei,...,driftBps}
   updated_at          timestamptz not null default now()
@@ -59,6 +60,7 @@ alter table public.service_status add column if not exists discovery jsonb;
 alter table public.service_status add column if not exists intel jsonb;
 alter table public.service_status add column if not exists strategy_stats jsonb;
 alter table public.service_status add column if not exists vetted_universe jsonb;
+alter table public.service_status add column if not exists vetting_enforce jsonb;
 
 -- ---------- realtime ----------
 -- habilita streaming de INSERT na tabela events + UPDATE/INSERT em service_status

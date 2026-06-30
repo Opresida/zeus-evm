@@ -331,29 +331,56 @@ async function main(): Promise<void> {
   // Resolve pools on-chain de todos os pares (curados + derivados)
   logger.info({ pairs: allPairs.length }, '🔍 resolvendo pools on-chain...');
   const groups = await resolvePoolGroups({ client, chainConfig, pairs: allPairs, logger });
-  for (const g of groups) mis.registerGroup(g);
 
-  // ── Porteiro de tokens (Etapa 2: OBSERVAR — veta e mostra no painel, mas NÃO filtra) ──
-  // O snapshot do tracker alimenta o heartbeat (tela "Tokens"). Filtrar de verdade = Etapa 3 (botão admin).
+  // ── Porteiro de tokens (Etapas 2-3) — VETA antes de registrar (pra poder FILTRAR no enforce) ──
+  // Estado AO VIVO do filtro (boot + poll do toggle); lido pelo heartbeat (badge) e pelo gate de execução.
   const vettingTracker = new VettingUniverseTracker();
-  if (env.VETTING_ENABLED && env.VETTING_M2_OBSERVE) {
-    const usdc = chainConfig.tokens?.USDC as `0x${string}` | undefined;
-    if (usdc) {
-      await runVettingObserve({
-        groups,
-        client,
-        chainConfig,
-        quoteToken: usdc,
-        quoteTokenDecimals: 6,
-        eventBus,
-        tracker: vettingTracker,
-        mode: env.ARB_MODE,
-        safetyCacheDir: env.VETTING_SAFETY_CACHE_DIR,
-        logger,
-      }).catch((err) => logger.warn({ err: String(err) }, 'vetting observe falhou — ignorado (não bloqueia o boot)'));
-    } else {
-      logger.warn('vetting: sem USDC no chain-config desta chain — observe pulado');
+  const vettingEnforce = { m2: false };
+  if (env.VETTING_ENABLED) {
+    if (env.VETTING_M2_ENFORCE) {
+      vettingEnforce.m2 = await fetchEngineControlEnabled({
+        supabaseUrl: env.SUPABASE_URL,
+        supabaseKey: env.SUPABASE_KEY,
+        motor: 'vetting_m2_enforce',
+      });
     }
+    if (env.VETTING_M2_OBSERVE) {
+      const usdc = chainConfig.tokens?.USDC as `0x${string}` | undefined;
+      if (usdc) {
+        await runVettingObserve({
+          groups,
+          client,
+          chainConfig,
+          quoteToken: usdc,
+          quoteTokenDecimals: 6,
+          eventBus,
+          tracker: vettingTracker,
+          mode: env.ARB_MODE,
+          safetyCacheDir: env.VETTING_SAFETY_CACHE_DIR,
+          logger,
+          enforce: vettingEnforce.m2,
+        }).catch((err) => logger.warn({ err: String(err) }, 'vetting observe falhou — ignorado (não bloqueia o boot)'));
+      } else {
+        logger.warn('vetting: sem USDC no chain-config desta chain — vetting pulado');
+      }
+    }
+  }
+
+  // Registra os grupos. Filtro LIGADO → pula grupos cujo token reprovou no porteiro (M2). Fora do universo de scan.
+  const groupVettedOut = (g: (typeof groups)[number]) =>
+    vettingEnforce.m2 &&
+    (vettingTracker.current(g.tokenA, 'motor2')?.verdict === 'reject' ||
+      vettingTracker.current(g.tokenB, 'motor2')?.verdict === 'reject');
+  let vettingSkipped = 0;
+  for (const g of groups) {
+    if (groupVettedOut(g)) {
+      vettingSkipped++;
+      continue;
+    }
+    mis.registerGroup(g);
+  }
+  if (vettingSkipped) {
+    logger.warn({ skipped: vettingSkipped }, `🛂 filtro M2 LIGADO: ${vettingSkipped} grupos fora do universo (token reprovado)`);
   }
 
   if (mis.groupCount() === 0) {
@@ -524,6 +551,7 @@ async function main(): Promise<void> {
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
+      vettingEnforce: { motor2: vettingEnforce.m2 }, // estado do filtro M2 (badge "filtro ligado")
       // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
       intel: (() => {
         const mkt = senderRegistry.marketBribeStats();
@@ -581,6 +609,33 @@ async function main(): Promise<void> {
   if (remoteControlActive) {
     await pollEngineControl(); // estado inicial no boot (default travado até confirmar)
     logger.info({ motor: env.ENGINE_CONTROL_MOTOR, pollEvery: env.ENGINE_CONTROL_POLL_EVERY }, '🎛️ controle remoto de execução ATIVO (poll via Supabase)');
+  }
+
+  // ─── Toggle do FILTRO de tokens M2 (vetting_m2_enforce) — poll AO VIVO, vale mesmo em DRY_RUN ───
+  // O env VETTING_M2_ENFORCE é a chave-mestra; o liga/desliga ao vivo é este toggle (botão admin do painel).
+  // Fail-safe (fetchEngineControlEnabled): erro/sem-config → false (filtro desligado), igual aos motores.
+  const pollVettingEnforce = async () => {
+    if (!(env.VETTING_ENABLED && env.VETTING_M2_ENFORCE)) return;
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: env.SUPABASE_URL,
+      supabaseKey: env.SUPABASE_KEY,
+      motor: 'vetting_m2_enforce',
+    });
+    if (next !== vettingEnforce.m2) {
+      vettingEnforce.m2 = next;
+      logger.warn(
+        { vettingEnforceM2: next },
+        next
+          ? '🛂 TOGGLE: filtro de tokens M2 LIGADO (gate de execução já respeita; re-filtro do scan no próximo restart/re-vet)'
+          : '🛂 TOGGLE: filtro de tokens M2 DESLIGADO',
+      );
+    }
+  };
+  if (env.VETTING_ENABLED && env.VETTING_M2_ENFORCE) {
+    const vettingTimer = setInterval(() => {
+      void pollVettingEnforce();
+    }, env.ENGINE_CONTROL_POLL_EVERY * 1000);
+    vettingTimer.unref();
   }
 
   // ─── Filler UniswapX (Motor 2 / F3) — loop próprio (poll→avalia→dispatch). Default OFF. ───
@@ -732,6 +787,15 @@ async function main(): Promise<void> {
         if (arbExec && execCandidates.length > 0) {
           const top = execCandidates.sort((a, b2) => b2.netProfitUsd - a.netProfitUsd).slice(0, arbExec.topN);
           for (const cand of top) {
+            // Gate de execução do filtro M2 (ao vivo): nunca dispara arb em token reprovado no porteiro.
+            if (
+              vettingEnforce.m2 &&
+              (vettingTracker.current(cand.group.tokenA, 'motor2')?.verdict === 'reject' ||
+                vettingTracker.current(cand.group.tokenB, 'motor2')?.verdict === 'reject')
+            ) {
+              logger.debug?.({ par: cand.group.label }, 'arb: token reprovado no porteiro (filtro M2) — pulado');
+              continue;
+            }
             try {
               const estUsdA = await fetchTokenUsd(client, chainConfig, cand.group.tokenA, cand.group.decimalsA);
               const estUsdB = await fetchTokenUsd(client, chainConfig, cand.group.tokenB, cand.group.decimalsB);

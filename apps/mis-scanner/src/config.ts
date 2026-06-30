@@ -98,9 +98,10 @@ const envSchema = z.object({
   ADAPTIVE_RECALC_INTERVAL_SEC: posInt(600),
   ADAPTIVE_WINDOW_DAYS: posInt(7),
 
-  // ─── Porteiro de tokens (vetting) — chave-mestra + observar do M2 (Etapa 2) ───
+  // ─── Porteiro de tokens (vetting) — chave-mestra + observar/enforce do M2 (Etapas 2-3) ───
   VETTING_ENABLED: boolDefault(false), // chave-mestra; OFF por padrão
   VETTING_M2_OBSERVE: boolDefault(true), // sob VETTING_ENABLED: veta o M2 e mostra no painel (NÃO filtra)
+  VETTING_M2_ENFORCE: boolDefault(false), // chave-mestra do filtro; o liga/desliga AO VIVO é o toggle do painel
   VETTING_SAFETY_CACHE_DIR: z.string().default('.cache'), // onde fica o token-safety-cache.json
 
   // ─── Controle remoto de execução (toggle do Frontend via Supabase `engine_control`) ───

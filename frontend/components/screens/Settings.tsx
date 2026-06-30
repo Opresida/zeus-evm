@@ -28,7 +28,7 @@ const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-
  * Mostra o estado DESEJADO (o que o painel pediu). O estado REAL do bot vem do health/heartbeat —
  * se divergir (ex.: bot offline, sem SUPABASE_URL), o operador percebe pelo "estado real" no Home.
  */
-function ExecutionControl({ motor, label }: { motor: string; label: string }) {
+export function ExecutionControl({ motor, label }: { motor: string; label: string }) {
   const [enabled, setEnabled] = useState<boolean | null>(null); // null = carregando
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);

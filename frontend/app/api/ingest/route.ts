@@ -117,6 +117,10 @@ export async function POST(req: Request) {
       motor_stats: e.motorStats ?? null,
       strategy_stats: sanitizeStrategyStats(e.strategyStats), // comparativo por estratégia (saneado na fronteira)
       vetted_universe: sanitizeVettedUniverse(e.vettedUniverse), // porteiro de tokens (saneado na fronteira)
+      vetting_enforce:
+        e.vettingEnforce && typeof e.vettingEnforce === "object"
+          ? { motor1: Boolean((e.vettingEnforce as Record<string, unknown>).motor1), motor2: Boolean((e.vettingEnforce as Record<string, unknown>).motor2) }
+          : null,
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
       // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).

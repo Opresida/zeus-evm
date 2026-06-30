@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
  * Sem nenhum dos dois → 401/403. O painel inteiro já fica atrás do login (Supabase Auth).
  */
 
-const MOTORS = new Set(["motor1", "motor2", "motor3"]);
+// motores + toggles do filtro de tokens (porteiro) — todos escrevem em engine_control (1 linha/chave).
+const MOTORS = new Set(["motor1", "motor2", "motor3", "vetting_m1_enforce", "vetting_m2_enforce"]);
 const MODES = new Set(["dryrun", "testnet", "mainnet"]);
 
 /** true + (email do admin, quando houver) se autorizado. Admin-session OU header de máquina. */

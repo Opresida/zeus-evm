@@ -1,6 +1,7 @@
 "use client";
 import { css } from "@/lib/css";
 import type { ScreenProps } from "./shared";
+import { ExecutionControl } from "./Settings";
 
 const card = "background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:18px 20px;";
 const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);";
@@ -15,16 +16,33 @@ const LOGGRID = "display:grid; grid-template-columns:64px 100px 56px 1fr; gap:0 
  * Responsivo: ≤900px a tabela rola na horizontal (z-txtable/z-txgrid); ≤480px vira cards empilhados
  * (z-card-row + data-label). Dados via heartbeat/eventos; em DEMO usa o mock.
  */
-export function Tokens({ vm }: ScreenProps) {
-  const { tokenCards, tokenCounts, tokenLog } = vm;
+export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
+  const { tokenCards, tokenCounts, tokenLog, vettingEnforce } = vm;
+  const m2On = !!vettingEnforce?.motor2;
 
   return (
     <section>
-      <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Tokens</h1>
-      <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 18px;")}>
+      <div style={css("display:flex; align-items:center; gap:10px; flex-wrap:wrap;")}>
+        <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Tokens</h1>
+        <span style={css(`font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.06em; text-transform:uppercase; padding:5px 9px; border-radius:6px; border:1px solid; color:${m2On ? "var(--green, #4cc08a)" : "var(--muted)"}; border-color:${m2On ? "var(--green, #4cc08a)" : "var(--border)"};`)}>
+          {m2On ? "filtro M2 ligado" : "M2 só observando"}
+        </span>
+      </div>
+      <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 16px;")}>
         O porteiro de tokens — quem entrou e quem saiu do universo de trading, e o porquê em linguagem simples.
         O mesmo token pode entrar num motor e sair no outro (M1 aceita colateral; M2 exige edge de arbitragem).
       </p>
+
+      {/* Botão admin: liga/desliga o FILTRO do M2 de verdade (engine_control vetting_m2_enforce) */}
+      {isAdmin && (
+        <div style={css(card + "margin-bottom:14px;")}>
+          <ExecutionControl motor="vetting_m2_enforce" label="Filtro de tokens — Motor 2 (arbitragem)" />
+          <p style={css("font:400 11px/1.5 'IBM Plex Sans'; color:var(--muted); margin:10px 0 0;")}>
+            Ligar aqui faz o bot DEIXAR DE OLHAR tokens reprovados no porteiro (sem saída / sem liquidez / inseguros).
+            Em DRY_RUN não envia nada — só treina num universo mais seguro. Só você (admin) liga.
+          </p>
+        </div>
+      )}
 
       {/* Resumo (já responsivo: flex-wrap) */}
       <div style={css("display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;")}>

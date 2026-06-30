@@ -35,6 +35,8 @@ export interface VettingObserveOpts {
   logger: LoggerLike;
   /** Blocklist sem-edge (NO_EDGE) — vazio por ora (universo já é edge-curado; gate vale p/ auto-promoção). */
   noEdgeBlocklist?: ReadonlySet<string>;
+  /** Etapa 3: true quando o filtro está LIGADO → marca wouldEnforce nos eventos (o painel mostra). */
+  enforce?: boolean;
 }
 
 /** Coleta os tokens distintos do universo (pula o quoteToken — não dá pra cotar USDC→USDC). */
@@ -105,7 +107,7 @@ export async function runVettingObserve(opts: VettingObserveOpts): Promise<{ pas
         exitDex: verdict.checks.exitRoute.dex,
         liquidityUsd: verdict.checks.liquidityFloor.usd,
         locked: verdict.checks.lockStatus.locked,
-        wouldEnforce: false,
+        wouldEnforce: !!opts.enforce,
       });
     } catch (err) {
       opts.logger.warn({ err: String(err) }, 'vetting: emit token.* falhou — ignorado');

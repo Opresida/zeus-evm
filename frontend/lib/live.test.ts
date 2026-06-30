@@ -38,6 +38,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     motor_stats: partial.motor_stats ?? null,
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
+    vetting_enforce: partial.vetting_enforce ?? null,
     discovery: partial.discovery ?? null,
     intel: partial.intel ?? null,
     health: partial.health ?? null,
@@ -247,6 +248,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.tokenLog![0]).toMatchObject({ symbol: "DEGEN", action: "entrou", motor: "M2" });
     expect(snap.tokenLog![0].reason).toContain("entrou");
     expect(snap.tokenLog![1]).toMatchObject({ symbol: "SCAM", action: "saiu" });
+  });
+
+  it("Tokens: estado do filtro (vetting_enforce) do heartbeat → snap.vettingEnforce", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "mis-scanner", vetting_enforce: { motor2: true } }),
+    ]);
+    expect(snap.vettingEnforce).toMatchObject({ motor2: true });
   });
 
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {

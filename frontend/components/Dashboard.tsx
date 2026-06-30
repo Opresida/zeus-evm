@@ -316,7 +316,7 @@ export default function Dashboard({ profile }: { profile?: Profile | null }) {
             {ui.screen === "pnl" && <Pnl {...screenProps} />}
             {ui.screen === "wallet" && <Wallet {...screenProps} />}
             {ui.screen === "intel" && <Intelligence {...screenProps} />}
-            {ui.screen === "tokens" && <Tokens {...screenProps} />}
+            {ui.screen === "tokens" && <Tokens {...screenProps} isAdmin={isAdmin} />}
             {ui.screen === "strategies" && <Strategies {...screenProps} />}
             {ui.screen === "health" && <Health {...screenProps} />}
             {ui.screen === "reports" && <Reports {...screenProps} />}

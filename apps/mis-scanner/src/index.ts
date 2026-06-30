@@ -34,6 +34,7 @@ import {
   startHealthServer,
   GasOracle,
   StrategyStatsTracker,
+  VettingUniverseTracker,
   EventBus,
   EventIngester,
   createGenericWebhookSink,
@@ -75,6 +76,7 @@ import {
   type ResolvedPair,
 } from './poolGroups';
 import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
+import { runVettingObserve } from './vettingObserve';
 import { optimizeFlashLoan, fetchEthUsd, fetchTokenUsd } from './flashEstimator';
 import { loadConfig } from './config';
 import { findFreshArb } from './execution/arbOpportunity';
@@ -331,6 +333,29 @@ async function main(): Promise<void> {
   const groups = await resolvePoolGroups({ client, chainConfig, pairs: allPairs, logger });
   for (const g of groups) mis.registerGroup(g);
 
+  // ── Porteiro de tokens (Etapa 2: OBSERVAR — veta e mostra no painel, mas NÃO filtra) ──
+  // O snapshot do tracker alimenta o heartbeat (tela "Tokens"). Filtrar de verdade = Etapa 3 (botão admin).
+  const vettingTracker = new VettingUniverseTracker();
+  if (env.VETTING_ENABLED && env.VETTING_M2_OBSERVE) {
+    const usdc = chainConfig.tokens?.USDC as `0x${string}` | undefined;
+    if (usdc) {
+      await runVettingObserve({
+        groups,
+        client,
+        chainConfig,
+        quoteToken: usdc,
+        quoteTokenDecimals: 6,
+        eventBus,
+        tracker: vettingTracker,
+        mode: env.ARB_MODE,
+        safetyCacheDir: env.VETTING_SAFETY_CACHE_DIR,
+        logger,
+      }).catch((err) => logger.warn({ err: String(err) }, 'vetting observe falhou — ignorado (não bloqueia o boot)'));
+    } else {
+      logger.warn('vetting: sem USDC no chain-config desta chain — observe pulado');
+    }
+  }
+
   if (mis.groupCount() === 0) {
     logger.fatal('Nenhum grupo resolvido — verifique RPC/factory. Abortando.');
     process.exit(1);
@@ -498,6 +523,7 @@ async function main(): Promise<void> {
       ...(latencyTracker.stats().samples > 0 ? { latency: latencyTracker.stats() } : {}),
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
       strategyStats: strategyTracker.snapshot(),
+      vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
       // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
       intel: (() => {
         const mkt = senderRegistry.marketBribeStats();

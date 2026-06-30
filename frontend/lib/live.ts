@@ -305,6 +305,23 @@ export function deriveSnapshot(
   }
   if (vettedByKey.size) snap.vettedUniverse = Array.from(vettedByKey.values());
 
+  // ----- Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited -----
+  const tokenEvts = rows.filter((r) => r.type === "token.entered" || r.type === "token.exited").slice(0, 20);
+  if (tokenEvts.length) {
+    snap.tokenLog = tokenEvts.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const entered = r.type === "token.entered";
+      return {
+        time: hhmm(r.ts),
+        symbol: r.pair || (p.symbol as string) || "—",
+        motor: (p.motor as string) === "motor1" ? "M1" : "M2",
+        action: entered ? "entrou" : "saiu",
+        reason: (p.reason as string) || "—",
+        color: entered ? "var(--green)" : "var(--red)",
+      };
+    });
+  }
+
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");

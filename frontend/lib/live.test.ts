@@ -238,6 +238,17 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.vettedUniverse).toBeUndefined();
   });
 
+  it("Tokens: tokenLog dos eventos token.entered/token.exited com motivo PT-BR", () => {
+    const snap = deriveSnapshot([
+      row({ type: "token.entered", pair: "DEGEN", payload: { symbol: "DEGEN", motor: "motor2", reason: "entrou: saída na UniV3, liquidez ok" } as unknown as ZeusEvent }),
+      row({ type: "token.exited", pair: "SCAM", payload: { symbol: "SCAM", motor: "motor2", reason: "saiu: honeypot" } as unknown as ZeusEvent }),
+    ]);
+    expect(snap.tokenLog).toHaveLength(2);
+    expect(snap.tokenLog![0]).toMatchObject({ symbol: "DEGEN", action: "entrou", motor: "M2" });
+    expect(snap.tokenLog![0].reason).toContain("entrou");
+    expect(snap.tokenLog![1]).toMatchObject({ symbol: "SCAM", action: "saiu" });
+  });
+
   it("snapshot vazio → sem campos (cai no mock no viewModel)", () => {
     const snap = deriveSnapshot([], []);
     expect(snap.failures).toBeUndefined();

@@ -46,6 +46,7 @@ export {
   type VetTokenOpts,
   type VettingMotor,
 } from './vetting/tokenVetting';
+export { VettingUniverseTracker, type VettedEntry } from './vetting/universeTracker';
 
 export {
   FailureTracker,

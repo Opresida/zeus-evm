@@ -12,7 +12,7 @@ const kicker = "font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-
  * Dados via heartbeat → service_status.vetted_universe. Em DEMO usa o mock.
  */
 export function Tokens({ vm }: ScreenProps) {
-  const { tokenCards, tokenCounts } = vm;
+  const { tokenCards, tokenCounts, tokenLog } = vm;
 
   return (
     <section>
@@ -62,6 +62,32 @@ export function Tokens({ vm }: ScreenProps) {
           🔒 = liquidez travada. "Entrou" = passou no porteiro (segurança + saída numa DEX + liquidez). "Saiu" = barrado,
           com o motivo ao lado. O filtro só observa por enquanto — ligar de verdade é um botão admin (próximas etapas).
         </p>
+      </div>
+
+      {/* Log de entrou/saiu (eventos token.entered / token.exited) */}
+      <div style={css(card + "margin-top:14px;")}>
+        <span style={css(kicker)}>Movimento recente (entrou / saiu)</span>
+        {tokenLog.length === 0 ? (
+          <p style={css("font:400 12px/1.4 'IBM Plex Sans'; color:var(--muted); margin:12px 0 0;")}>
+            Nenhum movimento ainda — quando o porteiro estiver ativo, cada entrada/saída aparece aqui com o motivo.
+          </p>
+        ) : (
+          <div style={css("display:grid; grid-template-columns:64px 90px 56px 1fr; gap:0; margin-top:12px;")}>
+            {["Hora", "Token", "Ação", "Motivo"].map((h, i) => (
+              <span key={i} style={css("font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding-bottom:10px; border-bottom:1px solid var(--border);")}>{h}</span>
+            ))}
+            {tokenLog.map((row, i) => (
+              <div key={i} style={css("display:contents;")}>
+                <span style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted); padding:10px 0; border-bottom:1px solid var(--border);")}>{row.time}</span>
+                <span style={css("font:600 11px/1 'IBM Plex Mono'; color:var(--text); padding:10px 0; border-bottom:1px solid var(--border);")}>
+                  {row.symbol} <span style={css("color:var(--muted);")}>{row.motor}</span>
+                </span>
+                <span style={css(`font:600 10px/1 'IBM Plex Mono'; text-transform:uppercase; color:${row.color}; padding:10px 0; border-bottom:1px solid var(--border);`)}>{row.action}</span>
+                <span style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--text2, var(--text)); padding:10px 0; border-bottom:1px solid var(--border);")}>{row.reason}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

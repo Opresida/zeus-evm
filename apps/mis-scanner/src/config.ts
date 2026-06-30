@@ -98,6 +98,11 @@ const envSchema = z.object({
   ADAPTIVE_RECALC_INTERVAL_SEC: posInt(600),
   ADAPTIVE_WINDOW_DAYS: posInt(7),
 
+  // ─── Porteiro de tokens (vetting) — chave-mestra + observar do M2 (Etapa 2) ───
+  VETTING_ENABLED: boolDefault(false), // chave-mestra; OFF por padrão
+  VETTING_M2_OBSERVE: boolDefault(true), // sob VETTING_ENABLED: veta o M2 e mostra no painel (NÃO filtra)
+  VETTING_SAFETY_CACHE_DIR: z.string().default('.cache'), // onde fica o token-safety-cache.json
+
   // ─── Controle remoto de execução (toggle do Frontend via Supabase `engine_control`) ───
   // Modelo armado-mas-travado: o bot sobe com ARB_EXECUTION_ENABLED=true + ARB_MODE=mainnet (armado),
   // mas o ENVIO fica TRAVADO até o toggle remoto ligar. Sem SUPABASE_URL → fica travado pra sempre

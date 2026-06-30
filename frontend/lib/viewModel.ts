@@ -464,6 +464,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     strategyWinner,
     tokenCards,
     tokenCounts,
+    tokenLog: live?.tokenLog ?? M.tokenLog ?? [],
     insights,
     ticker,
     txFilters,

@@ -44,6 +44,11 @@ export const MOCK = {
     { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true },
     { token: "0x00000000000000000000000000000000deadbeef", symbol: "SCAM", motor: "motor2" as const, verdict: "reject" as const, reason: "saiu: é honeypot (não dá pra vender) — bloqueado", liquidityUsd: 0, locked: false },
   ],
+  tokenLog: [
+    { time: "14:32", symbol: "DEGEN", motor: "M2", action: "entrou", reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", color: "var(--green)" },
+    { time: "14:30", symbol: "SCAM", motor: "M2", action: "saiu", reason: "saiu: é honeypot (não dá pra vender) — bloqueado", color: "var(--red)" },
+    { time: "14:18", symbol: "PEPE", motor: "M2", action: "saiu", reason: "saiu: liquidez abaixo do piso ($12k)", color: "var(--red)" },
+  ],
 
   insights: [
     { color: "var(--gold)", text: "Motor 2 (Arbitragem) respondeu por 63% do lucro hoje — concentração acima da média semanal." },
@@ -209,6 +214,7 @@ export const EMPTY: typeof MOCK = {
   motors: [],
   strategyStats: [],
   vettedUniverse: [],
+  tokenLog: [],
   insights: [],
   ticker: [],
   allRows: [],

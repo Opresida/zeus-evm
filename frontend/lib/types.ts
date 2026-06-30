@@ -242,6 +242,8 @@ export interface LiveSnapshot {
   strategyStats?: StrategyStat[];
   /** Universo vetado por token (tela "Tokens") — porteiro; fundido dos heartbeats por (token, motor). */
   vettedUniverse?: VettedToken[];
+  /** Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited. */
+  tokenLog?: { time: string; symbol: string; motor: string; action: string; reason: string; color: string }[];
 
   // ----- Fase 1: agregados de PnL / gás / relatórios (derivados de events tx.*) -----
   kpi7d?: number;

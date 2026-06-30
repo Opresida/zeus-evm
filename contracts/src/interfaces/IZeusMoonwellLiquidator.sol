@@ -49,7 +49,7 @@ interface IZeusMoonwellLiquidator {
 
     error NotAuthorized();
     error InvalidCaller();
-    error Killed_();
+    error BotKilled();
     error TradeTooLarge(uint256 requested, uint256 cap);
     error InsufficientProfit(uint256 got, uint256 min);
     error FlashloanRepayShortfall(uint256 balance, uint256 required);

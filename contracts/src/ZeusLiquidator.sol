@@ -56,10 +56,18 @@ contract ZeusLiquidator is
     mapping(address => bool) private _operators;
     /// @notice Routers DEX aprovados pro _executeSwaps (whitelist on-chain — defesa em profundidade).
     mapping(address => bool) public approvedRouter;
+    /// @notice Comets (Compound III) aprovados pro caminho de liquidação Compound (whitelist on-chain, paridade v10).
+    mapping(address => bool) public approvedComet;
 
     /// @notice Router de swap não está na whitelist on-chain.
     error RouterNotApproved(address router);
     event RouterApprovalSet(address indexed router, bool approved);
+    /// @notice Comet (Compound) não está na whitelist on-chain.
+    error CometNotApproved(address comet);
+    event CometApprovalSet(address indexed comet, bool approved);
+    event WethUpdated(address indexed newWeth);
+    event SwapRouterUpdated(address indexed newRouter);
+    event EthRescued(address indexed to, uint256 amount);
     bool private _killed;
 
     address public weth;
@@ -487,6 +495,10 @@ contract ZeusLiquidator is
             (cp, operator, baseBalanceBefore) = abi.decode(inner, (CompoundLiquidationParams, address, uint256));
         }
 
+        // Whitelist default-deny do Comet (paridade v10): o `cp.comet` vem do operador; só Comets aprovados
+        // recebem absorb/buyCollateral/approve. O check `baseToken()` abaixo é auto-referente (um Comet
+        // hostil responde os dois), então a whitelist é a defesa real contra um alvo arbitrário.
+        if (!approvedComet[cp.comet]) revert CometNotApproved(cp.comet);
         if (asset != IComet(cp.comet).baseToken()) revert InvalidCaller();
 
         uint256 collateralBefore = IERC20(cp.collateralAsset).balanceOf(address(this));
@@ -497,6 +509,7 @@ contract ZeusLiquidator is
 
         IERC20(asset).forceApprove(cp.comet, cp.baseAmount);
         IComet(cp.comet).buyCollateral(cp.collateralAsset, cp.minCollateralReceived, cp.baseAmount, address(this));
+        IERC20(asset).forceApprove(cp.comet, 0); // L-1: zera approval residual (hygiene, paridade com Morpho)
 
         uint256 collateralReceived = IERC20(cp.collateralAsset).balanceOf(address(this)) - collateralBefore;
         if (collateralReceived == 0) revert InsufficientProfit(0, 1);
@@ -694,6 +707,13 @@ contract ZeusLiquidator is
         emit RouterApprovalSet(router, approved);
     }
 
+    /// @notice Aprova/revoga um Comet (Compound III) pro caminho de liquidação Compound (whitelist on-chain).
+    function setApprovedComet(address comet, bool approved) external onlyOwner {
+        if (comet == address(0)) revert NotAuthorized();
+        approvedComet[comet] = approved;
+        emit CometApprovalSet(comet, approved);
+    }
+
     function isOperator(address account) external view override returns (bool) { return _operators[account]; }
 
     function rescueToken(address token, uint256 amount, address to) external override onlyOwner {
@@ -702,8 +722,17 @@ contract ZeusLiquidator is
         emit TokenRescued(token, amount, to);
     }
 
-    function setWeth(address newWeth) external override onlyOwner { weth = newWeth; }
-    function setUniV3SwapRouter(address newRouter) external override onlyOwner { uniV3SwapRouter = newRouter; }
+    function setWeth(address newWeth) external override onlyOwner { weth = newWeth; emit WethUpdated(newWeth); }
+    function setUniV3SwapRouter(address newRouter) external override onlyOwner { uniV3SwapRouter = newRouter; emit SwapRouterUpdated(newRouter); }
+
+    /// @notice Resgata ETH preso (todos os fluxos são ERC20; ETH só chega por engano/dust).
+    function rescueETH(address to) external onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        uint256 bal = address(this).balance;
+        (bool ok,) = to.call{value: bal}("");
+        if (!ok) revert NotAuthorized();
+        emit EthRescued(to, bal);
+    }
 
     // pause/unpause REMOVIDOS na v8 — kill switch (revive/kill) é o circuit breaker primário.
     // Manter 2 mecanismos pra mesma coisa adicionava bytecode sem ganho de segurança.

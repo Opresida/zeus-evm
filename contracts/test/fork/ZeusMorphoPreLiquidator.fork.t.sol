@@ -71,6 +71,7 @@ contract ZeusMorphoPreLiquidatorForkTest is Test {
         liq.revive();
         liq.setOperator(operator, true);
         liq.setApprovedPreLiquidation(PRE_LIQUIDATION, true);
+        liq.setApprovedRouter(SLIPSTREAM_ROUTER, true);
         vm.stopPrank();
     }
 

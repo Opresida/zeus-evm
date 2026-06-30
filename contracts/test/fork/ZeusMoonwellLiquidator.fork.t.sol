@@ -181,7 +181,7 @@ contract ZeusMoonwellLiquidatorForkTest is Test {
         liquidator.kill();
 
         vm.prank(operator);
-        vm.expectRevert(IZeusMoonwellLiquidator.Killed_.selector);
+        vm.expectRevert(IZeusMoonwellLiquidator.BotKilled.selector);
         liquidator.executeMoonwellLiquidation(_params(FlashSource.Aave));
     }
 

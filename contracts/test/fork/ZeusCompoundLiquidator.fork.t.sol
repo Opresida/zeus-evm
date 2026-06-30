@@ -74,6 +74,8 @@ contract ZeusCompoundLiquidatorForkTest is Test {
         liquidator.setOperator(operator, true);
         liquidator.revive();
         liquidator.setApprovedRouter(SWAP_ROUTER_V3, true);
+        liquidator.setApprovedComet(COMET_USDC, true);
+        liquidator.setApprovedComet(COMET_WETH, true);
         vm.stopPrank();
     }
 
@@ -116,6 +118,16 @@ contract ZeusCompoundLiquidatorForkTest is Test {
     function test_Fork_ExecuteCompoundLiquidation_FlashSourceAave_RoundTrip() public {
         vm.prank(operator);
         vm.expectRevert(); // reverte no absorb (Comet: not liquidatable), não na iniciação do flash
+        liquidator.executeCompoundLiquidation(_paramsUsdc(FlashSource.Aave));
+    }
+
+    /// v10: whitelist default-deny do Comet. Sem aprovar o Comet, o callback reverte CometNotApproved
+    /// ANTES do absorb — prova que um `cp.comet` arbitrário não passa.
+    function test_Fork_RevertsIfCometNotApproved() public {
+        vm.prank(owner);
+        liquidator.setApprovedComet(COMET_USDC, false); // revoga a aprovação do setUp
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(ZeusLiquidator.CometNotApproved.selector, COMET_USDC));
         liquidator.executeCompoundLiquidation(_paramsUsdc(FlashSource.Aave));
     }
 

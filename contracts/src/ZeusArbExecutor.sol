@@ -17,6 +17,7 @@ import {AerodromeLib} from "./libraries/AerodromeLib.sol";
 import {UniswapV2Lib} from "./libraries/UniswapV2Lib.sol";
 import {SlipstreamLib} from "./libraries/SlipstreamLib.sol";
 import {PancakeV3Lib} from "./libraries/PancakeV3Lib.sol";
+import {UniswapV4Lib} from "./libraries/UniswapV4Lib.sol";
 import {IBribeManager, BribeConfig} from "./interfaces/IBribeManager.sol";
 
 /// @title ZeusArbExecutor — contrato dedicado a arbitragens cross-DEX + backrun.
@@ -439,6 +440,8 @@ contract ZeusArbExecutor is
                 UniswapV2Lib.swap(steps[i]);
             } else if (dt == DexType.PancakeV3) {
                 PancakeV3Lib.swap(steps[i]);
+            } else if (dt == DexType.UniswapV4) {
+                UniswapV4Lib.swap(steps[i]);
             } else {
                 revert InvalidDexType(uint8(dt));
             }
@@ -478,13 +481,27 @@ contract ZeusArbExecutor is
         approvedRouter[router] = approved;
         emit RouterApprovalSet(router, approved);
     }
+    event WethUpdated(address indexed newWeth);
+    event SwapRouterUpdated(address indexed newRouter);
+    event EthRescued(address indexed to, uint256 amount);
+
     function rescueToken(address token, uint256 amount, address to) external override onlyOwner {
         if (to == address(0)) revert NotAuthorized();
         IERC20(token).safeTransfer(to, amount);
         emit TokenRescued(token, amount, to);
     }
-    function setWeth(address newWeth) external override onlyOwner { weth = newWeth; }
-    function setUniV3SwapRouter(address newRouter) external override onlyOwner { uniV3SwapRouter = newRouter; }
+
+    /// @notice Resgata ETH preso (fluxos são ERC20; ETH só chega por engano/dust).
+    function rescueETH(address to) external onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        uint256 bal = address(this).balance;
+        (bool ok,) = to.call{value: bal}("");
+        if (!ok) revert NotAuthorized();
+        emit EthRescued(to, bal);
+    }
+
+    function setWeth(address newWeth) external override onlyOwner { weth = newWeth; emit WethUpdated(newWeth); }
+    function setUniV3SwapRouter(address newRouter) external override onlyOwner { uniV3SwapRouter = newRouter; emit SwapRouterUpdated(newRouter); }
     // pause/unpause REMOVIDOS na v8 — kill switch é o circuit breaker primário.
 
     receive() external payable {}

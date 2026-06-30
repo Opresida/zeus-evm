@@ -75,12 +75,12 @@ contract ZeusMoonwellLiquidator is
     }
 
     modifier onlyOperator() {
-        if (!_operators[msg.sender]) revert NotAuthorized();
+        if (msg.sender != owner() && !_operators[msg.sender]) revert NotAuthorized();
         _;
     }
 
     modifier whenAlive() {
-        if (_killed) revert Killed_();
+        if (_killed) revert BotKilled();
         _;
     }
 
@@ -344,10 +344,21 @@ contract ZeusMoonwellLiquidator is
         emit RouterApprovalSet(router, approved);
     }
 
+    event EthRescued(address indexed to, uint256 amount);
+
     function rescueToken(address token, uint256 amount, address to) external override onlyOwner {
         if (to == address(0)) revert NotAuthorized();
         IERC20(token).safeTransfer(to, amount);
         emit TokenRescued(token, amount, to);
+    }
+
+    /// @notice Resgata ETH preso (fluxos são ERC20; ETH só chega por engano/dust).
+    function rescueETH(address to) external onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        uint256 bal = address(this).balance;
+        (bool ok,) = to.call{value: bal}("");
+        if (!ok) revert NotAuthorized();
+        emit EthRescued(to, bal);
     }
 
     receive() external payable {}

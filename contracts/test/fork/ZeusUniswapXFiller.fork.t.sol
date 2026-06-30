@@ -90,6 +90,7 @@ contract ZeusUniswapXFillerForkTest is Test {
         vm.startPrank(owner);
         filler.revive();
         filler.setOperator(operator, true);
+        filler.setApprovedRouter(UNIV3_ROUTER, true);
         vm.stopPrank();
     }
 

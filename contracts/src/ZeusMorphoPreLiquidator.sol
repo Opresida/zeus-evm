@@ -34,7 +34,13 @@ contract ZeusMorphoPreLiquidator is IZeusMorphoPreLiquidator, IPreLiquidationCal
     mapping(address => bool) private _operators;
     /// @notice Whitelist (default-deny) de contratos PreLiquidation autorizados a chamar nosso callback.
     mapping(address => bool) private _approvedPreLiquidation;
+    /// @notice Whitelist (default-deny) de routers DEX aprovados a receber approve+swap (paridade v10 com a família).
+    mapping(address => bool) public approvedRouter;
     bool private _killed;
+
+    error RouterNotApproved(address router);
+    event ApprovedRouterSet(address indexed router, bool approved);
+    event EthRescued(address indexed to, uint256 amount);
 
     /// @dev Flag transiente "eu iniciei esta pré-liquidação neste PreLiquidation" — defesa contra callback
     ///      inesperado/hijack (além da whitelist). Guarda o endereço esperado do `msg.sender` do callback.
@@ -63,7 +69,7 @@ contract ZeusMorphoPreLiquidator is IZeusMorphoPreLiquidator, IPreLiquidationCal
     }
 
     modifier onlyOperator() {
-        if (!_operators[msg.sender]) revert NotAuthorized();
+        if (msg.sender != owner() && !_operators[msg.sender]) revert NotAuthorized();
         _;
     }
 
@@ -151,6 +157,8 @@ contract ZeusMorphoPreLiquidator is IZeusMorphoPreLiquidator, IPreLiquidationCal
     function _executeSwaps(SwapStep[] memory steps) internal {
         uint256 len = steps.length;
         for (uint256 i = 0; i < len;) {
+            // Whitelist default-deny do router (paridade v10): bloqueia approve+call a endereço arbitrário.
+            if (!approvedRouter[steps[i].router]) revert RouterNotApproved(steps[i].router);
             uint256 effectiveAmountIn =
                 steps[i].amountIn == 0 ? IERC20(steps[i].tokenIn).balanceOf(address(this)) : steps[i].amountIn;
             uint256 cap = getMaxTradeFor(steps[i].tokenIn);
@@ -216,6 +224,12 @@ contract ZeusMorphoPreLiquidator is IZeusMorphoPreLiquidator, IPreLiquidationCal
         return _approvedPreLiquidation[preLiquidation];
     }
 
+    function setApprovedRouter(address router, bool approved) external onlyOwner {
+        if (router == address(0)) revert NotAuthorized();
+        approvedRouter[router] = approved;
+        emit ApprovedRouterSet(router, approved);
+    }
+
     function setMaxTradeWei(uint256 newMax) external override onlyOwner {
         emit MaxTradeWeiUpdated(maxTradeWei, newMax);
         maxTradeWei = newMax;
@@ -236,6 +250,15 @@ contract ZeusMorphoPreLiquidator is IZeusMorphoPreLiquidator, IPreLiquidationCal
         if (to == address(0)) revert NotAuthorized();
         IERC20(token).safeTransfer(to, amount);
         emit TokenRescued(token, amount, to);
+    }
+
+    /// @notice Resgata ETH preso (fluxos são ERC20; ETH só chega por engano/dust).
+    function rescueETH(address to) external onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        uint256 bal = address(this).balance;
+        (bool ok,) = to.call{value: bal}("");
+        if (!ok) revert NotAuthorized();
+        emit EthRescued(to, bal);
     }
 
     receive() external payable {}

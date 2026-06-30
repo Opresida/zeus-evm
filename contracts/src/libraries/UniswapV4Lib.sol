@@ -23,6 +23,9 @@ interface IPermit2 {
 library UniswapV4Lib {
     using SafeERC20 for IERC20;
 
+    /// @notice amountIn não cabe em uint128 — abortaria por truncamento silencioso (V4 usa uint128).
+    error AmountTooLarge(uint256 amountIn);
+
     address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
 
     // Universal Router command
@@ -53,6 +56,9 @@ library UniswapV4Lib {
     function swap(SwapStep memory step) internal returns (uint256 amountOut) {
         uint256 amountIn =
             step.amountIn == 0 ? IERC20(step.tokenIn).balanceOf(address(this)) : step.amountIn;
+        // Guarda anti-truncamento: V4 (Universal Router/Permit2) usa uint128/uint160 — sem isto, um
+        // amountIn >= 2^128 truncaria silenciosamente e o swap sairia com valor errado.
+        if (amountIn > type(uint128).max) revert AmountTooLarge(amountIn);
 
         PoolKey memory key = abi.decode(step.extraData, (PoolKey));
         bool zeroForOne = step.tokenIn == key.currency0;

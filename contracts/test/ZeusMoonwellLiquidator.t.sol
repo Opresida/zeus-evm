@@ -99,7 +99,7 @@ contract ZeusMoonwellLiquidatorTest is Test {
         vm.prank(owner);
         liq.kill();
         vm.prank(operator);
-        vm.expectRevert(IZeusMoonwellLiquidator.Killed_.selector);
+        vm.expectRevert(IZeusMoonwellLiquidator.BotKilled.selector);
         liq.executeMoonwellLiquidation(_params());
     }
 

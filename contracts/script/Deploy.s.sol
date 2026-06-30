@@ -71,6 +71,20 @@ contract DeployScript is Script {
     uint256 constant DEFAULT_MAX_TRADE_WEI_MAINNET = 0.1 ether;
     uint256 constant DEFAULT_MAX_TRADE_WEI_TESTNET = 0.01 ether;
 
+    // ─── v10: caps por-token + Comets aprovados (SÓ Base mainnet, chainid 8453) ───
+    // Tema C (decisão Humberto 2026-06-30): teto ~US$200k por token, ALTERÁVEL só pelo owner (multisig).
+    // Não é throttle: o sizer off-chain dimensiona pela liquidez ATÉ este teto. Tune via setMaxTradePerToken.
+    // Valores ~US$200k a preços de referência (ajustar via multisig conforme o mercado).
+    address constant BASE_USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address constant BASE_WETH = 0x4200000000000000000000000000000000000006;
+    address constant BASE_CBBTC = 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf;
+    uint256 constant CAP_USDC = 200_000e6; // 200k USDC (6 dec)
+    uint256 constant CAP_WETH = 60 ether; // ~US$200k @ ~$3.3k/ETH (18 dec) — generoso, tune via multisig
+    uint256 constant CAP_CBBTC = 2e8; // ~US$200k @ ~$100k/BTC (8 dec)
+    // Comets (Compound III) reais na Base — whitelist on-chain (paridade v10).
+    address constant BASE_COMET_USDC = 0xb125E6687d4313864e53df431d5425969c15Eb2F;
+    address constant BASE_COMET_WETH = 0x46e6b214b524310239732D51387075E0e70970bf;
+
     function run()
         external
         returns (
@@ -139,6 +153,18 @@ contract DeployScript is Script {
         //    setApprovedReactor(<reactors UniswapX>) — whitelist default-deny.
         uniswapXFiller = new ZeusUniswapXFiller(owner, maxTradeWei);
 
+        // v10: whitelist de router on-chain nos satélites (paridade com Liquidator/ArbExecutor).
+        if (owner == msg.sender && swapRouter != address(0)) {
+            morphoPreLiquidator.setApprovedRouter(swapRouter, true);
+            uniswapXFiller.setApprovedRouter(swapRouter, true);
+        }
+
+        // v10 Tema C — config de MAINNET (chainid 8453): caps ~US$200k por token + Comets aprovados.
+        // Só dispara em mainnet; em testnet o default global vale e estes endereços nem existem.
+        if (owner == msg.sender && block.chainid == 8453) {
+            _configureBaseMainnet(liquidator, arbExecutor, moonwellLiquidator, morphoPreLiquidator, uniswapXFiller);
+        }
+
         vm.stopBroadcast();
 
         console2.log("BribeManager deployed:", address(bribeManager));
@@ -165,6 +191,34 @@ contract DeployScript is Script {
         console2.log("  5) Fundear bot wallet com pequeno saldo de gas");
         console2.log("");
         console2.log("BribeManager nao precisa de revive/operator - eh stateless");
+        console2.log("");
+        console2.log("v10: setApprovedComet (Compound) + caps por-token aplicados se chainid==8453.");
+        console2.log("     Aprovar routers DEX restantes (Aero/Slipstream/Pancake/Sushi) em CADA contrato via runbook.");
+    }
+
+    /// @dev v10 — config de Base mainnet: caps ~US$200k por token (Tema C) + Comets aprovados.
+    ///      Alterável depois SÓ pelo owner (multisig). Não limita o sizer off-chain — é teto de segurança.
+    function _configureBaseMainnet(
+        ZeusLiquidator liquidator,
+        ZeusArbExecutor arbExecutor,
+        ZeusMoonwellLiquidator moonwellLiquidator,
+        ZeusMorphoPreLiquidator morphoPreLiquidator,
+        ZeusUniswapXFiller uniswapXFiller
+    ) internal {
+        // Comets reais aprovados no caminho Compound (whitelist default-deny).
+        liquidator.setApprovedComet(BASE_COMET_USDC, true);
+        liquidator.setApprovedComet(BASE_COMET_WETH, true);
+
+        // Caps por-token (~US$200k) nos 5 contratos que dimensionam por token.
+        address[3] memory toks = [BASE_USDC, BASE_WETH, BASE_CBBTC];
+        uint256[3] memory caps = [CAP_USDC, CAP_WETH, CAP_CBBTC];
+        for (uint256 i = 0; i < 3; i++) {
+            liquidator.setMaxTradePerToken(toks[i], caps[i]);
+            arbExecutor.setMaxTradePerToken(toks[i], caps[i]);
+            moonwellLiquidator.setMaxTradePerToken(toks[i], caps[i]);
+            morphoPreLiquidator.setMaxTradePerToken(toks[i], caps[i]);
+            uniswapXFiller.setMaxTradePerToken(toks[i], caps[i]);
+        }
     }
 
     function _resolveAavePool() internal view returns (address) {

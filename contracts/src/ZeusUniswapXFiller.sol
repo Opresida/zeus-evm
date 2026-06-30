@@ -34,7 +34,13 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
     mapping(address => bool) private _operators;
     /// @notice Whitelist (default-deny) de reactors UniswapX autorizados a chamar nosso callback.
     mapping(address => bool) private _approvedReactor;
+    /// @notice Whitelist (default-deny) de routers DEX aprovados a receber approve+swap (paridade v10).
+    mapping(address => bool) public approvedRouter;
     bool private _killed;
+
+    error RouterNotApproved(address router);
+    event ApprovedRouterSet(address indexed router, bool approved);
+    event EthRescued(address indexed to, uint256 amount);
 
     /// @dev Flag transiente "eu iniciei este fill neste reactor" — defesa anti-hijack (além da whitelist).
     uint256 private constant _EXPECTED_SLOT = uint256(keccak256("zeus.uniswapxfiller.expected.v1")) - 1;
@@ -61,7 +67,7 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
     }
 
     modifier onlyOperator() {
-        if (!_operators[msg.sender]) revert NotAuthorized();
+        if (msg.sender != owner() && !_operators[msg.sender]) revert NotAuthorized();
         _;
     }
 
@@ -141,6 +147,8 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
     function _executeSwaps(SwapStep[] memory steps) internal {
         uint256 len = steps.length;
         for (uint256 i = 0; i < len;) {
+            // Whitelist default-deny do router (paridade v10): bloqueia approve+call a endereço arbitrário.
+            if (!approvedRouter[steps[i].router]) revert RouterNotApproved(steps[i].router);
             uint256 effectiveAmountIn =
                 steps[i].amountIn == 0 ? IERC20(steps[i].tokenIn).balanceOf(address(this)) : steps[i].amountIn;
             uint256 cap = getMaxTradeFor(steps[i].tokenIn);
@@ -208,6 +216,12 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
         return _approvedReactor[reactor];
     }
 
+    function setApprovedRouter(address router, bool approved) external onlyOwner {
+        if (router == address(0)) revert NotAuthorized();
+        approvedRouter[router] = approved;
+        emit ApprovedRouterSet(router, approved);
+    }
+
     function setMaxTradeWei(uint256 newMax) external override onlyOwner {
         emit MaxTradeWeiUpdated(maxTradeWei, newMax);
         maxTradeWei = newMax;
@@ -228,6 +242,15 @@ contract ZeusUniswapXFiller is IZeusUniswapXFiller, IReactorCallback, Ownable2St
         if (to == address(0)) revert NotAuthorized();
         IERC20(token).safeTransfer(to, amount);
         emit TokenRescued(token, amount, to);
+    }
+
+    /// @notice Resgata ETH preso (este filler é dex-sourced/ERC20-only; ETH só chega por engano).
+    function rescueETH(address to) external onlyOwner {
+        if (to == address(0)) revert NotAuthorized();
+        uint256 bal = address(this).balance;
+        (bool ok,) = to.call{value: bal}("");
+        if (!ok) revert NotAuthorized();
+        emit EthRescued(to, bal);
     }
 
     receive() external payable {}

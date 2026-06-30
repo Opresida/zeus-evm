@@ -220,6 +220,29 @@ ela congela a própria autonomia), triagem por domínio [INFRA]/[CÓDIGO]/[CAPIT
 
 **Branches mergeadas+limpas:** `strategy-observability`, `preliq-multidex`, `atena-agent-design`.
 
+**5. 🛡️ Auditoria dos contratos (6 auditores paralelos, fork RPC) + v10 hardening:** zero bug crítico vivo;
+espinha dorsal sólida (anti-hijack flashloan, reentrância, profit gates, fixes H/M antigos intactos). 2
+inconsistências sistêmicas + higiene corrigidas (branch `claude/v10-hardening`):
+- **Tema A** — `approvedRouter` whitelist (default-deny) em ZeusMorphoPreLiquidator + ZeusUniswapXFiller
+  (tinham nascido sem a blindagem v9); `approvedComet` em ZeusLiquidator (caminho Compound) + zera approval
+  do buyCollateral. **NÃO limita o bot** — whitelist é de routers/comets (infra fixa), não de tokens/pares.
+- **Tema B** — `onlyOperator` unificado no modelo PERMISSIVO (owner||operador) nos 6: dono(=multisig só do
+  Humberto) opera E administra; chave quente do servidor só opera. Conserta footgun de deploy.
+- **Tema C** (decisão Humberto) — caps **~US$200k por token** setados no deploy em Base mainnet (8453);
+  setter segue `onlyOwner` (multisig = a proteção, SEM timelock). Não é throttle: o sizer off-chain dimensiona
+  pela liquidez ATÉ o teto. Tune via multisig.
+- **Tema D** — liga `DexType.UniswapV4` no ArbExecutor (antes revertia); guarda anti-truncamento uint128 no
+  UniswapV4Lib; eventos em setWeth/setUniV3SwapRouter; `rescueETH` em todos; `Killed_`→`BotKilled` (Moonwell).
+- **Verde:** `forge test` **191** (0 fail, 1 skip, RPC ON, +deny test do comet) · typecheck 0 · TS 359/114/52 ·
+  EIP-170 ok (ZeusLiquidator 22.502/24.576 — folga 2.074, **vigiar**).
+- **Deploy v10 Base Sepolia (2026-06-30, owner=deployer=`0xE060…cBB4`, todos KILLED fail-safe):**
+  BribeManager `0x7395111e3A5495396E4dca387Bc023731eB6E239` · ZeusLiquidator `0xc971101BC132C3814961D87E32F6744981f36957` ·
+  ZeusArbExecutor `0xfbba12130f199C762e8A70d7a2815b634A8B13e0` · ZeusMoonwellLiquidator `0xCF19B41eC7BAb6A3FAF5a6ece6Aa394430b803da` ·
+  ZeusMorphoPreLiquidator `0x5Ffc8a207D951EFbD54A6De6B01DE39C08fE31F9` · ZeusUniswapXFiller `0x9b2E5CC77004485eB5c87C69AE82F4E860D852AB`.
+  Verificado via cast: owner ok, killed=true, approvedRouter(UniV3)=true nos 4, approvedComet/random=false (default-deny).
+  **Pós-deploy (runbook):** revive() + setOperator(bot) + aprovar routers DEX restantes (Aero/Slipstream/Pancake/Sushi).
+  **Mainnet exige re-audit do v10 + 2 semanas testnet** (regra inviolável).
+
 ---
 
 ## 🆕 SESSÃO 2026-06-26 — Motor 1 (pré-liq) + Motor 2 (filler UniswapX + V4) COMPLETOS, mergeado na `main`

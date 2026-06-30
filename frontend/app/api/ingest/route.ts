@@ -68,6 +68,7 @@ export async function POST(req: Request) {
       adaptive_min_ev_usd: e.adaptiveMinEvUsd ?? null,
       auto_paused: e.autoPaused ?? null,
       motor_stats: e.motorStats ?? null,
+      strategy_stats: e.strategyStats ?? null, // comparativo por estratégia (tela "Estratégias")
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
       // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).

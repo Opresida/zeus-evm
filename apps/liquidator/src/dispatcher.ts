@@ -66,6 +66,8 @@ export interface DispatchInput {
    * retorna null se o teto coletivo estouraria → a tx é SEGURADA (não dispara). Default ausente = sender único.
    */
   senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  /** Tracker de estratégias — registra o resultado executado (clássica vs pré-liq) pro painel. */
+  strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   /** Exposição (wei) a reservar no breaker agregado por esta tx (ex: tamanho do trade). */
   poolExposureWei?: bigint;
   /** Resumo pra logging contextual */
@@ -646,6 +648,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
         blockNumber: receipt.blockNumber.toString(),
         swapVenue: input.swapVenue,
       });
+    }
+
+    // Resultado executado → comparação de estratégias do painel (clássica vs pré-liq).
+    if (input.strategyTracker && protocol) {
+      input.strategyTracker.executed(protocol === 'morpho-preliq' ? 'pre-liq' : 'classic-liq', netProfitUsd ?? 0);
     }
 
     return {

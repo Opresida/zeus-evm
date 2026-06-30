@@ -117,6 +117,10 @@ export interface ServiceStatusRow {
   adaptive_min_ev_usd: number | null;
   auto_paused: boolean | null;
   motor_stats: { tag: string; ops: number; netPnl24hUsd: number }[] | null;
+  /** Comparativo por estratégia (tela "Estratégias"). */
+  strategy_stats:
+    | { strategy: 'classic-liq' | 'pre-liq' | 'filler'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
+    | null;
   /** Pulso do radar (item 2) — último tick de descoberta. */
   discovery: { positions: number; dispatched: number; rejected: number; atIso: string } | null;
   /** Agregados de inteligência (item 3) — market-bribe, competidores, drift. */
@@ -162,9 +166,18 @@ export interface WalletSnapshotRow {
   balance_usd: number | null;
 }
 
+/** Agregado comparativo por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
+export interface StrategyStat {
+  strategy: "classic-liq" | "pre-liq" | "filler";
+  candidates24h: number;
+  candidateProfitUsd24h: number;
+  executed24h: number;
+  netUsd24h: number;
+}
+
 /** Estado de UI controlado pelo painel. */
 export interface UiState {
-  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "reports" | "settings" | "admin";
+  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "strategies" | "reports" | "settings" | "admin";
   theme: "navy" | "black";
   txFilter: "all" | "ok" | "rev" | "pre";
   period: "daily" | "weekly" | "monthly";
@@ -207,6 +220,8 @@ export interface LiveSnapshot {
   intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number; bribeAutoRaised?: boolean; bribeReason?: string; competitiveBribeAutoEnabled?: boolean; bribeAutoEnableReason?: string };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
+  /** Comparativo por estratégia (tela "Estratégias") — fundido dos heartbeats liquidator+mis-scanner. */
+  strategyStats?: StrategyStat[];
 
   // ----- Fase 1: agregados de PnL / gás / relatórios (derivados de events tx.*) -----
   kpi7d?: number;

@@ -262,6 +262,26 @@ export function deriveSnapshot(
     };
   }
 
+  // ----- Comparativo por estratégia (tela "Estratégias") -----
+  // Funde os 2 serviços: liquidator traz classic-liq + pre-liq; mis-scanner traz filler. Cada serviço
+  // zera as estratégias que não rastreia → somar por chave dá o agregado correto.
+  const STRATS = ["classic-liq", "pre-liq", "filler"] as const;
+  const stratAcc: Record<string, { candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }> = {};
+  for (const k of STRATS) stratAcc[k] = { candidates24h: 0, candidateProfitUsd24h: 0, executed24h: 0, netUsd24h: 0 };
+  let sawStrat = false;
+  for (const s of statuses) {
+    for (const st of s.strategy_stats ?? []) {
+      const a = stratAcc[st.strategy];
+      if (!a) continue;
+      sawStrat = true;
+      a.candidates24h += st.candidates24h;
+      a.candidateProfitUsd24h += st.candidateProfitUsd24h;
+      a.executed24h += st.executed24h;
+      a.netUsd24h += st.netUsd24h;
+    }
+  }
+  if (sawStrat) snap.strategyStats = STRATS.map((strategy) => ({ strategy, ...stratAcc[strategy] }));
+
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");

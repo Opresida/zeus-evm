@@ -19,6 +19,7 @@ import type {
   HeartbeatKillSwitch,
   HeartbeatLatency,
   HeartbeatReorgs,
+  HeartbeatStrategyStat,
   ZeusHeartbeatEvent,
 } from '@zeus-evm/execution-utils';
 
@@ -39,6 +40,8 @@ export interface HeartbeatInput {
   ops: number;
   /** PnL líquido 24h (USD). */
   netPnl24hUsd: number;
+  /** Agregado por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
+  strategyStats?: HeartbeatStrategyStat[];
   /** Pulso do radar de descoberta — omitido por motores sem discovery. */
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência — omitido quando não há dados. */
@@ -68,6 +71,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     autoPaused: i.autoPaused,
     motorStats: [{ tag: i.motorTag, ops: i.ops, netPnl24hUsd: i.netPnl24hUsd }],
     // Só inclui se houver dado — mantém o payload enxuto (intel/discovery são opcionais no tipo).
+    ...(i.strategyStats && i.strategyStats.length ? { strategyStats: i.strategyStats } : {}),
     ...(i.discovery ? { discovery: i.discovery } : {}),
     ...(i.intel ? { intel: i.intel } : {}),
     ...(i.health && i.health.components.length ? { health: i.health } : {}),

@@ -25,6 +25,8 @@ export {
   type PnlTrackerOpts,
 } from './pnlTracker';
 
+export { StrategyStatsTracker, type StrategyKey, type StrategyStatsTrackerOpts } from './strategyStats';
+
 export {
   FailureTracker,
   type FailureStats,
@@ -78,6 +80,7 @@ export type {
   BackrunRejectedEvent,
   ZeusHeartbeatEvent,
   MotorStat,
+  HeartbeatStrategyStat,
   HeartbeatDiscovery,
   HeartbeatIntel,
   HeartbeatHealth,

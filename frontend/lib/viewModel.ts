@@ -114,6 +114,38 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     });
   })();
 
+  // ---- Comparativo de estratégias (tela "Estratégias"): candidatos × resultados ----
+  const STRAT_META: Record<string, [string, string]> = {
+    "classic-liq": ["Liquidação Clássica", "⚡"],
+    "pre-liq": ["Pré-liquidação Morpho", "🔮"],
+    filler: ["Filler UniswapX", "🔀"],
+  };
+  const strategyCards = (live?.strategyStats ?? M.strategyStats ?? []).map((s) => {
+    const [name, icon] = STRAT_META[s.strategy] ?? [s.strategy, "•"];
+    const avgCand = s.candidates24h > 0 ? s.candidateProfitUsd24h / s.candidates24h : 0;
+    const avgExec = s.executed24h > 0 ? s.netUsd24h / s.executed24h : 0;
+    return {
+      strategy: s.strategy,
+      name,
+      icon,
+      candidates: s.candidates24h,
+      candidateUsd: usd(s.candidateProfitUsd24h),
+      candidateUsdRaw: s.candidateProfitUsd24h,
+      executed: s.executed24h,
+      netUsd: usd(s.netUsd24h),
+      netUsdRaw: s.netUsd24h,
+      avgCand: usd(avgCand),
+      avgExec: usd(avgExec),
+    };
+  });
+  // Vencedor: maior lucro REALIZADO se já houve execução; senão, maior POTENCIAL (candidatos do DRY_RUN).
+  const strategyWinner = (() => {
+    if (!strategyCards.length) return null;
+    const anyExec = strategyCards.some((s) => s.executed > 0);
+    const k = anyExec ? "netUsdRaw" : "candidateUsdRaw";
+    return strategyCards.reduce((best, s) => ((s as never)[k] > (best as never)[k] ? s : best)).strategy;
+  })();
+
   // ---- Marco: "lucro provado" da arb de 2 pernas → hora de ligar a triangular ----
   // Gatilho REAL e conservador: lucro líquido ACUMULADO do Motor 2 (arb) >= limiar E nº de operações
   // confirmadas >= mínimo (pra um trade sortudo não disparar). Só no modo AO VIVO (não no demo).
@@ -409,6 +441,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     k,
     pnl14,
     motors,
+    strategyCards,
+    strategyWinner,
     insights,
     ticker,
     txFilters,

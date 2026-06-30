@@ -57,8 +57,8 @@ library UniswapV4Lib {
         uint256 amountIn =
             step.amountIn == 0 ? IERC20(step.tokenIn).balanceOf(address(this)) : step.amountIn;
         // Guarda anti-truncamento: V4 (Universal Router/Permit2) usa uint128/uint160 — sem isto, um
-        // amountIn >= 2^128 truncaria silenciosamente e o swap sairia com valor errado.
-        if (amountIn > type(uint128).max) revert AmountTooLarge(amountIn);
+        // amountIn >= 2^128 truncaria silenciosamente. Cobre TAMBÉM minAmountOut (cast uint128 no param do router).
+        if (amountIn > type(uint128).max || step.minAmountOut > type(uint128).max) revert AmountTooLarge(amountIn);
 
         PoolKey memory key = abi.decode(step.extraData, (PoolKey));
         bool zeroForOne = step.tokenIn == key.currency0;

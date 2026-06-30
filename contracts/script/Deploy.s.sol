@@ -172,6 +172,19 @@ contract DeployScript is Script {
             _configureBaseMainnet(liquidator, arbExecutor, moonwellLiquidator, morphoPreLiquidator, uniswapXFiller);
         }
 
+        // v10 — fluxo de posse: deploya como EOA (turnkey dispara, pois owner==msg.sender), e SE FINAL_OWNER
+        // (ex: multisig) estiver setado, INICIA a transferência da posse dos 5 Ownable após configurar tudo.
+        // Ownable2Step → o multisig precisa chamar acceptOwnership() em cada contrato (gate deliberado).
+        address finalOwner = _resolveFinalOwner();
+        if (owner == msg.sender && finalOwner != address(0) && finalOwner != owner) {
+            liquidator.transferOwnership(finalOwner);
+            arbExecutor.transferOwnership(finalOwner);
+            moonwellLiquidator.transferOwnership(finalOwner);
+            morphoPreLiquidator.transferOwnership(finalOwner);
+            uniswapXFiller.transferOwnership(finalOwner);
+            console2.log("Ownership transfer INICIADO p/ FINAL_OWNER (multisig deve acceptOwnership em CADA):", finalOwner);
+        }
+
         vm.stopBroadcast();
 
         console2.log("BribeManager deployed:", address(bribeManager));
@@ -297,6 +310,16 @@ contract DeployScript is Script {
             if (ownerOverride != address(0)) return ownerOverride;
         } catch {}
         return msg.sender;
+    }
+
+    /// @dev v10 — destino final da posse (multisig). Deploya como EOA (turnkey roda) e transfere depois.
+    ///      Vazio = mantém a posse no deployer (ex: testnet).
+    function _resolveFinalOwner() internal view returns (address) {
+        try vm.envAddress("FINAL_OWNER") returns (address f) {
+            return f;
+        } catch {
+            return address(0);
+        }
     }
 
     function _resolveMaxTradeWei() internal view returns (uint256) {

@@ -240,8 +240,16 @@ inconsistências sistêmicas + higiene corrigidas (branch `claude/v10-hardening`
   ZeusArbExecutor `0xfbba12130f199C762e8A70d7a2815b634A8B13e0` · ZeusMoonwellLiquidator `0xCF19B41eC7BAb6A3FAF5a6ece6Aa394430b803da` ·
   ZeusMorphoPreLiquidator `0x5Ffc8a207D951EFbD54A6De6B01DE39C08fE31F9` · ZeusUniswapXFiller `0x9b2E5CC77004485eB5c87C69AE82F4E860D852AB`.
   Verificado via cast: owner ok, killed=true, approvedRouter(UniV3)=true nos 4, approvedComet/random=false (default-deny).
-  **Pós-deploy (runbook):** revive() + setOperator(bot) + aprovar routers DEX restantes (Aero/Slipstream/Pancake/Sushi).
-  **Mainnet exige re-audit do v10 + 2 semanas testnet** (regra inviolável).
+  **Pós-deploy (runbook testnet):** revive() + setOperator(bot). Na MAINNET os routers/caps/comets são TURNKEY
+  (deploy aplica auto se deployer==owner) — só revive()+setOperator ficam manuais.
+- **Deploy mainnet turnkey:** `_configureBaseMainnet` (chainid 8453) aprova **11 routers DEX da Base + caps
+  $200k (USDC/WETH/cbBTC) + 2 Comets** nos 5 contratos. Fluxo de posse: deploya como EOA (turnkey dispara) →
+  `FINAL_OWNER` env (multisig) recebe `transferOwnership` → multisig faz `acceptOwnership()` (Ownable2Step).
+- **🛡️ RE-AUDITORIA do v10 (5 auditores paralelos, fork RPC, 2026-06-30):** **zero crítico/HIGH/MEDIUM.** HIGH
+  (pré-liq/filler router) + LOW-2 (comet) ORIGINAIS resolvidos, sem regressão; anti-hijack/reentrância/fixes
+  H-01/H-02/M-01/M-02 intactos; **16/16 endereços do deploy conferidos via cast** (símbolo/decimais/baseToken).
+  2 ajustes finos aplicados: guarda uint128 do `minAmountOut` no V4Lib + fluxo de posse `FINAL_OWNER` no deploy.
+  **Mainnet ainda exige 2 semanas testnet** (regra inviolável). EIP-170: ZeusLiquidator 22.502/24.576 (vigiar).
 
 ---
 

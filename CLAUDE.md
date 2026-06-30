@@ -181,6 +181,38 @@ zeus-evm/
 
 ---
 
+## 🆕 SESSÃO 2026-06-30 (noite) — Token Vetting Service (porteiro de tokens) — Etapas 1-3 (branch `claude/token-vetting`)
+
+**Plano APROVADO** (`~/.claude/plans/...parasol.md`): porteiro de tokens compartilhado pelos 2 motores que decide
+quem ENTRA/SAI do universo de trading, com observabilidade total no painel (entrou/saiu + motivo PT-BR simples),
+em **fatias verticais** (backend+frontend juntos), **sem perder o EDGE** e **sem tocar contrato** (100% off-chain).
+**Decisões do Humberto:** M2 completo primeiro → depois M1; **observar antes de filtrar** (cultura DRY_RUN);
+lock **leve→profundo** (flag GoPlus agora, on-chain depois); o filtro liga por **botão admin** (`engine_control`),
+Claude nunca auto-liga. **Toggles independentes:** "Enviar TX" (motor) e "Filtro de tokens" (vetting) NÃO dependem
+um do outro — dá pra enviar TX com o filtro off (universo cheio, sem porteiro). Humberto quer testar dos 2 jeitos.
+
+**Política por motor (o núcleo):** M2 (arb) = token ESCOLHIDO → exige segurança+saída+liquidez+**edge**; M1 (liq) =
+token IMPOSTO (colateral) → "dá pra VENDER com segurança?" (sem filtro de edge; LSDs aceitos). Mesmo verdict, política
+parametrizada. Fail-safe: dado parcial → M1 `pass` (nunca bloqueia liquidação lucrativa), M2 `reject`.
+
+**Feito (verde a cada etapa; sem contrato tocado):**
+- **Etapa 1** — realoca o motor de safety (`tokenSafety`+`tokenSafetyFilters`) de `apps/discovery-scraper` →
+  `packages/execution-utils/src/vetting` (camada correta; 3 importadores religados). `vetToken(opts,deps)` compõe
+  safety (GoPlus) + saída multi-DEX (`bestSwapAcrossDexes`) + piso de liquidez + lock; `policy.ts`/`reasons.ts`.
+  Tela **"Tokens"** ponta-a-ponta (schema `vetted_universe` → ingest saneado → live → viewModel → `Tokens.tsx` → NAV),
+  renderiza em DEMO.
+- **Etapa 2** — M2 **observar**: `runVettingObserve` veta o universo do M2 (não filtra), `VettingUniverseTracker` +
+  eventos `token.entered`/`token.exited` (anti-flicker) → log "Entrou/Saiu" no painel.
+- **Etapa 3** — M2 **enforce** (botão admin via `engine_control('vetting_m2_enforce')`): filtra o universo de scan +
+  gate ao vivo no caminho de execução; badge "filtro M2 ligado/observando". **Motor 2 fechado.**
+- Responsividade da tela Tokens (padrão `z-txtable`/`z-card-row`, igual Transações/Inteligência).
+
+**Verde:** typecheck 0 · execution-utils 365 · mis-scanner 52 (RPC) · frontend 39 · tsc 0.
+**Pendente (próxima sessão):** Etapa 4 (M1 observar) · 5 (M1 enforce) · 6 (lock on-chain + liquidez round-trip +
+re-vet contínuo/auto-demote) · 7 (histórico DuckDB + hardening + docs + sweep). Detalhe em `docs/TOKEN_VETTING.md`.
+
+---
+
 ## 🆕 SESSÃO 2026-06-30 — Tela Estratégias + pentest + pré-liq multi-DEX + design da Atena (tudo na `main`)
 
 Sessão de observabilidade + higiene + visão. **4 merges na `main`**, sweep verde com RPC ligado a cada passo
@@ -642,6 +674,7 @@ Eu, Claude, tenho limites em áreas como:
 | `docs/MOTOR3_REFIT.md` | Refit do motor 3 (backrun) |
 | `docs/NO_EDGE_TOKENS.md` | Tokens sem edge (blacklist/filtro) |
 | `docs/ATENA_AGENT_DESIGN.md` | 🦉 Design da Atena (agente de IA operacional: autonomia graduada, 5 travas, custos API≠Max, rollout 0→4) |
+| `docs/TOKEN_VETTING.md` | 🛂 Porteiro de tokens (vetting): política por motor, matriz de flags/toggles, observar→enforce, estado das 7 etapas |
 
 **docs/refs/ (conhecimento externo — outro agente cuida, não editar aqui):**
 

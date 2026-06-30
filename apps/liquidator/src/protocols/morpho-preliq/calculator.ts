@@ -22,9 +22,11 @@ import {
   quoteUniswapV3,
   quoteUniswapV3MultiHop,
   buildCandidateRoutes,
+  bestSwapAcrossDexes,
   isQuote,
   type Quote,
 } from '@zeus-evm/dex-adapters';
+import type { ChainConfig } from '@zeus-evm/chain-config';
 import { cachedQuoteUniswapV3, estimateUsd } from '@zeus-evm/execution-utils';
 
 import type { LiquidatorEnv } from '../../config';
@@ -39,6 +41,8 @@ export interface PreLiquidationCalculatorOpts {
   env: LiquidatorEnv;
   client: AnyPublicClient;
   quoterAddress: Address;
+  /** Chain config — habilita o swap multi-DEX (UniV3/Aero/Slipstream). Ausente = só UniV3 + multi-hop. */
+  chainConfig?: ChainConfig;
   /** Intermediates pra multi-hop swap (WETH/USDC). Vazio = só single-hop. */
   multiHopIntermediates?: readonly Address[];
 }
@@ -65,6 +69,22 @@ async function bestCollateralToLoanQuote(
   amountIn: bigint,
   opts: PreLiquidationCalculatorOpts,
 ): Promise<Quote | null> {
+  // Multi-DEX (single-hop UniV3/Aero/Slipstream) quando chainConfig presente. Substitui o multi-hop
+  // legado (que NÃO era executável single-hop pelo contrato → revert) — estimativa == execução, e
+  // captura a liquidez CL profunda de Aero/Slipstream nos colaterais LSD (cbETH/wstETH/cbBTC) da pré-liq.
+  if (opts.chainConfig) {
+    return bestSwapAcrossDexes({
+      client: opts.client,
+      chainConfig: opts.chainConfig,
+      tokenIn: position.collateralToken,
+      tokenOut: position.loanToken,
+      amountIn,
+      decimalsIn: position.collateralTokenDecimals,
+      decimalsOut: position.loanTokenDecimals,
+    });
+  }
+
+  // Legado (sem chainConfig): UniV3 single-hop + multi-hop.
   let best: Quote | null = null;
 
   for (const fee of UNI_V3_FEE_TIERS) {

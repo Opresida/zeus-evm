@@ -36,6 +36,20 @@ export const MOCK = {
     { strategy: "filler" as const, candidates24h: 58, candidateProfitUsd24h: 173.9, executed24h: 12, netUsd24h: 47.1 },
   ],
 
+  // Porteiro de tokens (tela "Tokens") — semente que mostra a política POR MOTOR no dia 1:
+  // o mesmo LSD (cbETH) entra no M1 (é colateral) mas é rejeitado no M2 (sem edge de arb).
+  vettedUniverse: [
+    { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor1" as const, verdict: "pass" as const, reason: "entrou: tem saída na Aerodrome, liquidez ok ($1,2M), passou no exame de segurança", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
+    { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: seguro, mas sem edge de arbitragem (não vale a pena pro arb)", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
+    { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true, lockPct: 88, locker: "UniCrypt", unlockIso: "2027-03-01T00:00:00Z" },
+    { token: "0x00000000000000000000000000000000deadbeef", symbol: "SCAM", motor: "motor2" as const, verdict: "reject" as const, reason: "saiu: é honeypot (não dá pra vender) — bloqueado", liquidityUsd: 0, locked: false },
+  ],
+  tokenLog: [
+    { time: "14:32", symbol: "DEGEN", motor: "M2", action: "entrou", reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", color: "var(--green)" },
+    { time: "14:30", symbol: "SCAM", motor: "M2", action: "saiu", reason: "saiu: é honeypot (não dá pra vender) — bloqueado", color: "var(--red)" },
+    { time: "14:18", symbol: "PEPE", motor: "M2", action: "saiu", reason: "saiu: liquidez abaixo do piso ($12k)", color: "var(--red)" },
+  ],
+
   insights: [
     { color: "var(--gold)", text: "Motor 2 (Arbitragem) respondeu por 63% do lucro hoje — concentração acima da média semanal." },
     { color: "var(--red)", text: "Drift do Morpho subiu ~300 bps nas últimas 2h; calibração de EV sugerida." },
@@ -199,6 +213,8 @@ export const EMPTY: typeof MOCK = {
   raw14: [],
   motors: [],
   strategyStats: [],
+  vettedUniverse: [],
+  tokenLog: [],
   insights: [],
   ticker: [],
   allRows: [],

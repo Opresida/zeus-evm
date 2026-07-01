@@ -14,6 +14,7 @@
  */
 
 import type { Address } from 'viem';
+import type { VettedEntry } from './vetting/universeTracker';
 
 export type Severity = 'info' | 'warn' | 'critical';
 
@@ -37,6 +38,8 @@ export type ZeusEvent =
   | FailureRecordedEvent
   | CalibrationAppliedEvent
   | WalletSnapshotEvent
+  | TokenEnteredEvent
+  | TokenExitedEvent
   | ZeusHeartbeatEvent;
 
 interface BaseEvent {
@@ -61,6 +64,39 @@ export interface LiquidatorShutdownEvent extends BaseEvent {
   severity: 'info';
   uptimeSec: number;
   reason: string;
+}
+
+/** Porteiro de tokens — um token ENTROU no universo de trading (passou no vetting). */
+export interface TokenEnteredEvent extends BaseEvent {
+  type: 'token.entered';
+  severity: 'info';
+  token: Address;
+  symbol: string;
+  motor: 'motor1' | 'motor2';
+  /** = symbol (pro frontend toRow.pair). */
+  pair: string;
+  /** Motivo em PT-BR simples. */
+  reason: string;
+  exitDex?: string;
+  liquidityUsd: number;
+  locked: boolean;
+  /** Etapa 2: false (só observa). Vira true quando o enforce está ligado (Etapa 3+). */
+  wouldEnforce: boolean;
+}
+
+/** Porteiro de tokens — um token SAIU do universo (reprovou no vetting). */
+export interface TokenExitedEvent extends BaseEvent {
+  type: 'token.exited';
+  severity: 'info';
+  token: Address;
+  symbol: string;
+  motor: 'motor1' | 'motor2';
+  pair: string;
+  reason: string;
+  exitDex?: string;
+  liquidityUsd: number;
+  locked: boolean;
+  wouldEnforce: boolean;
 }
 
 export interface TxConfirmedEvent extends BaseEvent {
@@ -450,6 +486,12 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   motorStats?: MotorStat[];
   /** Agregado comparativo por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
   strategyStats?: HeartbeatStrategyStat[];
+  /** Universo vetado por token (porteiro) — tela "Tokens". */
+  vettedUniverse?: VettedEntry[];
+  /** Estado do filtro de tokens por motor (badge "filtro ligado" na tela "Tokens"). */
+  vettingEnforce?: { motor1?: boolean; motor2?: boolean };
+  /** ISO do último re-vet do porteiro (freshness "re-vet há Xs" na tela "Tokens"). */
+  vettingRevetAt?: string;
   /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */

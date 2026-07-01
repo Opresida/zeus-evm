@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { runVettingRevetM1 } from './vettingObserve';
 import { buildHeartbeatPayload, compactIntel, type HeartbeatInput } from './heartbeat';
 import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
@@ -60,6 +61,7 @@ import {
   slippageCache,
   PnlTracker,
   StrategyStatsTracker,
+  VettingUniverseTracker,
   FailureTracker,
   PositionDedupTracker,
   GasReserveTracker,
@@ -174,6 +176,12 @@ interface LiquidatorState {
   preLiqSenderPool?: WalletPoolOrchestrator;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker: StrategyStatsTracker;
+  /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */
+  vettingTracker: VettingUniverseTracker;
+  /** Estado AO VIVO do filtro de tokens M1 (toggle vetting_m1_enforce), objeto por-ref (poll+heartbeat+deps veem o mesmo). */
+  vettingEnforce: { m1: boolean };
+  /** ISO do último re-vet do porteiro M1 (freshness na tela "Tokens"), por-ref. */
+  vettingLastRevet: { iso?: string };
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -252,6 +260,11 @@ export async function boot(): Promise<LiquidatorState> {
   // PnL Tracker — em dryrun, autoKill é forçado false (estado interno é suficiente)
   // Tracker de estratégias (candidatos+executados por estratégia) — lido pelo heartbeat (tela "Estratégias").
   const strategyTracker = new StrategyStatsTracker();
+  // Porteiro de tokens (M1) — verdict por colateral, lido pelo heartbeat (tela "Tokens").
+  const vettingTracker = new VettingUniverseTracker();
+  // Estado do filtro M1 (por-ref): o poll atualiza, o heartbeat e os deps leem a MESMA referência.
+  const vettingEnforce = { m1: false };
+  const vettingLastRevet: { iso?: string } = {}; // freshness do re-vet (por-ref; loop atualiza, heartbeat lê)
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
@@ -989,6 +1002,9 @@ export async function boot(): Promise<LiquidatorState> {
           ops: discoveryPulse.opsTotal,
           netPnl24hUsd: pnlStats.netPnlUsd,
           strategyStats: strategyTracker.snapshot(),
+          vettedUniverse: vettingTracker.snapshot(),
+          vettingEnforce: { motor1: vettingEnforce.m1 },
+          vettingRevetAt: vettingLastRevet.iso,
           discovery: discoveryPulse.last,
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
           intel: {
@@ -1275,6 +1291,9 @@ export async function boot(): Promise<LiquidatorState> {
     preLiquidationBorrowerCaches,
     preLiqSenderPool,
     strategyTracker,
+    vettingTracker,
+    vettingEnforce,
+    vettingLastRevet,
     discoveryPulse,
     pnlTracker,
     failureTracker,
@@ -1644,6 +1663,8 @@ export async function processOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1690,6 +1711,8 @@ export async function processCompoundOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1733,6 +1756,8 @@ export async function processMorphoOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1776,6 +1801,8 @@ export async function processMoonwellOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1819,6 +1846,8 @@ export async function processMorphoPreLiquidationOpportunity(
     tracer: state.tracer,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     senderPool: state.preLiqSenderPool,
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });
@@ -2320,6 +2349,62 @@ async function main() {
       logger.debug({ err: err instanceof Error ? err.message : err }, 'poll engine_control falhou (mantém travado)'),
     );
   }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
+
+  // ─── Toggle do FILTRO de tokens M1 (vetting_m1_enforce) — poll ao vivo, vale mesmo em DRY_RUN ───
+  // Chave-mestra = env VETTING_M1_ENFORCE; liga/desliga ao vivo = botão admin do painel. Fail-safe:
+  // erro/sem-config → false (filtro off). E dado PARCIAL por token → M1 não bloqueia (no vetToken/pipeline).
+  const pollVettingEnforceM1 = async () => {
+    if (!(state.env.VETTING_ENABLED && state.env.VETTING_M1_ENFORCE)) return;
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: state.env.SUPABASE_URL,
+      supabaseKey: state.env.SUPABASE_KEY,
+      motor: 'vetting_m1_enforce',
+    });
+    if (next !== state.vettingEnforce.m1) {
+      state.vettingEnforce.m1 = next;
+      logger.warn(
+        { vettingEnforceM1: next },
+        next
+          ? '🛂 TOGGLE: filtro de tokens M1 LIGADO — colateral reprovado é pulado pré-dispatch (dado parcial NÃO bloqueia)'
+          : '🛂 TOGGLE: filtro de tokens M1 DESLIGADO',
+      );
+    }
+  };
+  if (state.env.VETTING_ENABLED && state.env.VETTING_M1_ENFORCE) {
+    await pollVettingEnforceM1();
+    setInterval(() => {
+      pollVettingEnforceM1().catch((err) =>
+        logger.debug({ err: err instanceof Error ? err.message : err }, 'poll vetting_m1_enforce falhou'),
+      );
+    }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
+  }
+
+  // ─── Etapa 6: porteiro VIVO (M1) — re-veta os colaterais do universo num loop (auto-demote/auto-promote) ───
+  const revetUsdc = state.ctx.chainConfig.tokens['USDC'] as `0x${string}` | undefined;
+  if (state.env.VETTING_ENABLED && state.env.VETTING_REVET_ENABLED && revetUsdc) {
+    const revetTimer = setInterval(() => {
+      runVettingRevetM1({
+        client: state.ctx.client,
+        chainConfig: state.ctx.chainConfig,
+        quoteToken: revetUsdc,
+        quoteTokenDecimals: 6,
+        tracker: state.vettingTracker,
+        eventBus: state.eventBus,
+        mode: state.env.LIQUIDATOR_MODE,
+        safetyCacheDir: state.env.VETTING_SAFETY_CACHE_DIR,
+        deepLiquidity: state.env.VETTING_DEEP_LIQUIDITY,
+        maxRoundtripBps: state.env.VETTING_MAX_ROUNDTRIP_BPS,
+        roundtripNotionalUsd: state.env.VETTING_ROUNDTRIP_USD,
+        enforce: state.vettingEnforce.m1,
+      })
+        .then((r) => {
+          if (r.entered || r.exited) logger.info({ ...r }, `🛂 re-vet M1: +${r.entered} entraram · -${r.exited} saíram`);
+          state.vettingLastRevet.iso = new Date().toISOString();
+        })
+        .catch((err) => logger.debug({ err: err instanceof Error ? err.message : err }, 're-vet M1 falhou (ignorado)'));
+    }, state.env.VETTING_REVET_SEC * 1000);
+    revetTimer.unref();
+  }
 
   // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
   // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o

@@ -16,7 +16,7 @@
  * Soft penalties + boosts são aplicados no composite scoring — não aqui.
  */
 
-import type { TokenSafety } from '../sources/tokenSafety';
+import type { TokenSafety } from './tokenSafety';
 
 export interface SafetyFilterResult {
   passed: boolean;

@@ -91,6 +91,15 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-06-30 noite — Token Vetting (porteiro de tokens), Etapas 1-3 (branch `claude/token-vetting`)
+- Porteiro compartilhado pelos 2 motores decide quem entra/sai do universo de trading + tela **Tokens** no painel
+  (entrou/saiu + motivo PT-BR). **Off-chain, sem contrato tocado.** Política por motor (M2 exige edge; M1 = "dá pra
+  vender o colateral?"). M2 **completo** (observar → enforce via botão admin `engine_control`). Toggles "Enviar TX"
+  e "Filtro de tokens" são **independentes** (decisão Humberto). Falta M1 (4-5) + lock on-chain/re-vet (6) + histórico/sweep (7).
+  Detalhes em `docs/TOKEN_VETTING.md` + `CLAUDE.md`.
+
+### 🆕 Sessão 2026-06-30 — Estratégias + pentest + v10 contratos + Atena (na `main`) — ver `CLAUDE.md`
+
 ### 🆕 Sessão 2026-06-25 parte 3 (resumo — detalhes em `CLAUDE.md`)
 - **Painel (ZEUS Command) com login real + marca MAZARI** (deployado na Vercel): **Supabase Auth** com
   **cadastro por indicação** (só admin gera) + **aprovação do admin**; membro **só vê**, **armar o bot = admin-only**

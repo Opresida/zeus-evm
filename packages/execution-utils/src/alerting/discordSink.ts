@@ -45,6 +45,8 @@ const EMOJIS: Record<ZeusEvent['type'], string> = {
   'failure.recorded': '🔴',
   'calibration.applied': '📈',
   'wallet.snapshot': '👛',
+  'token.entered': '🟢',
+  'token.exited': '🔴',
   'zeus.heartbeat': '💓', // não vai pro Discord por default (filtrado em createDiscordSink) — anti-spam
 };
 

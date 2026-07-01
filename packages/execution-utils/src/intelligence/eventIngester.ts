@@ -345,6 +345,27 @@ export class EventIngester {
           },
         };
 
+      case 'token.entered':
+      case 'token.exited':
+        // Porteiro de tokens → ledger: histórico "por que o token X entrou/saiu no dia Y".
+        return {
+          ...base,
+          category: 'token_vetted',
+          protocol: event.motor,
+          pair: event.symbol,
+          payload: {
+            transition: event.type === 'token.entered' ? 'entered' : 'exited',
+            token: event.token,
+            symbol: event.symbol,
+            motor: event.motor,
+            reason: event.reason,
+            exitDex: event.exitDex,
+            liquidityUsd: event.liquidityUsd,
+            locked: event.locked,
+            wouldEnforce: event.wouldEnforce,
+          },
+        };
+
       default: {
         // Catch-all pra eventos desconhecidos — não bloqueia, só log debug
         this.logger?.debug({ eventType: (event as { type: string }).type }, 'EventIngester: tipo desconhecido — drop');

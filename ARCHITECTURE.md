@@ -343,9 +343,11 @@ zeus-evm/
 │   │       ├── discovery.ts                # pipeline subgraph→Multicall3→par dominante
 │   │       └── index.ts                    # re-exports
 │   │
-│   ├── execution-utils/        # ═══ PACOTE GRANDE COMPARTILHADO (trackers + OIE) ═══
+│   ├── execution-utils/        # ═══ PACOTE GRANDE COMPARTILHADO (trackers + OIE + vetting) ═══
 │   │   ├── package.json        # @zeus-evm/execution-utils
 │   │   └── src/
+│   │       ├── vetting/        # 🛂 porteiro de tokens (off-chain): tokenVetting/policy/reasons/universeTracker
+│   │       │                   #    + tokenSafety/tokenSafetyFilters (realocados do discovery-scraper). Ver docs/TOKEN_VETTING.md
 │   │       ├── pnlTracker.ts · failureTracker.ts · positionDedup.ts · gasReserveTracker.ts
 │   │       ├── gasOracle.ts (EIP-1559) · eventBus.ts · events.ts · slippageCache.ts
 │   │       ├── eventDecoder.ts · priceUtils.ts · bribeSlippageFloor.ts

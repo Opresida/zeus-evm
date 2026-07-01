@@ -27,6 +27,28 @@ export {
 
 export { StrategyStatsTracker, type StrategyKey, type StrategyStatsTrackerOpts } from './strategyStats';
 
+// ── Token vetting (porteiro de tokens) — safety realocado do discovery-scraper (camada correta) ──
+export {
+  fetchTokenSafety,
+  initCache,
+  flushCache,
+  cacheStats,
+  type TokenSafety,
+} from './vetting/tokenSafety';
+export {
+  applyTokenSafetyFilters,
+  applyPairSafetyFilters,
+  type SafetyFilterResult,
+} from './vetting/tokenSafetyFilters';
+export {
+  vetToken,
+  type TokenVerdict,
+  type VetTokenOpts,
+  type VettingMotor,
+} from './vetting/tokenVetting';
+export { VettingUniverseTracker, type VettedEntry } from './vetting/universeTracker';
+export { runRevetTick, type RevetTickDeps } from './vetting/revet';
+
 export {
   FailureTracker,
   type FailureStats,

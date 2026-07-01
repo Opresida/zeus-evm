@@ -119,6 +119,18 @@ export const envSchema = z.object({
   /** Endereço do ZeusMoonwellLiquidator deployado (contrato SEPARADO). Vazio = só DRY_RUN log. */
   MOONWELL_LIQUIDATOR_ADDRESS: optionalAddress(),
 
+  // ─── Porteiro de tokens (vetting) — Motor 1 (Etapas 4-5) ───
+  VETTING_ENABLED: boolEnv(false), // chave-mestra do porteiro (off por padrão)
+  VETTING_M1_OBSERVE: boolEnv(true), // sob a mestra: veta o colateral do M1 e mostra no painel (NÃO filtra)
+  VETTING_M1_ENFORCE: boolEnv(false), // chave-mestra do filtro do M1; liga/desliga ao vivo é o toggle do painel
+  VETTING_SAFETY_CACHE_DIR: z.string().default('.cache'), // onde fica o token-safety-cache.json
+  // ── Etapa 6: porteiro VIVO (re-check contínuo + liquidez round-trip) ──
+  VETTING_REVET_ENABLED: boolEnv(false), // re-veta o universo num loop (auto-demote/auto-promote)
+  VETTING_REVET_SEC: z.coerce.number().positive().default(600), // intervalo do re-vet (10 min)
+  VETTING_DEEP_LIQUIDITY: boolEnv(false), // liga o round-trip (USDC→token→USDC) — liquidez REAL
+  VETTING_MAX_ROUNDTRIP_BPS: z.coerce.number().positive().default(300), // perda máx no round-trip (3%)
+  VETTING_ROUNDTRIP_USD: z.coerce.number().positive().default(1000), // notional do round-trip
+
   // ─── Morpho PRÉ-liquidação (Motor 1 — pre-liquidation) ───
   /** Habilita discovery + pré-liquidação Morpho (faixa preLltv<LTV<LLTV, callback+swap zero-capital). */
   MORPHO_PRELIQ_ENABLED: boolEnv(false),

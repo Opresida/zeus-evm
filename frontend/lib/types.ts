@@ -121,6 +121,14 @@ export interface ServiceStatusRow {
   strategy_stats:
     | { strategy: 'classic-liq' | 'pre-liq' | 'filler'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
     | null;
+  /** Universo vetado por token (tela "Tokens") — porteiro de tokens. */
+  vetted_universe:
+    | { token: string; symbol: string; motor: 'motor1' | 'motor2'; verdict: 'pass' | 'reject'; reason: string; exitDex?: string; liquidityUsd: number; locked: boolean; lockPct?: number; locker?: string; unlockIso?: string }[]
+    | null;
+  /** Estado do filtro de tokens por motor (badge "filtro ligado"). */
+  vetting_enforce: { motor1?: boolean; motor2?: boolean } | null;
+  /** ISO do último re-vet do porteiro (freshness). */
+  vetting_revet_at: string | null;
   /** Pulso do radar (item 2) — último tick de descoberta. */
   discovery: { positions: number; dispatched: number; rejected: number; atIso: string } | null;
   /** Agregados de inteligência (item 3) — market-bribe, competidores, drift. */
@@ -175,9 +183,27 @@ export interface StrategyStat {
   netUsd24h: number;
 }
 
+/** Token vetado (porteiro) — linha achatada pro painel (tela "Tokens"). */
+export interface VettedToken {
+  token: string;
+  symbol: string;
+  motor: "motor1" | "motor2";
+  verdict: "pass" | "reject";
+  /** Motivo principal em PT-BR simples. */
+  reason: string;
+  /** DEX da saída (quando pass). */
+  exitDex?: string;
+  liquidityUsd: number;
+  locked: boolean;
+  /** Lock rico (Tier 0): % travado, locker, vencimento. */
+  lockPct?: number;
+  locker?: string;
+  unlockIso?: string;
+}
+
 /** Estado de UI controlado pelo painel. */
 export interface UiState {
-  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "strategies" | "reports" | "settings" | "admin";
+  screen: "home" | "tx" | "pnl" | "wallet" | "intel" | "health" | "strategies" | "tokens" | "reports" | "settings" | "admin";
   theme: "navy" | "black";
   txFilter: "all" | "ok" | "rev" | "pre";
   period: "daily" | "weekly" | "monthly";
@@ -222,6 +248,14 @@ export interface LiveSnapshot {
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
   /** Comparativo por estratégia (tela "Estratégias") — fundido dos heartbeats liquidator+mis-scanner. */
   strategyStats?: StrategyStat[];
+  /** Universo vetado por token (tela "Tokens") — porteiro; fundido dos heartbeats por (token, motor). */
+  vettedUniverse?: VettedToken[];
+  /** Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited. */
+  tokenLog?: { time: string; symbol: string; motor: string; action: string; reason: string; color: string }[];
+  /** Estado do filtro de tokens por motor (badge na tela "Tokens"). */
+  vettingEnforce?: { motor1?: boolean; motor2?: boolean };
+  /** ISO do último re-vet do porteiro (freshness "re-vet há Xs"). */
+  vettingRevetAt?: string;
 
   // ----- Fase 1: agregados de PnL / gás / relatórios (derivados de events tx.*) -----
   kpi7d?: number;

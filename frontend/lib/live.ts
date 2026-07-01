@@ -284,6 +284,63 @@ export function deriveSnapshot(
   }
   if (sawStrat) snap.strategyStats = STRATS.map((strategy) => ({ strategy, ...stratAcc[strategy] }));
 
+  // ----- Universo vetado (tela "Tokens") — funde os heartbeats por (token, motor) -----
+  // liquidator traz motor1; mis-scanner traz motor2. Chave (token+motor) → último heartbeat ganha.
+  const vettedByKey = new Map<string, NonNullable<LiveSnapshot["vettedUniverse"]>[number]>();
+  for (const s of statuses) {
+    for (const t of s.vetted_universe ?? []) {
+      if (t.motor !== "motor1" && t.motor !== "motor2") continue;
+      if (t.verdict !== "pass" && t.verdict !== "reject") continue;
+      vettedByKey.set(`${(t.token || "").toLowerCase()}:${t.motor}`, {
+        token: t.token,
+        symbol: t.symbol,
+        motor: t.motor,
+        verdict: t.verdict,
+        reason: t.reason ?? "",
+        exitDex: t.exitDex ?? undefined,
+        liquidityUsd: typeof t.liquidityUsd === "number" && Number.isFinite(t.liquidityUsd) ? t.liquidityUsd : 0,
+        locked: Boolean(t.locked),
+        lockPct: typeof t.lockPct === "number" && Number.isFinite(t.lockPct) ? t.lockPct : undefined,
+        locker: t.locker ?? undefined,
+        unlockIso: t.unlockIso ?? undefined,
+      });
+    }
+  }
+  if (vettedByKey.size) snap.vettedUniverse = Array.from(vettedByKey.values());
+
+  // Estado do filtro por motor (OR entre serviços: motor2 do mis-scanner, motor1 do liquidator).
+  let sawEnforce = false;
+  let enfM1 = false;
+  let enfM2 = false;
+  for (const s of statuses) {
+    if (s.vetting_enforce) {
+      sawEnforce = true;
+      if (s.vetting_enforce.motor1) enfM1 = true;
+      if (s.vetting_enforce.motor2) enfM2 = true;
+    }
+  }
+  if (sawEnforce) snap.vettingEnforce = { motor1: enfM1, motor2: enfM2 };
+  // Freshness do re-vet: o ISO mais recente entre os serviços.
+  const revetIsos = statuses.map((s) => s.vetting_revet_at).filter((x): x is string => !!x).sort();
+  if (revetIsos.length) snap.vettingRevetAt = revetIsos[revetIsos.length - 1];
+
+  // ----- Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited -----
+  const tokenEvts = rows.filter((r) => r.type === "token.entered" || r.type === "token.exited").slice(0, 20);
+  if (tokenEvts.length) {
+    snap.tokenLog = tokenEvts.map((r) => {
+      const p = r.payload as ZeusEvent;
+      const entered = r.type === "token.entered";
+      return {
+        time: hhmm(r.ts),
+        symbol: r.pair || (p.symbol as string) || "—",
+        motor: (p.motor as string) === "motor1" ? "M1" : "M2",
+        action: entered ? "entrou" : "saiu",
+        reason: (p.reason as string) || "—",
+        color: entered ? "var(--green)" : "var(--red)",
+      };
+    });
+  }
+
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");

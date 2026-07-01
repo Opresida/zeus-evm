@@ -24,7 +24,7 @@ import { volumeEfficiencyScore } from './volumeEfficiency';
 import { tvlSweetZoneScore } from './tvlSweetZone';
 import { volatilityScore } from './volatility';
 import { poolAgeScore } from './poolAge';
-import type { TokenSafety } from '../sources/tokenSafety';
+import type { TokenSafety } from '@zeus-evm/execution-utils';
 
 export interface CompositeInput {
   tvlDexA: number;

@@ -15,6 +15,7 @@ import { Wallet } from "@/components/screens/Wallet";
 import { Intelligence } from "@/components/screens/Intelligence";
 import { Health } from "@/components/screens/Health";
 import { Strategies } from "@/components/screens/Strategies";
+import { Tokens } from "@/components/screens/Tokens";
 import { Reports } from "@/components/screens/Reports";
 import { Settings } from "@/components/screens/Settings";
 import { Admin } from "@/components/screens/Admin";
@@ -27,6 +28,7 @@ const NAV: { id: UiState["screen"]; label: string; icon: string }[] = [
   { id: "wallet", label: "Carteira & Gás", icon: "◯" },
   { id: "intel", label: "Inteligência", icon: "◈" },
   { id: "strategies", label: "Estratégias", icon: "⊗" },
+  { id: "tokens", label: "Tokens", icon: "◬" },
   { id: "health", label: "Saúde", icon: "⊕" },
   { id: "reports", label: "Relatórios", icon: "▤" },
   { id: "settings", label: "Configurações", icon: "⚙" },
@@ -314,6 +316,7 @@ export default function Dashboard({ profile }: { profile?: Profile | null }) {
             {ui.screen === "pnl" && <Pnl {...screenProps} />}
             {ui.screen === "wallet" && <Wallet {...screenProps} />}
             {ui.screen === "intel" && <Intelligence {...screenProps} />}
+            {ui.screen === "tokens" && <Tokens {...screenProps} isAdmin={isAdmin} />}
             {ui.screen === "strategies" && <Strategies {...screenProps} />}
             {ui.screen === "health" && <Health {...screenProps} />}
             {ui.screen === "reports" && <Reports {...screenProps} />}

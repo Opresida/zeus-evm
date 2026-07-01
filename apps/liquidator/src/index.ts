@@ -1717,7 +1717,7 @@ export async function processOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1765,7 +1765,7 @@ export async function processCompoundOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1810,7 +1810,7 @@ export async function processMorphoOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1855,7 +1855,7 @@ export async function processMoonwellOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -2468,7 +2468,8 @@ async function main() {
         chain: state.ctx.chainConfig.name,
         windowMs: state.env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       });
-      const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
+      // Chave-mestra: o toggle de execução LIGA o adaptive (injeta no gate); env é override force-on. Off → observa.
+      const applied = state.liveExecutionEnabled || state.env.ADAPTIVE_THRESHOLDS_ENABLED;
       const computedEvUsd = adaptive.MIN_OPPORTUNITY_EV_USD;
       // Base da comparação: o gate ATIVO quando aplicado; o último OBSERVADO quando em modo observação.
       const prevEvUsd = applied ? (state.env.MIN_OPPORTUNITY_EV_USD ?? 0) : state.lastObservedEvUsd;

@@ -544,10 +544,12 @@ async function main(): Promise<void> {
         store, chain: chainConfig.name,
         windowMs: env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       });
-      if (env.ADAPTIVE_THRESHOLDS_ENABLED && arbExec) {
+      // Chave-mestra: o toggle de execução LIGA o adaptive (injeta no gate); env é override force-on.
+      const adaptiveApplied = !!arbExec && (env.ADAPTIVE_THRESHOLDS_ENABLED || arbExec.deps.liveExecutionEnabled);
+      if (adaptiveApplied && arbExec) {
         arbExec.deps.minProfitUsd = adaptive.MIN_OPPORTUNITY_EV_USD; // mesma ref → afeta o gate
       }
-      logger.info({ applied: env.ADAPTIVE_THRESHOLDS_ENABLED && !!arbExec, minEv: adaptive.MIN_OPPORTUNITY_EV_USD, top: adaptive.topProtocol }, `📈 adaptive (MIS): MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD}`);
+      logger.info({ applied: adaptiveApplied, minEv: adaptive.MIN_OPPORTUNITY_EV_USD, top: adaptive.topProtocol }, `📈 adaptive (MIS): MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD}`);
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc MIS falhou (skip)');
     }

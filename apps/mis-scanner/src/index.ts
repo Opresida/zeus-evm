@@ -832,7 +832,7 @@ async function main(): Promise<void> {
             // Acha o TAMANHO ÓTIMO do empréstimo (pico de lucro antes do slippage matar)
             const opt = await optimizeFlashLoan({
               client, chainConfig, group, observation: o,
-              opts: { ethUsd, maxSlippageBps },
+              opts: { ethUsd, maxSlippageBps, perDexSlippage: env.SLIPPAGE_PER_DEX_ENABLED }, // #5 (observe-first)
             });
             // Sem tamanho viável (mesmo o menor não lucra / pool raso) → fora do ranking
             const viable = opt.best !== null && opt.maxViableLoanUsd > 0;
@@ -875,6 +875,10 @@ async function main(): Promise<void> {
                   cheapPool: b.cheapPool,
                   expensivePool: b.expensivePool,
                   profitPct: b.profitPct,
+                  // #5 — slippage global usado × o que a calibração por-DEX (Dune) daria (observe-first no ledger).
+                  slippageGlobalBps: b.globalSlippageBps,
+                  slippagePerDexBps: b.perDexSlippageBps,
+                  slippagePerDexApplied: b.perDexApplied,
                 },
               }),
             );

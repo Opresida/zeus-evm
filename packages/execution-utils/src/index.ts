@@ -463,6 +463,14 @@ export {
   computeAdaptiveThresholds,
   type AdaptiveThresholds,
   type AdaptiveThresholdsDeps,
+  // #5 — calibração de slippage por DEX (seed do Dune)
+  slippageBpsFor,
+  routeSlippageBps,
+  effectiveMaxSlippageBps,
+  normalizeDexKey,
+  sizeBucketFor,
+  SLIPPAGE_CALIBRATION_SOURCE,
+  type SizeBucket,
 } from './scoring';
 
 // ─── Mempool subscription (placeholder pra Alchemy/Blocknative premium) ───

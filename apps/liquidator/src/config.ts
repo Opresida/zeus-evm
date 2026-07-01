@@ -179,6 +179,8 @@ export const envSchema = z.object({
   AAVE_CLOSE_FACTOR: z.coerce.number().min(0.01).max(0.5).default(0.5),
   /** Slippage máximo tolerado em swaps (basis points). 50 = 0.5%. */
   MAX_SLIPPAGE_BPS: z.coerce.number().int().min(1).max(1000).default(50),
+  /** #5 automação — usa a tolerância de slippage POR DEX (seed do Dune) no lugar do global. Default false (observe-first). */
+  SLIPPAGE_PER_DEX_ENABLED: boolEnv(false),
   /** Cap de % da liquidez do pool em swap (proteção contra over-trade). */
   POOL_LIQUIDITY_CAP_PCT: z.coerce.number().min(0.01).max(0.5).default(0.1),
   /** Gas estimate em USD pra liquidations (Base ~ $0.20-0.50, ajustar via observação). */

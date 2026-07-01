@@ -15,6 +15,7 @@
 import type { Address, PublicClient } from 'viem';
 import { formatUnits, parseUnits } from 'viem';
 import { quoteUniswapV3, quoteAerodrome, quoteTraderJoe, quoteUniswapV2, quoteSlipstream, isQuote } from '@zeus-evm/dex-adapters';
+import { routeSlippageBps } from '@zeus-evm/execution-utils';
 import type { PoolGroup, InefficiencyObservation } from '@zeus-evm/execution-utils';
 import type { ChainConfig } from '@zeus-evm/chain-config';
 
@@ -53,6 +54,10 @@ export interface FlashArbEstimate {
    * arbitrar nesse tamanho). Gate pra tirar lixo do ranking de persistência.
    */
   supportsNotional: boolean;
+  /** #5 — slippage global usado (bps) × o que a calibração por-DEX (Dune) daria × se o per-DEX está ativo. */
+  globalSlippageBps: number;
+  perDexSlippageBps: number;
+  perDexApplied: boolean;
 }
 
 export interface FlashEstimatorOpts {
@@ -67,6 +72,8 @@ export interface FlashEstimatorOpts {
    * voltar menos que (1 − budget), o pool é raso → supportsNotional=false. Default 500 (5%).
    */
   maxSlippageBps?: number;
+  /** #5 automação — usa a tolerância de slippage POR DEX (seed do Dune) em vez do global. Default false (observe-first). */
+  perDexSlippage?: boolean;
   /** Gas price (wei) — passe pra evitar refetch numa varredura de tamanhos. */
   gasPriceWei?: bigint;
 }
@@ -277,8 +284,13 @@ export async function estimateFlashArb(args: {
   const loanNum = Number(formatUnits(loanTokenB, group.decimalsB));
   const outNum = Number(formatUnits(amountBOut, group.decimalsB));
   const roundTripRatio = loanNum > 0 ? outNum / loanNum : 0;
-  const maxSlippageBps = opts.maxSlippageBps ?? 500;
-  const supportsNotional = roundTripRatio >= 1 - maxSlippageBps / 10_000;
+  // #5 — tolerância de slippage POR DEX (seed do Dune) pra ESTA rota × tamanho. A rota compra no pool
+  // BARATO e vende no CARO → soma das duas pernas. Observe-first: usa o global por padrão; per-DEX quando
+  // ligado. SEMPRE reporta o per-DEX no output pra observar "o que faria" antes de ligar.
+  const globalMaxBps = opts.maxSlippageBps ?? 500;
+  const perDexBps = routeSlippageBps(`${cheapRef.dex} ${cheapRef.venue ?? ''}`, `${expRef.dex} ${expRef.venue ?? ''}`, notionalUsd);
+  const effectiveMaxBps = opts.perDexSlippage ? perDexBps : globalMaxBps;
+  const supportsNotional = roundTripRatio >= 1 - effectiveMaxBps / 10_000;
 
   return {
     pair: group.label,
@@ -298,6 +310,9 @@ export async function estimateFlashArb(args: {
     profitable: netProfitUsd > 0,
     roundTripRatio: Math.round(roundTripRatio * 10_000) / 10_000,
     supportsNotional,
+    globalSlippageBps: globalMaxBps,
+    perDexSlippageBps: perDexBps,
+    perDexApplied: !!opts.perDexSlippage,
   };
 }
 
@@ -320,6 +335,8 @@ export interface OptimizeOpts {
   ethUsd?: number;
   gasUnits?: bigint;
   maxSlippageBps?: number;
+  /** #5 — usa a tolerância de slippage POR DEX (seed do Dune) em vez do global. Default false (observe-first). */
+  perDexSlippage?: boolean;
 }
 
 /**
@@ -352,7 +369,7 @@ export async function optimizeFlashLoan(args: {
   for (const loanUsd of candidates) {
     const est = await estimateFlashArb({
       client, chainConfig, group, observation,
-      opts: { notionalUsd: loanUsd, ethUsd, gasUnits: opts.gasUnits, maxSlippageBps: opts.maxSlippageBps, gasPriceWei },
+      opts: { notionalUsd: loanUsd, ethUsd, gasUnits: opts.gasUnits, maxSlippageBps: opts.maxSlippageBps, perDexSlippage: opts.perDexSlippage, gasPriceWei },
     });
     if (!est) break; // pool sumiu / sem quote — não adianta ir maior
 

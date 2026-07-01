@@ -66,3 +66,14 @@ export {
   type AdaptiveThresholds,
   type AdaptiveThresholdsDeps,
 } from './adaptiveThresholds';
+
+// ─── #5 automação — calibração de slippage por DEX (seed do Dune) ───
+export {
+  slippageBpsFor,
+  routeSlippageBps,
+  effectiveMaxSlippageBps,
+  normalizeDexKey,
+  sizeBucketFor,
+  SLIPPAGE_CALIBRATION_SOURCE,
+  type SizeBucket,
+} from './slippageCalibration';

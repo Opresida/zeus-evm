@@ -32,7 +32,7 @@ import type {
 } from '../../types';
 import { resolveBestSwapPlan } from '../bestSwapPlan';
 import { logger } from '../../logger';
-import { cachedQuoteUniswapV3 } from '@zeus-evm/execution-utils';
+import { cachedQuoteUniswapV3, effectiveMaxSlippageBps } from '@zeus-evm/execution-utils';
 import { FlashSource } from '../../types';
 import { COMET_ABI } from './abi';
 import { AavePriceOracle, usdToWei, weiToUsd } from '../aave/oracle';
@@ -259,7 +259,9 @@ async function simulateCompoundProfit(
   const slippageBps = expectedNoSlippage > bestQuote.amountOut
     ? Number(((expectedNoSlippage - bestQuote.amountOut) * BPS_DENOMINATOR) / expectedNoSlippage)
     : 0;
-  if (slippageBps > env.MAX_SLIPPAGE_BPS) return null;
+  // #5: per-DEX (seed Dune) quando ligado; senão o global (observe-first, sem regressão).
+  const maxSlippageBps = effectiveMaxSlippageBps({ dexLabel: bestQuote.source, globalBps: env.MAX_SLIPPAGE_BPS, perDexEnabled: env.SLIPPAGE_PER_DEX_ENABLED });
+  if (slippageBps > maxSlippageBps) return null;
 
   const profit = bestQuote.amountOut > baseAmount + flashloanFee + gasCostWei
     ? bestQuote.amountOut - baseAmount - flashloanFee - gasCostWei

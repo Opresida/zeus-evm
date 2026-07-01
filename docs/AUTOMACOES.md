@@ -66,6 +66,9 @@ MUITO por DEX. p95 (bps) medido: `uniswap-3` ~90-127 · `uniswap-4` ~70-98 · `a
 `aerodrome-1` (volátil) ~147-255 · `pancakeswap-3` ~75-88. **Nosso 50 bps GLOBAL está apertado demais** pra quase
 todos → rejeita trades bons. **Ressalva honesta:** a métrica é um PROXY (desvio da mediana horária) que inclui
 ruído/MEV — ótima pra comparar DEXes e dar um chute inicial, refinar depois (impacto por reservas do pool).
-**Próximo:** gate de slippage por-DEX (seed dessa tabela) + refinar a métrica. É o **1º caso do feed Dune** (recon/backtest).
+**✅ WIRED NOS 2 MOTORES (observe-first, default global):** helper compartilhado `effectiveMaxSlippageBps` em
+execution-utils — Motor 2 (arb) usa 2 pernas (`routeSlippageBps`); Motor 1 (liquidação) usa 1 perna (venda do
+colateral) nos 4 calculators (aave/compound/morpho/pré-liq). Flag `SLIPPAGE_PER_DEX_ENABLED` (default false = sem
+regressão). **Próximo:** refinar a métrica (impacto por reservas) + threading do notional real por-calculator. 1º caso do feed Dune.
 
 > **Sem contrato tocado.** Tudo é gate/observabilidade de software. Relatório completo (PDF) em `C:\Users\user\ZEUS_Automacoes_Parte3.pdf`.

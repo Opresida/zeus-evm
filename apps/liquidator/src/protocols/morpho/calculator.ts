@@ -22,7 +22,7 @@ import {
   type Quote,
 } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
-import { cachedQuoteUniswapV3, estimateUsd } from '@zeus-evm/execution-utils';
+import { cachedQuoteUniswapV3, estimateUsd, effectiveMaxSlippageBps } from '@zeus-evm/execution-utils';
 import { FlashSource } from '../../types';
 
 import type { LiquidatorEnv } from '../../config';
@@ -156,8 +156,10 @@ export async function calculateOptimalMorphoLiquidation(
   const slippageBps = idealOut > quote.amountOut && idealOut > 0n
     ? Number(((idealOut - quote.amountOut) * BPS_DENOMINATOR) / idealOut)
     : 0;
-  if (slippageBps > env.MAX_SLIPPAGE_BPS) {
-    return { ok: false, reason: `slippage ${slippageBps}bps > MAX ${env.MAX_SLIPPAGE_BPS}` };
+  // #5: per-DEX (seed Dune) quando ligado; senão o global (observe-first, sem regressão).
+  const maxSlippageBps = effectiveMaxSlippageBps({ dexLabel: quote.source, globalBps: env.MAX_SLIPPAGE_BPS, perDexEnabled: env.SLIPPAGE_PER_DEX_ENABLED });
+  if (slippageBps > maxSlippageBps) {
+    return { ok: false, reason: `slippage ${slippageBps}bps > MAX ${maxSlippageBps}` };
   }
 
   // 4. Profit USD via estimateUsd (loanToken: stable=peg, WETH=×ethPrice)

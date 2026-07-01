@@ -30,6 +30,7 @@ import {
   type Quote,
 } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
+import { effectiveMaxSlippageBps } from '@zeus-evm/execution-utils';
 
 import type { LiquidatorEnv } from '../../config';
 import type {
@@ -322,8 +323,13 @@ async function simulateProfit(
     ? Number(((debtWithBonus - bestQuote.amountOut) * BPS_DENOMINATOR) / debtWithBonus)
     : 0;
 
-  // Slippage tolerance check
-  if (slippageBps > opts.env.MAX_SLIPPAGE_BPS) return null;
+  // Slippage tolerance check — #5: per-DEX (seed Dune) quando ligado; senão o global (observe-first, sem regressão).
+  const maxSlippageBps = effectiveMaxSlippageBps({
+    dexLabel: bestQuote.source,
+    globalBps: opts.env.MAX_SLIPPAGE_BPS,
+    perDexEnabled: opts.env.SLIPPAGE_PER_DEX_ENABLED,
+  });
+  if (slippageBps > maxSlippageBps) return null;
 
   const profit = bestQuote.amountOut > L + flashloanFee + gasCostWei
     ? bestQuote.amountOut - L - flashloanFee - gasCostWei

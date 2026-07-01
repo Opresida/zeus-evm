@@ -27,7 +27,7 @@ import {
   type Quote,
 } from '@zeus-evm/dex-adapters';
 import type { ChainConfig } from '@zeus-evm/chain-config';
-import { cachedQuoteUniswapV3, estimateUsd } from '@zeus-evm/execution-utils';
+import { cachedQuoteUniswapV3, estimateUsd, effectiveMaxSlippageBps } from '@zeus-evm/execution-utils';
 
 import type { LiquidatorEnv } from '../../config';
 import { planPreLiquidation, ORACLE_PRICE_SCALE, type PrePlan } from './math';
@@ -159,8 +159,10 @@ export async function calculateOptimalPreLiquidation(
     idealOut > quote.amountOut && idealOut > 0n
       ? Number(((idealOut - quote.amountOut) * 10_000n) / idealOut)
       : 0;
-  if (slippageBps > env.MAX_SLIPPAGE_BPS) {
-    return { ok: false, reason: `slippage ${slippageBps}bps > MAX ${env.MAX_SLIPPAGE_BPS}`, plan, quote };
+  // #5: per-DEX (seed Dune) quando ligado; senão o global (observe-first, sem regressão).
+  const maxSlippageBps = effectiveMaxSlippageBps({ dexLabel: quote.source, globalBps: env.MAX_SLIPPAGE_BPS, perDexEnabled: env.SLIPPAGE_PER_DEX_ENABLED });
+  if (slippageBps > maxSlippageBps) {
+    return { ok: false, reason: `slippage ${slippageBps}bps > MAX ${maxSlippageBps}`, plan, quote };
   }
 
   // 4. Profit USD (loanToken: stable=peg, WETH=×ethPrice) − gas.

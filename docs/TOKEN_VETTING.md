@@ -21,6 +21,16 @@ O `vetToken` emite o **mesmo verdict**; a **política** (o que conta como `pass`
 cache 24h) + rota de saída multi-DEX (`bestSwapAcrossDexes` → qual DEX) + piso de liquidez + lock. Verdict =
 `pass`/`reject` + motivo PT-BR + 4 checks (segurança · saída+DEX · piso de liquidez · lock).
 
+## Lock de liquidez — Tier 0 (feito) × Tier 1 (refinamento)
+- **Tier 0 (feito, custo ZERO):** parseia o `lp_holders` que **já vem** na resposta do GoPlus → **% do LP travado**,
+  **nome do locker** (UniCrypt/Team Finance) e **data de vencimento** (`locked_detail.end_time`). Antes usávamos só
+  o booleano `topHolderIsLocked`. Flui no verdict (`lockStatus.pctLocked/locker/unlockIso`) → tracker → heartbeat →
+  tela Tokens (🔒 % no hover) e é o que a **Atena** vigia na mainnet (lock vencendo / % caindo / locker suspeito).
+- **Tier 1 (6b opcional, on-chain):** confirmação DIRETA na corrente pros tokens de MAIOR valor — ABI do locker via
+  **BaseScan** (temos a key; ~4 chamadas na vida, cacheadas) + leitura via **RPC** (multicall, cache 6-12h, só o
+  universo). Mais preciso (fonte da verdade), mais trabalho (ABI por-locker; NFT no UniV3). Custo mensal ≈ zero
+  (BaseScan free 100k/dia, usamos ~4 no total; RPC já temos). Começar pelos pares UniV2/Aero (LP ERC20).
+
 ## Flags (env) × Toggles (painel)
 
 | Flag env | Default | O que faz |

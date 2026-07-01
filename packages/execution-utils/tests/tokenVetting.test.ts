@@ -22,6 +22,9 @@ function safe(overrides: Partial<TokenSafety> = {}): TokenSafety {
     holderCount: 5000,
     topHolderPct: 8,
     topHolderIsLocked: false,
+    lpLockedPct: 0,
+    lpLockerTag: null,
+    lpUnlockAtSec: null,
     isOpenSource: true,
     isInDex: true,
     hasCoingeckoCoverage: true,
@@ -126,5 +129,14 @@ describe('vetToken — porteiro de tokens', () => {
   it('lock: reflete a flag do GoPlus (source goplus na Etapa 1)', async () => {
     const v = await vetToken(base(), { fetchSafety: async () => [safe({ topHolderIsLocked: true })], bestSwap: okSwap });
     expect(v.checks.lockStatus).toMatchObject({ locked: true, source: 'goplus' });
+  });
+
+  it('Tier 0: lock RICO do GoPlus (% travado + locker + vencimento)', async () => {
+    const v = await vetToken(base(), {
+      fetchSafety: async () => [safe({ lpLockedPct: 80, lpLockerTag: 'UniCrypt', lpUnlockAtSec: 1_893_456_000 })],
+      bestSwap: okSwap,
+    });
+    expect(v.checks.lockStatus).toMatchObject({ locked: true, pctLocked: 80, locker: 'UniCrypt' });
+    expect(v.checks.lockStatus.unlockIso).toContain('20'); // ex: 2030-...
   });
 });

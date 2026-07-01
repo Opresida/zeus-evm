@@ -86,8 +86,8 @@ export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
           </div>
           {tokenCards.map((t, i) => (
             <div key={i} className="z-txgrid z-card-row" style={css(UNIGRID + rowBorder)}>
-              <span data-label="Token" style={css("font:600 12px/1.3 'IBM Plex Mono'; color:var(--text);" + cellPad)}>
-                {t.symbol}{t.locked ? " 🔒" : ""}
+              <span data-label="Token" title={t.lock || undefined} style={css("font:600 12px/1.3 'IBM Plex Mono'; color:var(--text);" + cellPad)}>
+                {t.symbol}{t.locked ? ` 🔒${t.lock ? " " + t.lock.split(" ")[0] : ""}` : ""}
               </span>
               <span data-label="Motor" style={css("font:500 11px/1.3 'IBM Plex Mono'; color:var(--muted);" + cellPad)}>{t.motorLabel}</span>
               <span data-label="Status" style={css(`font:600 10px/1 'IBM Plex Mono'; letter-spacing:.04em; text-transform:uppercase; color:${t.pass ? "var(--green, #4cc08a)" : "var(--red)"};` + cellPad)}>

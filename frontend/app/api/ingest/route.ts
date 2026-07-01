@@ -49,6 +49,9 @@ function sanitizeVettedUniverse(raw: unknown) {
       exitDex: t.exitDex != null ? String(t.exitDex).slice(0, 40) : null,
       liquidityUsd: Math.max(0, finNum(t.liquidityUsd)),
       locked: Boolean(t.locked),
+      lockPct: Math.max(0, Math.min(100, finNum(t.lockPct))),
+      locker: t.locker != null ? String(t.locker).slice(0, 40) : null,
+      unlockIso: typeof t.unlockIso === "string" ? t.unlockIso.slice(0, 40) : null,
     }));
   return out.length ? out : null;
 }

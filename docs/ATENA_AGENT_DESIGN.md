@@ -167,6 +167,12 @@ acerta. Mesmo timeline — sem atraso.
   função copiável → "o bot X começou a fazer Y, vale copiar isto". Automatiza o recon que hoje é manual.
 - **[INFRA] Vigia de recursos:** RPC/gás/caixa acabando → aconselha comprar antes de quebrar.
 - **[CAPITAL] Sentinela de risco:** margem sobrando/faltando → propõe subir/baixar a mão (subir = pede OK).
+- **[SEGURANÇA] Vigia do porteiro de tokens (mainnet):** o Token Vetting já captura o **lock rico** de cada token do
+  universo (% do LP travado · qual locker · **data de vencimento** — Tier 0, via GoPlus, custo zero; ver
+  `docs/TOKEN_VETTING.md`). A Atena **vigia esses 3 sinais** e alerta ANTES do problema: (a) **lock vencendo** (ex: "o
+  lock do token X vence em 5 dias — risco de rug quando destravar"); (b) **% travado caiu** (owner tirou liquidez do
+  locker); (c) **locker desconhecido/suspeito** (não é UniCrypt/Team Finance). Quando o Tier 1 (confirmação on-chain)
+  entrar, a Atena cruza o laudo do GoPlus com a leitura direta da corrente pros tokens de maior valor.
 - **[D] Pulso verde:** "operação plena" — pra você dormir tranquilo.
 
 ---

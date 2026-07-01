@@ -300,6 +300,9 @@ export function deriveSnapshot(
         exitDex: t.exitDex ?? undefined,
         liquidityUsd: typeof t.liquidityUsd === "number" && Number.isFinite(t.liquidityUsd) ? t.liquidityUsd : 0,
         locked: Boolean(t.locked),
+        lockPct: typeof t.lockPct === "number" && Number.isFinite(t.lockPct) ? t.lockPct : undefined,
+        locker: t.locker ?? undefined,
+        unlockIso: t.unlockIso ?? undefined,
       });
     }
   }

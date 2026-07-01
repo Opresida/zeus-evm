@@ -41,7 +41,7 @@ export const MOCK = {
   vettedUniverse: [
     { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor1" as const, verdict: "pass" as const, reason: "entrou: tem saída na Aerodrome, liquidez ok ($1,2M), passou no exame de segurança", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
     { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: seguro, mas sem edge de arbitragem (não vale a pena pro arb)", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
-    { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true },
+    { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true, lockPct: 88, locker: "UniCrypt", unlockIso: "2027-03-01T00:00:00Z" },
     { token: "0x00000000000000000000000000000000deadbeef", symbol: "SCAM", motor: "motor2" as const, verdict: "reject" as const, reason: "saiu: é honeypot (não dá pra vender) — bloqueado", liquidityUsd: 0, locked: false },
   ],
   tokenLog: [

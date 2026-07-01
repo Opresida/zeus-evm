@@ -17,6 +17,10 @@ export interface VettedEntry {
   exitDex?: string;
   liquidityUsd: number;
   locked: boolean;
+  /** Lock rico (Tier 0): % do LP travado, nome do locker, vencimento — pra painel + Atena vigiar na mainnet. */
+  lockPct?: number;
+  locker?: string;
+  unlockIso?: string;
   /** Dado incompleto (safety indisponível) — fail-safe do M1 lê isto pra NÃO bloquear na dúvida. */
   partial: boolean;
 }
@@ -45,6 +49,9 @@ export class VettingUniverseTracker {
       exitDex: v.checks.exitRoute.dex,
       liquidityUsd: v.checks.liquidityFloor.usd,
       locked: v.checks.lockStatus.locked,
+      lockPct: v.checks.lockStatus.pctLocked,
+      locker: v.checks.lockStatus.locker,
+      unlockIso: v.checks.lockStatus.unlockIso,
       partial: v.partial,
     };
     this.byKey.set(k, entry);

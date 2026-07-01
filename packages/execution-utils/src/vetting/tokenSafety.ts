@@ -74,6 +74,14 @@ export interface TokenSafety {
   isOpenSource: boolean;
   isInDex: boolean;
 
+  // ── Lock de liquidez rico (Tier 0 — do `lp_holders` que já vem na resposta do GoPlus) ──
+  /** % do LP travado (soma dos lp_holders com is_locked). 0-100. */
+  lpLockedPct: number;
+  /** Nome do locker do LP (ex: "UniCrypt", "Team Finance") — null se não travado/desconhecido. */
+  lpLockerTag: string | null;
+  /** Unix (s) do vencimento mais LONGO do lock do LP — null se sem lock com data. */
+  lpUnlockAtSec: number | null;
+
   /** Verificações market (CoinGecko). */
   hasCoingeckoCoverage: boolean;
   isListedOnCexTier1: boolean;
@@ -254,7 +262,27 @@ function parseGoPlusToken(data: Record<string, string | number | unknown>): Part
     topHolderIsLocked = bool(top['is_locked']);
   }
 
+  // Tier 0 — lock de liquidez RICO: usa o `lp_holders` (donos do LP) que já vem na MESMA resposta.
+  // % travado (soma), nome do locker (tag) e vencimento mais LONGO (locked_detail.end_time). Zero RPC extra.
+  const lpHolders = Array.isArray(data['lp_holders']) ? (data['lp_holders'] as Array<Record<string, unknown>>) : [];
+  let lpLockedPct = 0;
+  let lpLockerTag: string | null = null;
+  let lpUnlockAtSec: number | null = null;
+  for (const h of lpHolders) {
+    if (!bool(h['is_locked'])) continue;
+    lpLockedPct += num(h['percent']) * 100;
+    if (!lpLockerTag) lpLockerTag = str(h['tag']);
+    const details = Array.isArray(h['locked_detail']) ? (h['locked_detail'] as Array<Record<string, unknown>>) : [];
+    for (const d of details) {
+      const end = num(d['end_time']);
+      if (end > 0 && (lpUnlockAtSec === null || end > lpUnlockAtSec)) lpUnlockAtSec = end;
+    }
+  }
+
   return {
+    lpLockedPct: Math.min(100, Math.round(lpLockedPct)),
+    lpLockerTag,
+    lpUnlockAtSec,
     isHoneypot: bool(data['is_honeypot']),
     buyTaxPct: num(data['buy_tax']) * 100,
     sellTaxPct: num(data['sell_tax']) * 100,
@@ -399,6 +427,9 @@ export async function fetchTokenSafety(params: FetchSafetyParams): Promise<Token
       holderCount: goPlus?.holderCount ?? 0,
       topHolderPct: goPlus?.topHolderPct ?? 0,
       topHolderIsLocked: goPlus?.topHolderIsLocked ?? false,
+      lpLockedPct: goPlus?.lpLockedPct ?? 0,
+      lpLockerTag: goPlus?.lpLockerTag ?? null,
+      lpUnlockAtSec: goPlus?.lpUnlockAtSec ?? null,
       isOpenSource: goPlus?.isOpenSource ?? false,
       isInDex: goPlus?.isInDex ?? false,
       // CoinGecko fields

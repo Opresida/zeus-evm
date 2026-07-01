@@ -33,7 +33,17 @@ export interface TokenVerdict {
     safety: { ok: boolean; detail?: string };
     exitRoute: { ok: boolean; dex?: string };
     liquidityFloor: { ok: boolean; usd: number };
-    lockStatus: { ok: boolean; locked: boolean; source: 'goplus' | 'onchain' };
+    lockStatus: {
+      ok: boolean;
+      locked: boolean;
+      source: 'goplus' | 'onchain';
+      /** % do LP travado (Tier 0). */
+      pctLocked?: number;
+      /** Nome do locker (ex: "UniCrypt"). */
+      locker?: string;
+      /** ISO do vencimento do lock. */
+      unlockIso?: string;
+    };
   };
   /** Dado incompleto (safety indisponível / fonte falhou). Usado pelo fail-safe do M1 (parcial → não bloqueia). */
   partial: boolean;
@@ -98,7 +108,11 @@ export async function vetToken(opts: VetTokenOpts, deps: VetTokenDeps = {}): Pro
   }
   const safetyResult = safety ? applyTokenSafetyFilters(safety) : { passed: false, reason: 'sem dados de segurança' };
   const isHoneypot = safety?.isHoneypot ?? false;
-  const locked = safety?.topHolderIsLocked ?? false;
+  // Lock de liquidez (Tier 0 — laudo rico do GoPlus): % travado + locker + vencimento.
+  const lockPct = safety?.lpLockedPct ?? 0;
+  const locked = lockPct > 0 || (safety?.topHolderIsLocked ?? false);
+  const lockerTag = safety?.lpLockerTag ?? undefined;
+  const unlockIso = safety?.lpUnlockAtSec ? new Date(safety.lpUnlockAtSec * 1000).toISOString() : undefined;
 
   // 2) Rota de saída multi-DEX (token → quoteToken) em tamanho realista.
   let exitOk = false;
@@ -177,7 +191,7 @@ export async function vetToken(opts: VetTokenOpts, deps: VetTokenDeps = {}): Pro
       safety: { ok: safetyResult.passed, detail: safetyResult.reason },
       exitRoute: { ok: exitOk, dex: exitDex },
       liquidityFloor: { ok: liquidityOk, usd: liquidityUsd },
-      lockStatus: { ok: true, locked, source: 'goplus' },
+      lockStatus: { ok: true, locked, source: 'goplus', pctLocked: lockPct, locker: lockerTag, unlockIso },
     },
     partial: !safety || !!safety.partial,
     atIso: opts.nowIso ?? new Date().toISOString(),

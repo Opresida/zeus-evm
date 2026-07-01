@@ -34,6 +34,11 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
 - Módulo compartilhado em `packages/execution-utils/src/walletPool/` (era `apps/liquidator/src/walletPool/`).
 - **Motor 2 ganhou dispatch PARALELO:** cada oportunidade numa carteira/nonce independente (`Promise.all`) — 7 arbs
   simultâneas deixam de serializar. Acionado pela chave-mestra.
+- **✅ Motor 1 acoplado à chave-mestra (2026-07-01):** o pool era construído só com `WALLET_POOL_ENABLED=true` (flag
+  esquecível — o footgun da Regra 1). Agora **constrói quando a SEED existe** (`WALLET_POOL_MNEMONIC` + não-dryrun),
+  igual o M2; a ativação segue o toggle (dispatch da pré-liq é gated a montante). ⚠️ **Só passe a seed com as carteiras
+  ABASTECIDAS.** **Escopo atual:** o pool do M1 está ligado **SÓ na pré-liquidação**; a liquidação clássica
+  (Aave/Compound/Morpho/Moonwell) sempre usa a **carteira main** (execução funciona normal, só não paraleliza).
 - **Nonce:** o `NoncePool` semeia via API (`getTransactionCount 'pending'`) **1× por carteira**, depois incrementa
   **local** (economiza RPC). O M2 usa o **nonce explícito** do pool (igual M1). Sem pool → viem auto-nonce via API.
 - **🐛 Fix crítico de corrida** no `orchestrator.acquire`: reserva o slot de ocupação ANTES do await + re-checa

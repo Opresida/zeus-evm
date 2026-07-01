@@ -1337,10 +1337,14 @@ export async function boot(): Promise<LiquidatorState> {
     account: ctx.account ?? null,
   });
 
-  // ─── Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela) ───
-  // Gated: WALLET_POOL_ENABLED + mode != dryrun + seed-mestre. Em dryrun não há envio → sem pool.
+  // ─── Wallet-pool — SÓ a pré-liquidação usa (grind de presença paralela) ───
+  // 🔑 CHAVE-MESTRA (espelha o Motor 2): constrói quando a SEED existe (+ não-dryrun) — não exige mais o
+  // flag WALLET_POOL_ENABLED (era o "flag esquecido" que deixava o pool morto após ligar o toggle). A
+  // ATIVAÇÃO segue o toggle: o dispatch da pré-liq só roda com execução ligada (gate a montante), então
+  // seed provisionada + toggle = pool acende. WALLET_POOL_ENABLED vira só override/legado (não é mais requisito).
+  // ⚠️ Contrato operacional: só passe a seed quando as carteiras do pool estiverem ABASTECIDAS com gás.
   let preLiqSenderPool: WalletPoolOrchestrator | undefined;
-  if (env.WALLET_POOL_ENABLED && env.LIQUIDATOR_MODE !== 'dryrun' && env.WALLET_POOL_MNEMONIC) {
+  if (env.WALLET_POOL_MNEMONIC && env.LIQUIDATOR_MODE !== 'dryrun') {
     preLiqSenderPool = buildWalletPoolOrchestrator({
       mnemonic: env.WALLET_POOL_MNEMONIC,
       size: env.WALLET_POOL_SIZE,
@@ -2418,6 +2422,7 @@ async function main() {
     adaptiveCooldown: state.env.ADAPTIVE_COOLDOWN_ENABLED, // #4 cooldown adaptativo (FailureTracker via setter)
     adaptiveThresholds: state.env.ADAPTIVE_THRESHOLDS_ENABLED, // piso de EV (acoplado inline nas deps)
     competitiveBribe: state.env.COMPETITIVE_BRIBE_ENABLED, // bribe competitivo (acoplado inline nas deps)
+    walletPoolEnabled: state.env.WALLET_POOL_ENABLED, // override/legado (seed present já basta pra construir)
   };
   const applyCombatBundle = (live: boolean) => {
     // #5 — os 4 calculators leem `state.env.SLIPPAGE_PER_DEX_ENABLED` fresco a cada tick → mutar propaga.
@@ -2431,7 +2436,8 @@ async function main() {
     state.combatMirror.competitiveBribe = live || combatDefaults.competitiveBribe;
     state.combatMirror.slippagePerDex = state.env.SLIPPAGE_PER_DEX_ENABLED;
     state.combatMirror.walletPoolReady = state.preLiqSenderPool ? state.preLiqSenderPool.size : 0;
-    state.combatMirror.walletPoolActive = !!state.preLiqSenderPool; // no M1, pool construído = pool usado no dispatch
+    // Ativo = pool construído (seed presente) E execução ligada (ou override legado) — espelha o M2.
+    state.combatMirror.walletPoolActive = !!state.preLiqSenderPool && (live || combatDefaults.walletPoolEnabled);
   };
   applyCombatBundle(state.liveExecutionEnabled); // estado inicial coerente com o toggle no boot
   const pollEngineControl = async () => {

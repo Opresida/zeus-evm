@@ -287,6 +287,10 @@ export interface FailureRecordedEvent extends BaseEvent {
   reason?: string;
   /** Post-mortem (Fase 5b): alias do competidor que nos ganhou, quando resolvido. */
   competitorAlias?: string;
+  /** Endereço do vencedor (sempre presente quando houve corrida perdida, mesmo sem alias resolvido). */
+  competitorSender?: string;
+  /** Gorjeta (priority fee, gwei) do vencedor — "perdemos por X gwei". */
+  winnerPriorityFeeGwei?: number;
 }
 
 /**

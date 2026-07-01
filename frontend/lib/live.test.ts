@@ -160,12 +160,18 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.edgePairs?.[0]).toMatchObject({ pair: "WETH/USDC", samples: 30 });
   });
 
-  it("Fase 2b: post-mortem de failure.recorded COM vencedor + log de calibration.applied", () => {
+  it("Fase 2b/E: post-mortem COM vencedor (alias, endereço curto, gorjeta) + log de calibration.applied", () => {
     const snap = deriveSnapshot([
       row({
         type: "failure.recorded",
         protocol: "morpho-blue",
-        payload: { competitorAlias: "bob.eth", winner_priority_fee_gwei: 0.51, our_tx_index: 3 } as ZeusEvent,
+        payload: { competitorAlias: "bob.eth", winnerPriorityFeeGwei: 0.51, our_tx_index: 3 } as ZeusEvent,
+      }),
+      // Fase E: vencedor SEM alias resolvido → mostra endereço curto (não some com a perda).
+      row({
+        type: "failure.recorded",
+        protocol: "aave-v3",
+        payload: { competitorSender: "0x9a3c00000000000000000000000000000000d21f" } as ZeusEvent,
       }),
       row({ type: "failure.recorded", protocol: "aave-v3", payload: { failureCategory: "reverted_on_chain" } as ZeusEvent }), // sem vencedor → não vira post-mortem
       row({
@@ -173,9 +179,12 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
         payload: { oldThresholdUsd: 3.6, newThresholdUsd: 4.2, reason: "sequência de reverts" } as ZeusEvent,
       }),
     ]);
-    expect(snap.postmortem).toHaveLength(1);
-    expect(snap.postmortem![0].text).toContain("bob.eth");
-    expect(snap.postmortem![0].pos).toBe("pos #3");
+    expect(snap.postmortem).toHaveLength(2); // a falha sem vencedor NÃO entra
+    const texts = snap.postmortem!.map((p) => p.text).join(" | ");
+    expect(texts).toContain("bob.eth");
+    expect(texts).toContain("0.51 gwei"); // gorjeta do vencedor agora aparece
+    expect(texts).toContain("0x9a3c…d21f"); // vencedor sem alias → endereço curto
+    expect(snap.postmortem!.find((p) => p.text.includes("bob.eth"))?.pos).toBe("pos #3");
     expect(snap.calib).toHaveLength(1);
     expect(snap.calib![0].effect).toContain("3.60");
     expect(snap.calib![0].effect).toContain("4.20");

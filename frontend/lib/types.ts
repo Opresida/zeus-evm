@@ -53,6 +53,9 @@ export interface ZeusEvent {
   failureCategory?: string;
   gasUsdLost?: number;
   competitorAlias?: string;
+  // Fase E (item 5) — vencedor da corrida mesmo sem alias resolvido.
+  competitorSender?: string;
+  winnerPriorityFeeGwei?: number;
   // Fase 2b — post-mortem (no payload do failure.recorded)
   winner_priority_fee_gwei?: number;
   our_tx_index?: number;

@@ -135,6 +135,8 @@ export const MOCK = {
   ],
   postmortem: [
     { time: "14:33", text: "Morpho · perdemos para bob-the-builder.eth", pos: "pos #2" },
+    { time: "14:20", text: "Aave V3 · perdemos para 0x9a3c…d21f · 0.42 gwei", pos: "—" }, // vencedor sem alias → endereço curto
+    { time: "14:05", text: "Compound · perdemos para desconhecido", pos: "—" }, // sem alias nem endereço, só evidência de derrota
     { time: "13:50", text: "Aave V3 · incluído 1 bloco depois", pos: "pos #5" },
     { time: "13:12", text: "WETH/USDC · bribe insuficiente (−0.27 gwei)", pos: "pos #3" },
     { time: "12:47", text: "Aerodrome · reorg desfez inclusão", pos: "reorg" },

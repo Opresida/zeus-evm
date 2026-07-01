@@ -202,12 +202,16 @@ export function deriveSnapshot(
   }
 
   // ----- Fase 2b: post-mortem (corridas perdidas) — failure.recorded COM vencedor resolvido -----
-  const lostRows = rows.filter((r) => r.type === "failure.recorded" && (r.payload as ZeusEvent)?.competitorAlias).slice(0, 6);
+  // Corrida perdida = houve VENCEDOR (alias resolvido OU só o endereço OU a gorjeta). Sem vencedor = revert técnico → não entra.
+  const isLostRace = (p: ZeusEvent) => !!(p?.competitorAlias || p?.competitorSender || p?.winnerPriorityFeeGwei != null);
+  const lostRows = rows.filter((r) => r.type === "failure.recorded" && isLostRace(r.payload as ZeusEvent)).slice(0, 6);
   if (lostRows.length) {
     snap.postmortem = lostRows.map((r) => {
       const p = r.payload as ZeusEvent;
-      const alias = (p.competitorAlias as string) || "—";
-      const gwei = p.winner_priority_fee_gwei != null ? ` · ${Number(p.winner_priority_fee_gwei).toFixed(2)} gwei` : "";
+      const shortSender = p.competitorSender ? `${p.competitorSender.slice(0, 6)}…${p.competitorSender.slice(-4)}` : "";
+      // alias resolvido → endereço curto → "desconhecido" (nunca some com a perda por não ter nome).
+      const alias = (p.competitorAlias as string) || shortSender || "desconhecido";
+      const gwei = p.winnerPriorityFeeGwei != null ? ` · ${Number(p.winnerPriorityFeeGwei).toFixed(2)} gwei` : "";
       const idx = p.our_tx_index != null ? `pos #${p.our_tx_index}` : p.is_bottom_10pct ? "fim do bloco" : "—";
       return {
         time: hhmm(r.ts),

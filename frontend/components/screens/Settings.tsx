@@ -151,6 +151,7 @@ export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?:
             {[
               { on: combatBundle.adaptive, label: "Piso de EV auto-calibrável" },
               { on: combatBundle.competitiveBribe, label: "Bribe competitivo" },
+              { on: !!combatBundle.slippagePerDex, label: "Slippage por-DEX (Dune)" },
               { on: combatBundle.walletPoolActive, label: `Wallet-pool (${combatBundle.walletPoolReady} carteiras)` },
             ].map((f, i) => (
               <span key={i} style={{ ...css("font:600 11px/1 'IBM Plex Mono'; padding:7px 11px; border-radius:20px; display:inline-flex; align-items:center; gap:6px;"), background: f.on ? "var(--greensoft, rgba(34,197,94,.12))" : "var(--bg2)", color: f.on ? "var(--green)" : "var(--muted)" }}>

@@ -534,6 +534,7 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
     executionLive: boolean;      // o toggle de execução está ligado?
     adaptive: boolean;           // adaptive thresholds injetando no gate?
     competitiveBribe: boolean;   // bribe competitivo ativo?
+    slippagePerDex?: boolean;    // #5 — gate de slippage calibrado por DEX (seed do Dune) ativo?
     walletPoolReady: number;     // nº de carteiras paralelas derivadas (0 = sender único)
     walletPoolActive: boolean;   // pool efetivamente em uso (live ou force-on)?
   };

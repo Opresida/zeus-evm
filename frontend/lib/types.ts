@@ -87,7 +87,7 @@ export interface ZeusEvent {
   autoPaused?: boolean;
   motorStats?: { tag: string; ops: number; netPnl24hUsd: number }[];
   errorMetrics?: { failedOps: number; totalOps: number };
-  combatBundle?: { executionLive: boolean; adaptive: boolean; competitiveBribe: boolean; walletPoolReady: number; walletPoolActive: boolean };
+  combatBundle?: { executionLive: boolean; adaptive: boolean; competitiveBribe: boolean; slippagePerDex?: boolean; walletPoolReady: number; walletPoolActive: boolean };
   // catch-all
   [k: string]: unknown;
 }
@@ -204,6 +204,7 @@ export interface CombatBundle {
   executionLive: boolean;
   adaptive: boolean;
   competitiveBribe: boolean;
+  slippagePerDex?: boolean; // #5 — gate de slippage calibrado por DEX (seed do Dune)
   walletPoolReady: number;
   walletPoolActive: boolean;
 }

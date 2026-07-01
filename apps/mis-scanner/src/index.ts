@@ -644,6 +644,7 @@ async function main(): Promise<void> {
         executionLive: live,
         adaptive: !!arbExec && (env.ADAPTIVE_THRESHOLDS_ENABLED || live),
         competitiveBribe: !!arbExec && (live || env.COMPETITIVE_BRIBE_ENABLED),
+        slippagePerDex: live || env.SLIPPAGE_PER_DEX_ENABLED, // #5 — gate de slippage calibrado por DEX (Dune)
         walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
         walletPoolActive: !!walletPool && (live || env.WALLET_POOL_ENABLED),
       },
@@ -832,7 +833,8 @@ async function main(): Promise<void> {
             // Acha o TAMANHO ÓTIMO do empréstimo (pico de lucro antes do slippage matar)
             const opt = await optimizeFlashLoan({
               client, chainConfig, group, observation: o,
-              opts: { ethUsd, maxSlippageBps, perDexSlippage: env.SLIPPAGE_PER_DEX_ENABLED }, // #5 (observe-first)
+              // #5 slippage por-DEX — 🔑 chave-mestra: o toggle acende junto (env vira override force-on).
+              opts: { ethUsd, maxSlippageBps, perDexSlippage: !!arbExec?.deps.liveExecutionEnabled || env.SLIPPAGE_PER_DEX_ENABLED },
             });
             // Sem tamanho viável (mesmo o menor não lucra / pool raso) → fora do ranking
             const viable = opt.best !== null && opt.maxViableLoanUsd > 0;

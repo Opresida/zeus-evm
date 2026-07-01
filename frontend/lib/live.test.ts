@@ -264,9 +264,9 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
 
   it("Chave-mestra: combat_bundle (Motor 2) flui do heartbeat pro snapshot", () => {
     const snap = deriveSnapshot([], [
-      status({ service: "mis-scanner", combat_bundle: { executionLive: true, adaptive: true, competitiveBribe: true, walletPoolReady: 22, walletPoolActive: true } }),
+      status({ service: "mis-scanner", combat_bundle: { executionLive: true, adaptive: true, competitiveBribe: true, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: true } }),
     ]);
-    expect(snap.combatBundle).toMatchObject({ executionLive: true, walletPoolReady: 22, walletPoolActive: true });
+    expect(snap.combatBundle).toMatchObject({ executionLive: true, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: true });
   });
 
   it("#3+#6 automações: escalada de gás + edge sumindo fluem do intel pro snapshot", () => {

@@ -2386,6 +2386,23 @@ async function main() {
   // ─── Controle remoto de execução (toggle do painel via Supabase engine_control) ───
   // Modelo armado-mas-travado: sobe SEMPRE travado; só liga quando o painel confirmar `true` exato.
   // Em DRY_RUN o gate é irrelevante (nunca submete), mas o poll roda igual pra refletir no heartbeat.
+  //
+  // 🔑 CHAVE-MESTRA (pacote de combate) — regra: ao ligar "enviar TX", TUDO que precisa estar ligado
+  // pra operar direito acende JUNTO, automaticamente (nada de flag .env esquecido dormente). O env vira
+  // override force-on; o default segue o toggle. Captura os valores ORIGINAIS do .env 1× (antes de
+  // qualquer mutação) pra restaurar corretamente no desligar.
+  const combatDefaults = {
+    slippagePerDex: state.env.SLIPPAGE_PER_DEX_ENABLED, // #5 slippage por-DEX (calculators leem state.env fresco)
+    adaptiveCooldown: state.env.ADAPTIVE_COOLDOWN_ENABLED, // #4 cooldown adaptativo (FailureTracker via setter)
+  };
+  const applyCombatBundle = (live: boolean) => {
+    // #5 — os 4 calculators leem `state.env.SLIPPAGE_PER_DEX_ENABLED` fresco a cada tick → mutar propaga.
+    state.env.SLIPPAGE_PER_DEX_ENABLED = live || combatDefaults.slippagePerDex;
+    // #4 — FailureTracker construído 1× no boot; setter religa a política ao vivo.
+    state.failureTracker.setAdaptiveCooldown(live || combatDefaults.adaptiveCooldown);
+    // (adaptive thresholds + bribe competitivo já são computados inline com state.liveExecutionEnabled nas deps.)
+  };
+  applyCombatBundle(state.liveExecutionEnabled); // estado inicial coerente com o toggle no boot
   const pollEngineControl = async () => {
     const next = await fetchEngineControlEnabled({
       supabaseUrl: state.env.SUPABASE_URL,
@@ -2394,6 +2411,7 @@ async function main() {
     });
     if (next !== state.liveExecutionEnabled) {
       state.liveExecutionEnabled = next; // lido por dispatch no gate 2.5
+      applyCombatBundle(next); // 🔑 chave-mestra: acende/apaga o pacote de combate junto
       logger.warn(
         { motor: state.env.ENGINE_CONTROL_MOTOR, liveExecutionEnabled: next },
         next

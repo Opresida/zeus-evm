@@ -56,7 +56,7 @@ export class FailureTracker {
   // #4 automação — cooldown adaptativo (backoff por cooldowns repetidos).
   private readonly baseCooldownMs: number;
   private readonly maxCooldownMs: number;
-  private readonly adaptiveEnabled: boolean;
+  private adaptiveEnabled: boolean; // chave-mestra pode religar ao vivo (setAdaptiveCooldown)
   private _recentCooldowns = 0; // conta cooldowns na sequência ruim; decai a cada sucesso (histerese)
 
   // Métricas de observabilidade
@@ -71,6 +71,19 @@ export class FailureTracker {
     this.maxCooldownMs = opts.maxCooldownMs ?? 30 * 60 * 1000; // teto 30min
     this.adaptiveEnabled = opts.adaptiveCooldownEnabled ?? false;
     this.logger = opts.logger;
+  }
+
+  /**
+   * Chave-mestra de execução: liga/desliga o backoff adaptativo AO VIVO (o toggle do painel acende
+   * o pacote de combate; o FailureTracker é construído 1× no boot, então precisa de setter).
+   * Idempotente; não mexe no estado de cooldown corrente, só na política dos PRÓXIMOS.
+   */
+  setAdaptiveCooldown(enabled: boolean): void {
+    this.adaptiveEnabled = enabled;
+  }
+
+  isAdaptiveCooldownEnabled(): boolean {
+    return this.adaptiveEnabled;
   }
 
   /**

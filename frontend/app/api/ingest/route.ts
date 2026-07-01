@@ -167,6 +167,7 @@ export async function POST(req: Request) {
             executionLive: Boolean(e.combatBundle.executionLive),
             adaptive: Boolean(e.combatBundle.adaptive),
             competitiveBribe: Boolean(e.combatBundle.competitiveBribe),
+            slippagePerDex: Boolean(e.combatBundle.slippagePerDex),
             walletPoolReady: Math.max(0, finNum(e.combatBundle.walletPoolReady)),
             walletPoolActive: Boolean(e.combatBundle.walletPoolActive),
           }

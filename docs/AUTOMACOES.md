@@ -14,12 +14,18 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
 
 | Pacote de combate | Motor | Como acopla |
 |---|---|---|
-| **Adaptive thresholds** (injeta o piso de EV no gate) | M1 + M2 | `liveExecutionEnabled || env.ADAPTIVE_THRESHOLDS_ENABLED` |
-| **Bribe competitivo** | M1 + M2 | `liveExecutionEnabled || env.COMPETITIVE_BRIBE_ENABLED` |
+| **Adaptive thresholds** (injeta o piso de EV no gate) | M1 + M2 | `liveExecutionEnabled || env.ADAPTIVE_THRESHOLDS_ENABLED` (inline nas deps) |
+| **Bribe competitivo** | M1 + M2 | `liveExecutionEnabled || env.COMPETITIVE_BRIBE_ENABLED` (inline nas deps) |
+| **Slippage por-DEX (#5)** (gate calibrado do Dune) | M1 + M2 | `liveExecutionEnabled || env.SLIPPAGE_PER_DEX_ENABLED` — M2 inline no gate; M1 via `applyCombatBundle` (muta `state.env`, os 4 calculators leem fresco) |
+| **Cooldown adaptativo (#4)** (backoff por falhas) | M1 | `liveExecutionEnabled || env.ADAPTIVE_COOLDOWN_ENABLED` — via `failureTracker.setAdaptiveCooldown()` (tracker é construído 1×) |
 | **Wallet-pool** (N carteiras paralelas) | M1 + M2 | `liveExecutionEnabled || env.WALLET_POOL_ENABLED` (precisa da seed) |
 
 - **Env vira override force-on**; default segue o toggle. **Vetting/porteiro fica INDEPENDENTE** (decisão do Humberto).
-- **Deferido:** `BRIBE_ENABLED` (bribe-%-profit, Base-modesto, fundo no pipeline).
+- **Mecanismo (M1):** `applyCombatBundle(live)` no toggle poll (`apps/liquidator/src/index.ts`) captura os defaults do `.env`
+  1× e re-aplica `live || default` em cada flag (restaura o valor original ao desligar). M2 já é inline no scan/heartbeat.
+- **ISOLADO com motivo (decisão honesta, NÃO acoplado):** `BRIBE_ENABLED` — bribe **flat-%-do-lucro cego**; na Base (FCFS)
+  é **superado pelo bribe competitivo** (que já é do pacote e só paga quando perde corrida). Acoplar os dois = **double-bribe
+  queimando lucro**. Fica como **override manual** pra chains de leilão. (Cai na exceção "uma ou outra pode ficar isolada".)
 - Painel (Configurações) mostra o pacote via `combatBundle` no heartbeat do M2 (transparência).
 
 ## 👛 Wallet-pool — N frentes paralelas (relocado p/ execution-utils)
@@ -69,6 +75,8 @@ ruído/MEV — ótima pra comparar DEXes e dar um chute inicial, refinar depois 
 **✅ WIRED NOS 2 MOTORES (observe-first, default global):** helper compartilhado `effectiveMaxSlippageBps` em
 execution-utils — Motor 2 (arb) usa 2 pernas (`routeSlippageBps`); Motor 1 (liquidação) usa 1 perna (venda do
 colateral) nos 4 calculators (aave/compound/morpho/pré-liq). Flag `SLIPPAGE_PER_DEX_ENABLED` (default false = sem
-regressão). **Próximo:** refinar a métrica (impacto por reservas) + threading do notional real por-calculator. 1º caso do feed Dune.
+regressão). **✅ ACOPLADO À CHAVE-MESTRA (2026-07-01):** o toggle de execução acende o gate por-DEX junto nos 2 motores
+(`liveExecutionEnabled || env.SLIPPAGE_PER_DEX_ENABLED`) — não fica mais dormente atrás de flag esquecido. **Próximo:**
+refinar a métrica (impacto por reservas) + threading do notional real por-calculator. 1º caso do feed Dune.
 
 > **Sem contrato tocado.** Tudo é gate/observabilidade de software. Relatório completo (PDF) em `C:\Users\user\ZEUS_Automacoes_Parte3.pdf`.

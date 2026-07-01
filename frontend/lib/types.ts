@@ -85,6 +85,7 @@ export interface ZeusEvent {
   adaptiveMinEvUsd?: number;
   autoPaused?: boolean;
   motorStats?: { tag: string; ops: number; netPnl24hUsd: number }[];
+  errorMetrics?: { failedOps: number; totalOps: number };
   // catch-all
   [k: string]: unknown;
 }
@@ -165,6 +166,7 @@ export interface ServiceStatusRow {
   /** Motor 1 — resiliência de reorg (reorgs na janela + órfãs recuperadas). */
   reorgs: { window24h: number; orphansRecovered: number; orphansDetected: number } | null;
   competition: Competition | null;
+  error_metrics: { failedOps: number; totalOps: number } | null;
   updated_at: string;
 }
 
@@ -308,6 +310,8 @@ export interface LiveSnapshot {
   reorgs?: { window24h: number; orphansRecovered: number; orphansDetected: number };
   /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
   competition?: Competition;
+  /** Taxa de erro real (KPI Saúde) — falhas vs total de ops. */
+  errorMetrics?: { failedOps: number; totalOps: number };
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

@@ -389,6 +389,10 @@ export function deriveSnapshot(
   const compeSvc = liq?.competition ? liq : statuses.find((s) => s.competition);
   if (compeSvc?.competition) snap.competition = compeSvc.competition;
 
+  // Taxa de erro real (KPI Saúde) — do liquidator (FailureTracker).
+  const errSvc = liq?.error_metrics ? liq : statuses.find((s) => s.error_metrics);
+  if (errSvc?.error_metrics) snap.errorMetrics = errSvc.error_metrics;
+
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
   if (walletSnaps.length) {

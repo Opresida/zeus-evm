@@ -39,6 +39,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
     competition: partial.competition ?? null,
+    error_metrics: partial.error_metrics ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
@@ -250,6 +251,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(m2?.verdict).toBe("reject");
     // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("Item 1 (Saúde): taxa de erro real flui do heartbeat pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "liquidator", error_metrics: { failedOps: 6, totalOps: 477 } }),
+    ]);
+    expect(snap.errorMetrics).toMatchObject({ failedOps: 6, totalOps: 477 });
   });
 
   it("Item 4: diagnóstico de concorrência (builders + posição) flui do liquidator pro snapshot", () => {

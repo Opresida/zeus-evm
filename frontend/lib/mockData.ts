@@ -162,6 +162,8 @@ export const MOCK = {
     ],
     position: { samples: 24, bottom10pctPct: 33, top10pctPct: 12, avgRelative: 0.58 },
   } as Competition | null,
+  // Taxa de erro real (KPI Saúde) — espelha o AO VIVO: falhas vs total de ops (6/477 ≈ 1.3%).
+  errorMetrics: { failedOps: 6, totalOps: 477 } as { failedOps: number; totalOps: number } | null,
 
   // Espelha EXATAMENTE o AO VIVO: componentes reais dos 2 motores, rotulados M1·/M2· (o live.ts prefixa por motor).
   // Só há 2 estados reais (READY/DOWN via ok:boolean) — sem "DEGRADED". Snapshot de bot saudável.
@@ -253,6 +255,7 @@ export const EMPTY: typeof MOCK = {
   calib: [],
   edgePairs: [],
   competition: null,
+  errorMetrics: null,
   components: [],
   cooldowns: [],
   latP50: [],

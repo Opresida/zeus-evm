@@ -159,6 +159,9 @@ export async function POST(req: Request) {
       latency: e.latency ?? null, // Fase 2b — p50/p95 de dispatch
       reorgs: e.reorgs ?? null, // Motor 1 — resiliência de reorg + órfãs recuperadas
       competition: sanitizeCompetition(e.competition), // item 4 — builders dominantes + posição no bloco
+      error_metrics: e.errorMetrics // taxa de erro real (KPI Saúde)
+        ? { failedOps: Math.max(0, finNum(e.errorMetrics.failedOps)), totalOps: Math.max(0, finNum(e.errorMetrics.totalOps)) }
+        : null,
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

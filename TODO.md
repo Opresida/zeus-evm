@@ -1,5 +1,22 @@
 # TODO — ZEUS EVM
 
+> ## 🔑 CHAVE-MESTRA COMPLETA + CANÁRIO + WALLET-POOL (continuação 2026-07-01) — `main`. Doc: `docs/AUTOMACOES.md`
+>
+> **Regras novas (lei/memória):** (1) ao ligar o TX, TUDO que precisa acender vem junto (sem flag `.env` esquecido);
+> (2) feature num motor → avaliar+espelhar no outro (informar+executar).
+> - [x] **#5 slippage por-DEX** + **#4 cooldown** acoplados ao toggle (M1+M2). `BRIBE_ENABLED` isolado com motivo (double-bribe na Base FCFS).
+> - [x] **Painel mostra os 2 motores** — M1 passou a emitir `combatBundle` via `combatMirror` (por-ref); `Settings.tsx` 1 card/motor.
+> - [x] **Wallet-pool acende com SEED+toggle** (some o flag esquecível) + **ligado nos 5 caminhos** (clássica + pré-liq).
+> - [x] **🟢 CANÁRIO:** avaliação (Piso EV + Slippage) VERDE em dryrun; execução (Bribe + Pool) CINZA até o TX. `SLIPPAGE_PER_DEX_ENABLED` default TRUE.
+> - [x] 🐛 fix: `next build` derrubava o `next dev` (404) → regra nova; dev na localhost:3000.
+> - Verde (RPC ON): typecheck 0 · execution-utils 397 · liquidator 98 · mis-scanner 52 · frontend 44 + tsc. Contratos intocados.
+>
+> **🔜 PRÓXIMA SESSÃO (2026-07-02):** [ ] responsividade mobile · [ ] filler UniswapX precisa de wallet-pool? + auditar `.env` dele ·
+> [ ] wallet-pool "0 carteiras" no card M1 (rótulo/UX) · [ ] limiares de notificação (funciona × mock × fio solto) ·
+> [ ] terminar automações Leva 3 (#7-9) / Leva 4 (#10-12) / Leva 5 (#13-14).
+
+---
+
 > ## 🤖 CHAVE-MESTRA + AUTOMAÇÕES (Parte 3) — mergeado na `main` (2026-07-01). Doc: `docs/AUTOMACOES.md`
 >
 > Automação "viva" (auto-ajusta dentro de travas + avisa + reversível) + chave-mestra de execução.
@@ -13,7 +30,7 @@
 > **Automações (14 — Levas 1-2 feitas, 5/14):**
 > - [x] **#1** piso de EV auto-calibrável OBSERVÁVEL · [x] **#2** RPC degradado visível · [x] **#3** escalada de gás
 > - [x] **#4** cooldown adaptativo (backoff observe-first) · [x] **#6** edge sumindo (alerta)
-> - [ ] **#5** slippage por DEX — **via DUNE** (recortar histórico p/ calibrar per-DEX sem esperar mainnet; ideia do Humberto)
+> - [x] **#5** slippage por DEX — **via DUNE** (query 7860473 validada; calibrado per-DEX; default TRUE; acoplado ao toggle nos 2 motores)
 > - [ ] **Leva 3:** #7 quarentena token · #8 pool depth · #9 calibração de gás
 > - [ ] **Leva 4:** #10 throttle varredura · #11 revet dinâmico · #12 wallet-pool rebalance (mainnet)
 > - [ ] **Leva 5:** #13 flashloan health · #14 relay latency (Motor 3)

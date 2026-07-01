@@ -181,6 +181,52 @@ zeus-evm/
 
 ---
 
+## ✅ SESSÃO 2026-07-01 (madrugada, continuação) — Chave-mestra COMPLETA + canário do painel + wallet-pool nos 5 caminhos (tudo na `main`)
+
+Continuação da chave-mestra. **2 regras novas viraram lei** (memória): (1) **ao ligar o TX, TUDO que precisa
+estar ligado acende junto** — nada de flag `.env` dormente/esquecido; (2) **feature feita num motor, avaliar pro
+outro e JÁ espelhar** (informar+executar). Vários commits na `main`, sweep verde a cada um (RPC ON).
+
+**🔑 Chave-mestra — acoplei o que faltava (regra 1):**
+- **#5 slippage por-DEX** (M1+M2) e **#4 cooldown adaptativo** (M1) passam a acender com o toggle. M1: `applyCombatBundle(live)`
+  no toggle poll captura os defaults do `.env` 1× e reaplica `live||default`; `FailureTracker.setAdaptiveCooldown()` (setter,
+  tracker é 1×). **`BRIBE_ENABLED` fica ISOLADO com motivo honesto:** bribe flat-%-cego, superado pelo competitivo na Base FCFS.
+
+**📟 Painel mostra o pacote dos DOIS motores (regra 2 + transparência):** o M1 não emitia `combatBundle` (só o M2) →
+a pergunta do Humberto "o que acende no M1?" expôs o furo. Agora o liquidator emite via **`combatMirror`** (objeto por-ref,
+mesmo padrão do `vettingEnforce`; o toggle poll escreve, o heartbeat lê). `live.ts` funde `combatBundle`(M2) + `combatBundleM1`;
+`Settings.tsx` renderiza **um card por motor**. Botões ON/OFF por motor **intocados** — foi só a camada de visibilidade.
+
+**👛 Wallet-pool — acoplado à chave-mestra + ligado nos 5 caminhos:**
+- Era construído só com `WALLET_POOL_ENABLED=true` (o "flag esquecível" da regra 1). Agora **constrói quando a SEED
+  (`WALLET_POOL_MNEMONIC`) existe** (+ não-dryrun), espelhando o M2; ativa pelo toggle. ⚠️ Só passar a seed com as carteiras ABASTECIDAS.
+- **Decisão do Humberto:** o pool estava só na pré-liq → **ligado também na liquidação clássica** (Aave/Compound/Morpho/Moonwell).
+  Os 5 runners passam `senderPool` + `poolExposureWei: 1n` (breaker agregado compartilhado limita a concorrência total).
+  Sem lógica nova — reusa o branch `if(senderPool)` do dispatcher que a pré-liq já provava.
+
+**🟢 CANÁRIO do painel (ideia do Humberto):** as bolinhas viram DIAGNÓSTICO por modo. **Avaliação** (Piso de EV observe +
+Slippage por-DEX) = **VERDE já no DRY_RUN** (rodam sem execução) → não acender no boot = BUG. **Execução** (Bribe + Wallet-pool)
+= **CINZA no DRY_RUN**, verde só armado+ligado (`armed = mode != dryrun`) → acender no dryrun ou não acender no TX = BUG.
+Pra o verde ser honesto: **`SLIPPAGE_PER_DEX_ENABLED` virou default TRUE** (feature de avaliação calibrada do Dune; o gate de
+LUCRO/EV protege o dinheiro; flag = kill-switch; vale dryrun+real, aprovado). Mock espelha o estado de DRY_RUN. Ver `docs/AUTOMACOES.md` (§canário).
+
+**🐛 Bug real corrigido:** rodar `npx next build` com o `next dev` no ar **sobrescreveu o `.next`** → 404 nos chunks →
+painel travou. Consertado (mata PID, `rm -rf .next`, sobe dev limpo). **Regra nova (memória):** nunca `next build` com o dev
+no ar — validar com `tsc`+`vitest`. O dev fica na **localhost:3000** (Antigravity — só informar URL).
+
+**Verde final (RPC ON, 0 skip):** typecheck 0 · execution-utils 397 · liquidator 98 (fork) · mis-scanner 52 (fork) ·
+frontend 44 + tsc. **Contratos INTOCADOS (100% off-chain).** Commits: `010b0f7`→`0b88cd7`.
+
+**🔜 PRÓXIMA SESSÃO (plano do Humberto, 2026-07-02):**
+1. **Responsividade** do painel (mobile — reauditar overflow como nas sessões anteriores via Playwright).
+2. **Filler UniswapX:** checar se precisa de wallet-pool + auditar o que está ligado no `.env` dele.
+3. **Wallet-pool "0 carteiras"** no card de liquidação/pré-liq (M1): ajustar pra refletir certo (0 é honesto em dryrun sem seed,
+   mas revisar a UX/rótulo — talvez mostrar "pronto p/ N ao ligar" quando a seed existir).
+4. **Limiares de notificação:** varrer o que funciona × o que não funciona × o que é mock × o que é fio solto pra setar.
+5. **Terminar as automações que faltaram:** Leva 3 (#7 quarentena token · #8 pool depth · #9 calibração de gás) · Leva 4 (#10-12) · Leva 5 (#13-14).
+
+---
+
 ## ✅ SESSÃO 2026-07-01 (noite) — Chave-mestra de execução + Automações Parte 3 (Levas 1-2) (tudo mergeado na `main`)
 
 Sessão grande de **automação "viva"** (o bot se auto-ajusta dentro de travas + avisa + reversível) + a

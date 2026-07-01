@@ -19,7 +19,7 @@ export function Strategies({ vm }: ScreenProps) {
     <section>
       <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Estratégias</h1>
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 20px;")}>
-        Candidatos × resultados (24h) — qual estratégia dá mais lucro: clássica, pré-liquidação ou filler.
+        Candidatos × resultados (24h) — qual estratégia dá mais lucro: clássica, pré-liquidação, filler ou arb cross-DEX.
         {!anyExecuted && " Em DRY_RUN, os candidatos mostram o POTENCIAL (nada foi enviado ainda)."}
       </p>
 

@@ -345,7 +345,7 @@ export interface MotorStat {
  * Em DRY_RUN, `executed`/`netUsd` ficam 0 e `candidates`/`candidateProfitUsd` mostram o POTENCIAL.
  */
 export interface HeartbeatStrategyStat {
-  strategy: 'classic-liq' | 'pre-liq' | 'filler';
+  strategy: 'classic-liq' | 'pre-liq' | 'filler' | 'arb';
   /** Candidatos LUCRATIVOS vistos na janela (24h). */
   candidates24h: number;
   /** Soma do lucro esperado desses candidatos (USD). */

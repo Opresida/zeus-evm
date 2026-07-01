@@ -119,6 +119,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     "classic-liq": ["Liquidação Clássica", "⚡"],
     "pre-liq": ["Pré-liquidação Morpho", "🔮"],
     filler: ["Filler UniswapX", "🔀"],
+    arb: ["Arb Cross-DEX", "⇄"],
   };
   const strategyCards = (live?.strategyStats ?? M.strategyStats ?? []).map((s) => {
     const [name, icon] = STRAT_META[s.strategy] ?? [s.strategy, "•"];

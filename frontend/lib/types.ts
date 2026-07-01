@@ -119,7 +119,7 @@ export interface ServiceStatusRow {
   motor_stats: { tag: string; ops: number; netPnl24hUsd: number }[] | null;
   /** Comparativo por estratégia (tela "Estratégias"). */
   strategy_stats:
-    | { strategy: 'classic-liq' | 'pre-liq' | 'filler'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
+    | { strategy: 'classic-liq' | 'pre-liq' | 'filler' | 'arb'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
     | null;
   /** Universo vetado por token (tela "Tokens") — porteiro de tokens. */
   vetted_universe:
@@ -176,7 +176,7 @@ export interface WalletSnapshotRow {
 
 /** Agregado comparativo por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
 export interface StrategyStat {
-  strategy: "classic-liq" | "pre-liq" | "filler";
+  strategy: "classic-liq" | "pre-liq" | "filler" | "arb";
   candidates24h: number;
   candidateProfitUsd24h: number;
   executed24h: number;

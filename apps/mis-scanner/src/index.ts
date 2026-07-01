@@ -778,6 +778,14 @@ async function main(): Promise<void> {
 
             const b = opt.best!;
 
+            // Estratégia "arb" (Fase B — item 3): candidato LUCRATIVO visto na varredura → tela Estratégias.
+            // Vale em DRY_RUN: mostra o POTENCIAL do Motor 2 (o que ganharia) antes de ligar a execução.
+            try {
+              strategyTracker.candidate('arb', b.netProfitUsd);
+            } catch {
+              /* observabilidade nunca derruba a varredura */
+            }
+
             // OIE — grava a ineficiência viável no ledger (DuckDB) pro ranking de pares.
             store.ingest(
               buildObservationEvent({
@@ -849,6 +857,14 @@ async function main(): Promise<void> {
               }
               const res = await dispatchArb(opp, arbExec.deps);
               logger.info({ par: cand.group.label, status: res.status, txHash: res.txHash, net: res.netProfitUsd, flashSource: res.flashSource }, `⚡ arb ${cand.group.label}: ${res.status}`);
+              // Estratégia "arb": execução REAL (status 'dispatched') → alimenta o "Net $" do card. DRY_RUN não conta.
+              if (res.status === 'dispatched') {
+                try {
+                  strategyTracker.executed('arb', res.netProfitUsd ?? 0);
+                } catch {
+                  /* observabilidade nunca afeta o resultado da tx */
+                }
+              }
             } catch (err) {
               logger.warn({ par: cand.group.label, err: err instanceof Error ? err.message : err }, 'execução de arb falhou (continua)');
             }

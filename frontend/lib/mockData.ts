@@ -34,6 +34,7 @@ export const MOCK = {
     { strategy: "classic-liq" as const, candidates24h: 34, candidateProfitUsd24h: 412.5, executed24h: 9, netUsd24h: 128.3 },
     { strategy: "pre-liq" as const, candidates24h: 21, candidateProfitUsd24h: 689.2, executed24h: 6, netUsd24h: 241.7 },
     { strategy: "filler" as const, candidates24h: 58, candidateProfitUsd24h: 173.9, executed24h: 12, netUsd24h: 47.1 },
+    { strategy: "arb" as const, candidates24h: 47, candidateProfitUsd24h: 318.4, executed24h: 0, netUsd24h: 0 },
   ],
 
   // Porteiro de tokens (tela "Tokens") — semente que mostra a política POR MOTOR no dia 1:

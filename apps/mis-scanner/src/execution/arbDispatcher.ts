@@ -60,6 +60,8 @@ export interface ArbDispatchDeps {
   client: AnyPublicClient;
   wallet?: AnyWalletClient;
   account?: Address;
+  /** Nonce EXPLÍCITO do wallet-pool (quando paralelo). Sem ele, viem auto-gerencia via API (1 carteira). */
+  nonce?: number;
   executorAddress?: Address;
   chainConfig: ChainConfig;
   gasOracle: GasOracle;
@@ -228,6 +230,9 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
       chain: deps.wallet.chain ?? null,
       maxFeePerGas: maxFee,
       maxPriorityFeePerGas: priorityFee,
+      // Nonce do wallet-pool (paralelo) quando presente → evita colisão se a mesma carteira for reusada no lote.
+      // Sem ele (1 carteira), viem auto-gerencia via API.
+      ...(deps.nonce != null ? { nonce: deps.nonce } : {}),
     };
     logger.info({ pair: opp.pair.id, mode }, `🚀 arb SUBMETENDO (${mode}) — ${opp.pair.id}`);
     const dispatchStart = Date.now();

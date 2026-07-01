@@ -2430,14 +2430,16 @@ async function main() {
     // #4 — FailureTracker construído 1× no boot; setter religa a política ao vivo.
     state.failureTracker.setAdaptiveCooldown(live || combatDefaults.adaptiveCooldown);
     // (adaptive thresholds + bribe competitivo já são computados inline com state.liveExecutionEnabled nas deps.)
-    // Espelho pro painel (heartbeat) — "MOTOR 1 (LIGADO)" + quais features do pacote acenderam.
+    // Espelho pro painel (heartbeat) — CANÁRIO: avaliação verde em DRY_RUN; execução só armado+ligado.
+    const armed = state.env.LIQUIDATOR_MODE !== 'dryrun';
     state.combatMirror.executionLive = live;
-    state.combatMirror.adaptive = live || combatDefaults.adaptiveThresholds;
-    state.combatMirror.competitiveBribe = live || combatDefaults.competitiveBribe;
-    state.combatMirror.slippagePerDex = state.env.SLIPPAGE_PER_DEX_ENABLED;
+    // 🟢 rodam em DRY_RUN (verdes já no boot; se não acender = bug):
+    state.combatMirror.adaptive = true; // Piso de EV OBSERVA todo tick, incondicional (injeção segue o toggle por dentro)
+    state.combatMirror.slippagePerDex = state.env.SLIPPAGE_PER_DEX_ENABLED; // gate de avaliação (default on)
+    // 🔴 só na execução real (cinza em DRY_RUN; verde só armado+ligado, senão = bug):
+    state.combatMirror.competitiveBribe = armed && (live || combatDefaults.competitiveBribe);
     state.combatMirror.walletPoolReady = state.preLiqSenderPool ? state.preLiqSenderPool.size : 0;
-    // Ativo = pool construído (seed presente) E execução ligada (ou override legado) — espelha o M2.
-    state.combatMirror.walletPoolActive = !!state.preLiqSenderPool && (live || combatDefaults.walletPoolEnabled);
+    state.combatMirror.walletPoolActive = !!state.preLiqSenderPool && armed && (live || combatDefaults.walletPoolEnabled);
   };
   applyCombatBundle(state.liveExecutionEnabled); // estado inicial coerente com o toggle no boot
   const pollEngineControl = async () => {

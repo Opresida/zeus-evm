@@ -21,6 +21,11 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
 | **Wallet-pool** (N carteiras paralelas) | M1 + M2 | `liveExecutionEnabled || env.WALLET_POOL_ENABLED` (precisa da seed) |
 
 - **Env vira override force-on**; default segue o toggle. **Vetting/porteiro fica INDEPENDENTE** (decisão do Humberto).
+- **🟢 CANÁRIO do painel (2026-07-01, decisão do Humberto):** as bolinhas viram DIAGNÓSTICO. Features de **AVALIAÇÃO**
+  (Piso de EV observe + Slippage por-DEX) acendem **VERDE já no DRY_RUN** (rodam sem execução) — se não acender no boot
+  do DRY_RUN, é BUG. Features de **EXECUÇÃO** (Bribe competitivo + Wallet-pool) ficam **CINZA no DRY_RUN** e só acendem
+  quando o TX liga — se acenderem no dryrun OU não acenderem ao ligar o TX, é BUG. Por isso `SLIPPAGE_PER_DEX_ENABLED`
+  virou **default TRUE** (ativo já na avaliação; kill-switch = setar false) e bribe/pool ganharam gate `armed` (mode != dryrun).
 - **Mecanismo (M1):** `applyCombatBundle(live)` no toggle poll (`apps/liquidator/src/index.ts`) captura os defaults do `.env`
   1× e re-aplica `live || default` em cada flag (restaura o valor original ao desligar). M2 já é inline no scan/heartbeat.
 - **ISOLADO com motivo (decisão honesta, NÃO acoplado):** `BRIBE_ENABLED` — bribe **flat-%-do-lucro cego**; na Base (FCFS)

@@ -166,9 +166,10 @@ export const MOCK = {
   // Taxa de erro real (KPI Saúde) — espelha o AO VIVO: falhas vs total de ops (6/477 ≈ 1.3%).
   errorMetrics: { failedOps: 6, totalOps: 477 } as { failedOps: number; totalOps: number } | null,
   // Chave-mestra — pacote de combate ACESO (demonstra o "uma chave liga tudo"). Espelha o AO VIVO.
-  combatBundle: { executionLive: true, adaptive: true, competitiveBribe: true, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: true } as CombatBundle | null,
-  // Motor 1 (liquidação/pré-liq) — wallet-pool só liga com seed provisionada+funded (aqui: desligado no mock, honesto).
-  combatBundleM1: { executionLive: true, adaptive: true, competitiveBribe: true, slippagePerDex: true, walletPoolReady: 0, walletPoolActive: false } as CombatBundle | null,
+  // 🟢 CANÁRIO — espelha o estado de DRY_RUN (o que aparece no boot): avaliação (Piso de EV + Slippage) VERDE;
+  // execução (Bribe + Wallet-pool) CINZA até ligar o TX. Se no DRY_RUN real não bater isto → bug.
+  combatBundle: { executionLive: false, adaptive: true, competitiveBribe: false, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: false } as CombatBundle | null,
+  combatBundleM1: { executionLive: false, adaptive: true, competitiveBribe: false, slippagePerDex: true, walletPoolReady: 0, walletPoolActive: false } as CombatBundle | null,
   // Radar de descoberta (item 4) — espelha o AO VIVO: mostra o motor mais fresco (aqui, Motor 2 / arb).
   discovery: { service: "Motor 2", positions: 58, dispatched: 3, rejected: 12, ago: "8s" } as
     | { service: string; positions: number; dispatched: number; rejected: number; ago: string }

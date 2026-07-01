@@ -34,8 +34,10 @@ const envSchema = z.object({
   /** Default = MIS_MIN_DIVERGENCE_BPS quando ausente (resolvido no loadConfig). */
   MIS_FLASH_MIN_BPS: z.coerce.number().finite().optional(),
   MIS_MAX_SLIPPAGE_BPS: num(500),
-  /** #5 automação — usa a tolerância de slippage POR DEX (seed do Dune) no lugar do global. Default false (observe-first). */
-  SLIPPAGE_PER_DEX_ENABLED: boolDefault(false),
+  /** #5 automação — usa a tolerância de slippage POR DEX (seed do Dune) no lugar do global. Default TRUE:
+   *  feature de AVALIAÇÃO (roda em DRY_RUN) calibrada de dado real; o gate de LUCRO (EV) protege o dinheiro.
+   *  false = kill-switch. Verde no painel já no DRY_RUN (canary). */
+  SLIPPAGE_PER_DEX_ENABLED: boolDefault(true),
   MIS_MAX_DERIVED_PAIRS: posInt(60),
   MIS_DERIVE_TOKENS: boolDefault(true),
   MIS_DERIVE_MORPHO: boolDefault(true),

@@ -642,11 +642,13 @@ async function main(): Promise<void> {
       // Chave-mestra (Fase C) — o "pacote de combate" que acende quando o toggle de execução liga.
       combatBundle: {
         executionLive: live,
-        adaptive: !!arbExec && (env.ADAPTIVE_THRESHOLDS_ENABLED || live),
-        competitiveBribe: !!arbExec && (live || env.COMPETITIVE_BRIBE_ENABLED),
-        slippagePerDex: live || env.SLIPPAGE_PER_DEX_ENABLED, // #5 — gate de slippage calibrado por DEX (Dune)
+        // 🟢 CANÁRIO: features de AVALIAÇÃO rodam em DRY_RUN → verdes já no boot (se não acender = bug).
+        adaptive: !!arbExec, // Piso de EV OBSERVA todo tick (verde em dryrun); a injeção segue o toggle por dentro
+        slippagePerDex: live || env.SLIPPAGE_PER_DEX_ENABLED, // #5 gate de avaliação (default on) → verde em dryrun
+        // 🔴 CANÁRIO: features de EXECUÇÃO só no envio → cinza em DRY_RUN, verdes só armado+ligado (senão = bug).
+        competitiveBribe: !!arbExec && armed && (live || env.COMPETITIVE_BRIBE_ENABLED),
         walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
-        walletPoolActive: !!walletPool && (live || env.WALLET_POOL_ENABLED),
+        walletPoolActive: !!walletPool && armed && (live || env.WALLET_POOL_ENABLED),
       },
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")

@@ -64,6 +64,7 @@ import {
   BlockStalenessCheck,
   ProcessCheck,
   LatencyTracker,
+  GasReserveTracker,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -245,6 +246,16 @@ async function main(): Promise<void> {
     else autoPauseManager.clearReason('block_staleness');
   });
   blockStalenessCheck.start();
+  // Reserva de gás do Motor 2 (Fase C) — monitora (read-only) a EOA que pagaria o gás do arb.
+  // Sem chave (botAccount = ZERO) → sem monitoramento (componente omitido no heartbeat).
+  const gasReserveTracker = new GasReserveTracker({
+    warnThresholdWei: parseUnits(env.GAS_RESERVE_WARN_ETH.toString(), 18),
+    criticalThresholdWei: parseUnits(env.GAS_RESERVE_CRITICAL_ETH.toString(), 18),
+    blockDispatchOnCritical: false, // só observabilidade da saúde; não bloqueia dispatch (M2 tem breakers próprios)
+    ethUsdPrice: env.ETH_USD_PRICE_ESTIMATE,
+    logger,
+  });
+  const gasMonitorAddr: Address | undefined = botAccount === ZERO ? undefined : botAccount;
   // Saúde do processo (memória/event-loop lag) → pausa.
   const processCheck = new ProcessCheck({ logger });
   processCheck.onStatusChange((p) => {
@@ -553,10 +564,15 @@ async function main(): Promise<void> {
   const emitHeartbeat = () => {
     const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
     const live = !!arbExec?.deps.liveExecutionEnabled;
-    // Prontidão do Motor 2 (Fase 3) — antes o M2 não reportava NENHUM componente (invisível no painel).
-    // rpc (frescor de bloco, já polido pelo blockStalenessCheck) + auto-pause + porteiro de tokens (M2).
+    // Prontidão do Motor 2 (Fase 3 + C) — antes o M2 não reportava NENHUM componente (invisível no painel).
+    // rpc + auto-pause + gás-reserva + reorg + perda 24h + porteiro de tokens.
     const staleness = blockStalenessCheck.getStatus();
     const paused = autoPauseManager.shouldPause();
+    // Reserva de gás (Fase C): dispara o check read-only (não bloqueia o heartbeat) e lê o snapshot anterior.
+    if (gasMonitorAddr) void gasReserveTracker.check(client, gasMonitorAddr).catch(() => {});
+    const gasStats = gasReserveTracker.stats();
+    const reorgsInWindow = finalityTracker.stats().reorgsInWindow;
+    const loss24h = pnlTracker.currentLoss24h(); // limite $1.000 (autoKill OFF → só observa)
     const vettingComponent: { name: string; ok: boolean; detail: string } | null = !env.VETTING_ENABLED
       ? null
       : !env.VETTING_REVET_ENABLED
@@ -571,6 +587,13 @@ async function main(): Promise<void> {
     const healthComponents = [
       { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
       { name: 'auto-pause', ok: !paused, detail: paused ? autoPauseManager.summary() : 'ativo' },
+      // gás-reserva só aparece se há EOA pra monitorar (com chave); sem chave → omitido (não é bolinha decorativa).
+      ...(gasMonitorAddr
+        ? [{ name: 'gás-reserva', ok: gasStats.status !== 'critical', detail: gasStats.status === 'unknown' ? 'aguardando' : `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` }]
+        : []),
+      { name: 'reorg', ok: reorgsInWindow === 0, detail: `${reorgsInWindow} na janela` },
+      // "perda 24h" (não "kill-switch": o autoKill do M2 está OFF → só observa a perda vs o limite).
+      { name: 'perda 24h', ok: loss24h < 1000, detail: loss24h > 0 ? `-$${loss24h.toFixed(0)} de $1000` : 'ok' },
       ...(vettingComponent ? [vettingComponent] : []),
     ];
     eventBus.emit({

@@ -163,6 +163,9 @@ export const MOCK = {
     { name: "M1 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 48s" },
     { name: "M2 · rpc / Base", status: "READY", color: "var(--green)", detail: "bloco há 2s" },
     { name: "M2 · auto-pause", status: "READY", color: "var(--green)", detail: "ativo" },
+    { name: "M2 · gás-reserva", status: "READY", color: "var(--green)", detail: "0.0842 ETH" },
+    { name: "M2 · reorg", status: "READY", color: "var(--green)", detail: "0 na janela" },
+    { name: "M2 · perda 24h", status: "READY", color: "var(--green)", detail: "ok" },
     { name: "M2 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 51s" },
   ],
   cooldowns: [

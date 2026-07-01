@@ -579,6 +579,9 @@ async function main(): Promise<void> {
 
   // Pulso do radar do Motor 2 (Saúde item 4) — pares varridos / viáveis / inviáveis; atualizado a cada scan.
   const misDiscovery = { positions: 0, dispatched: 0, rejected: 0, atIso: '' };
+  // #6 automação — histórico da força de edge agregada (soma dos top-5 scores) p/ detectar "edge sumindo".
+  const edgeHistory: { ts: number; edge: number }[] = [];
+  const EDGE_WINDOW_MS = 60 * 60 * 1000; // compara com ~1h atrás
 
   // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
   // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
@@ -652,6 +655,17 @@ async function main(): Promise<void> {
       intel: (() => {
         const mkt = senderRegistry.marketBribeStats();
         const bs = bribeTracker.stats();
+        // #6 automação — "edge sumindo": soma dos top-5 scores agora vs ~1h atrás; alerta na queda forte (>30%).
+        let edgeShiftPct = 0;
+        {
+          const edgeNow = mis.ranking().slice(0, 5).reduce((s, r) => s + r.score, 0);
+          const nowMs = Date.now();
+          if (edgeNow > 0) edgeHistory.push({ ts: nowMs, edge: edgeNow });
+          while (edgeHistory.length && edgeHistory[0]!.ts < nowMs - EDGE_WINDOW_MS) edgeHistory.shift();
+          const base = edgeHistory[0]?.edge ?? 0; // edge do começo da janela (~1h atrás)
+          const dropPct = base > 0 ? Math.round(((base - edgeNow) / base) * 100) : 0;
+          edgeShiftPct = dropPct >= 30 ? dropPct : 0; // só alerta em queda ≥30% (histerese natural pela janela)
+        }
         return {
           marketBribeP50Gwei: mkt.p50Gwei,
           marketBribeP75Gwei: mkt.p75Gwei,
@@ -662,6 +676,7 @@ async function main(): Promise<void> {
           ...(bribeAutoState.enabled
             ? { competitiveBribeAutoEnabled: true, bribeAutoEnableReason: bribeAutoState.reason }
             : {}),
+          ...(edgeShiftPct > 0 ? { edgeShiftPct } : {}),
         };
       })(),
       // Fase 2 — ranking de pares com edge persistente (reusa o mesmo mis.ranking() do loop de scan).

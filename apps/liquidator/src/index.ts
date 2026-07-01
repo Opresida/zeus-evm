@@ -300,6 +300,8 @@ export async function boot(): Promise<LiquidatorState> {
   const failureTracker = new FailureTracker({
     maxConsecutiveFailures: env.MAX_CONSECUTIVE_FAILURES,
     cooldownDurationMs: env.COOLDOWN_DURATION_SEC * 1000,
+    adaptiveCooldownEnabled: env.ADAPTIVE_COOLDOWN_ENABLED, // #4 automação (observe-first)
+    maxCooldownMs: env.COOLDOWN_MAX_SEC * 1000,
     logger,
   });
 
@@ -1019,6 +1021,7 @@ export async function boot(): Promise<LiquidatorState> {
       // Heartbeat ~30s pro painel (gás-agora / uptime / estado real / radar / inteligência) —
       // reusa valores JÁ coletados acima (mkt, drift, scannerStats, gasStats, pnlStats, discoveryPulse).
       if (hbTick++ % 6 === 0) {
+        const failureStats = failureTracker.stats(); // #4 — cooldown adaptativo (base × o que faria)
         const hbInput: HeartbeatInput = {
           service: 'liquidator',
           chain,
@@ -1054,6 +1057,10 @@ export async function boot(): Promise<LiquidatorState> {
               : {}),
             // #3 automação — escalada de gás do competidor (só quando forte + vários competidores).
             ...(gasEscalationPct > 0 ? { gasEscalationPct } : {}),
+            // #4 automação — cooldown adaptativo (observe-first): mostra base × o que faria + se está injetado.
+            cooldownBaseSec: failureStats.baseCooldownSec,
+            cooldownAdaptiveSec: failureStats.adaptiveCooldownSec,
+            cooldownAdaptiveApplied: failureStats.adaptiveApplied,
           },
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {

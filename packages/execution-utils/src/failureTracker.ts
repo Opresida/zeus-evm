@@ -28,20 +28,36 @@ export interface FailureStats {
   totalFailures: number;
   totalSuccesses: number;
   lastFailureReason?: string;
+  /** #4 automação — cooldown adaptativo (segundos) que SERIA aplicado agora (backoff por cooldowns repetidos). */
+  adaptiveCooldownSec: number;
+  /** Base configurada (segundos) — pra o painel mostrar "base → adaptativo". */
+  baseCooldownSec: number;
+  /** true = o adaptativo está de fato sendo injetado (senão só observa "o que faria"). */
+  adaptiveApplied: boolean;
 }
 
 export interface FailureTrackerOpts {
   maxConsecutiveFailures: number;
   cooldownDurationMs: number;
   logger?: LoggerLike;
+  /** #4 automação — injeta o cooldown adaptativo (backoff). Default false → observa "o que faria". */
+  adaptiveCooldownEnabled?: boolean;
+  /** Teto do cooldown adaptativo (ms). Default 30min — trava contra backoff descontrolado. */
+  maxCooldownMs?: number;
 }
 
 export class FailureTracker {
   private consecutiveFailures = 0;
   private cooldownUntil: number | null = null;
   private maxAllowed: number;
-  private cooldownMs: number;
+  private cooldownMs: number; // base configurada
   private logger: LoggerLike | undefined;
+
+  // #4 automação — cooldown adaptativo (backoff por cooldowns repetidos).
+  private readonly baseCooldownMs: number;
+  private readonly maxCooldownMs: number;
+  private readonly adaptiveEnabled: boolean;
+  private _recentCooldowns = 0; // conta cooldowns na sequência ruim; decai a cada sucesso (histerese)
 
   // Métricas de observabilidade
   private _totalFailures = 0;
@@ -51,7 +67,18 @@ export class FailureTracker {
   constructor(opts: FailureTrackerOpts) {
     this.maxAllowed = opts.maxConsecutiveFailures;
     this.cooldownMs = opts.cooldownDurationMs;
+    this.baseCooldownMs = opts.cooldownDurationMs;
+    this.maxCooldownMs = opts.maxCooldownMs ?? 30 * 60 * 1000; // teto 30min
+    this.adaptiveEnabled = opts.adaptiveCooldownEnabled ?? false;
     this.logger = opts.logger;
+  }
+
+  /**
+   * #4 — cooldown adaptativo: backoff = base × (1 + cooldowns recentes), limitado pelo teto.
+   * Sequência ruim (cooldowns repetidos) → pausa mais longa; recuperação (sucessos) → encolhe.
+   */
+  private computeAdaptiveCooldownMs(): number {
+    return Math.min(this.maxCooldownMs, this.baseCooldownMs * (1 + this._recentCooldowns));
   }
 
   recordSuccess(): void {
@@ -63,6 +90,8 @@ export class FailureTracker {
     }
     this.consecutiveFailures = 0;
     this._totalSuccesses++;
+    // #4 — recuperação encolhe o backoff (histerese: −1 por sucesso, não zera de vez).
+    if (this._recentCooldowns > 0) this._recentCooldowns--;
   }
 
   recordFailure(reason: string): void {
@@ -80,14 +109,21 @@ export class FailureTracker {
     );
 
     if (this.consecutiveFailures >= this.maxAllowed) {
-      this.cooldownUntil = Date.now() + this.cooldownMs;
+      // #4 — backoff adaptativo: este cooldown conta pra sequência ruim (aumenta o próximo).
+      this._recentCooldowns++;
+      const adaptiveMs = this.computeAdaptiveCooldownMs();
+      // Injeta o adaptativo só se ligado; senão usa a base (mas SEMPRE reporta o adaptativo no stats = "o que faria").
+      const effectiveMs = this.adaptiveEnabled ? adaptiveMs : this.baseCooldownMs;
+      this.cooldownUntil = Date.now() + effectiveMs;
       this.logger?.error(
         {
           consecutive: this.consecutiveFailures,
-          cooldownMs: this.cooldownMs,
+          cooldownMs: effectiveMs,
+          adaptiveMs,
+          adaptiveApplied: this.adaptiveEnabled,
           cooldownUntil: new Date(this.cooldownUntil).toISOString(),
         },
-        `🛑 COOLDOWN ATIVADO — ${this.consecutiveFailures} falhas consecutivas. Pausa de ${this.cooldownMs / 1000}s ativada.`,
+        `🛑 COOLDOWN ATIVADO — ${this.consecutiveFailures} falhas. Pausa de ${effectiveMs / 1000}s${this.adaptiveEnabled ? ' (adaptativo)' : ` (base; adaptativo faria ${adaptiveMs / 1000}s)`}.`,
       );
     }
   }
@@ -126,6 +162,9 @@ export class FailureTracker {
       totalFailures: this._totalFailures,
       totalSuccesses: this._totalSuccesses,
       lastFailureReason: this._lastFailureReason,
+      adaptiveCooldownSec: Math.round(this.computeAdaptiveCooldownMs() / 1000),
+      baseCooldownSec: Math.round(this.baseCooldownMs / 1000),
+      adaptiveApplied: this.adaptiveEnabled,
     };
   }
 

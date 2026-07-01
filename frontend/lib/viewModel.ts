@@ -341,6 +341,13 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
       : demo
         ? { text: "⚠️ Competidores aceleraram o gás +64% na última ~30min — avaliar recuar em pares disputados (exemplo).", color: "var(--gold)" }
         : null;
+  // #6 automação — banner "edge sumindo" (força de edge caiu forte na última ~1h → possível novo competidor).
+  const edgeShift =
+    !demo && intelLive?.edgeShiftPct
+      ? { text: `🔻 O edge caiu ${intelLive.edgeShiftPct}% na última ~1h — possível novo competidor ou spread fechando. Reavaliar os pares.`, color: "var(--red)" }
+      : demo
+        ? { text: "🔻 O edge caiu 34% na última ~1h — possível novo competidor (exemplo).", color: "var(--red)" }
+        : null;
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há
@@ -401,6 +408,16 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
         reason: c.reason,
       }))
     : M.cooldowns;
+  // #4 automação — cooldown adaptativo (base × o que faria, e se está injetado). "faria" = observando.
+  const cooldownAdaptive =
+    intelLive?.cooldownAdaptiveSec != null
+      ? {
+          text: `Cooldown adaptativo: base ${intelLive.cooldownBaseSec ?? "—"}s → ${intelLive.cooldownAdaptiveSec}s${intelLive.cooldownAdaptiveApplied ? " (aplicado)" : " (faria)"}`,
+          applied: !!intelLive.cooldownAdaptiveApplied,
+        }
+      : demo
+        ? { text: "Cooldown adaptativo: base 300s → 600s (faria)", applied: false }
+        : null;
   // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
   const failures = live?.failures ?? [];
   const discovery = live?.discovery ?? (demo ? M.discovery : null);
@@ -532,6 +549,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     bribeNote,
     bribeAutoEnabled,
     gasEscalation,
+    edgeShift,
     combatBundle,
     driftAlarms,
     intelLive,
@@ -544,6 +562,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     competition,
     components,
     cooldowns,
+    cooldownAdaptive,
     healthKpis,
     latP50Path,
     latP95Path,

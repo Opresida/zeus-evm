@@ -5,7 +5,7 @@ import type { ScreenProps } from "./shared";
 const card = "background:var(--panel); border:1px solid var(--border); border-radius:11px; padding:18px 20px;";
 
 export function Health({ vm }: ScreenProps) {
-  const { healthKpis, latP50Path, latP95Path, ks, components, cooldowns, eventLog, discovery, failures } = vm;
+  const { healthKpis, latP50Path, latP95Path, ks, components, cooldowns, cooldownAdaptive, eventLog, discovery, failures } = vm;
   return (
     <section>
       <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Saúde & Auto-ajuste</h1>
@@ -98,6 +98,11 @@ export function Health({ vm }: ScreenProps) {
                 <div style={css("font:500 11.5px/1.4 'IBM Plex Mono'; color:var(--muted); margin-top:6px;")}>{cd.reason}</div>
               </div>
             ))}
+            {cooldownAdaptive && (
+              <div style={{ ...css("margin-top:12px; padding:10px 12px; border-radius:8px; font:600 11px/1.4 'IBM Plex Mono';"), background: "var(--bg2)", color: cooldownAdaptive.applied ? "var(--green)" : "var(--muted)" }}>
+                ⏱ {cooldownAdaptive.text}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -153,6 +153,10 @@ export interface ServiceStatusRow {
     bribeAutoEnableReason?: string;
     /** #3 automação — escalada de gás do competidor (aumento % do p95). */
     gasEscalationPct?: number;
+    /** #4 automação — cooldown adaptativo (base × o que faria + se injetado). */
+    cooldownBaseSec?: number;
+    cooldownAdaptiveSec?: number;
+    cooldownAdaptiveApplied?: boolean; edgeShiftPct?: number;
   } | null;
   // ----- Fase 2 — blocos extras (jsonb) -----
   /** Prontidão dos componentes (tela Saúde). */
@@ -271,7 +275,7 @@ export interface LiveSnapshot {
   /** Pulso do radar (item 2) — "scanner vivo · viu N posições · há Xs". */
   discovery?: { service: string; positions: number; dispatched: number; rejected: number; ago: string };
   /** Inteligência real (item 3) — market-bribe / competidores / drift (substitui mock quando presente). */
-  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number; bribeAutoRaised?: boolean; bribeReason?: string; competitiveBribeAutoEnabled?: boolean; bribeAutoEnableReason?: string; gasEscalationPct?: number };
+  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number; bribeAutoRaised?: boolean; bribeReason?: string; competitiveBribeAutoEnabled?: boolean; bribeAutoEnableReason?: string; gasEscalationPct?: number; cooldownBaseSec?: number; cooldownAdaptiveSec?: number; cooldownAdaptiveApplied?: boolean; edgeShiftPct?: number };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
   /** Comparativo por estratégia (tela "Estratégias") — fundido dos heartbeats liquidator+mis-scanner. */

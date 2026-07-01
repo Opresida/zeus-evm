@@ -38,6 +38,7 @@ import { calculateOptimalMoonwellLiquidation } from './protocols/moonwell/calcul
 import { buildMoonwellLiquidationTx } from './protocols/moonwell/builder';
 import { simulateMoonwellLiquidation } from './protocols/moonwell/simulator';
 import { calculateOptimalPreLiquidation } from './protocols/morpho-preliq/calculator';
+import { maybeVetCollateralM1 } from './vettingObserve';
 import { buildPreLiquidationTx } from './protocols/morpho-preliq/builder';
 import { simulatePreLiquidation } from './protocols/morpho-preliq/simulator';
 import { preLiquidationBand } from './protocols/morpho-preliq/math';
@@ -132,6 +133,8 @@ export interface PipelineDeps {
   senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
+  /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */
+  vettingTracker?: import('@zeus-evm/execution-utils').VettingUniverseTracker;
   // ── Bribe competitor-aware com teto de lucro (Motor 1) ──
   competitiveBribeEnabled?: boolean;
   bribeTargetPercentile?: 'p50' | 'p75' | 'p95';
@@ -440,6 +443,7 @@ async function _runAavePipelineInner(
     cap = 1_000_000n * 10n ** BigInt(position.debtAssetDecimals);
   }
   const calcStart = Date.now();
+  await maybeVetCollateralM1(deps, position as unknown as Record<string, unknown>); // porteiro M1 (observar)
   const outcome = await calculateOptimalLiquidation(position, {
     env,
     client: ctx.client,
@@ -744,6 +748,7 @@ async function _runCompoundPipelineInner(
     cap = 1_000_000n * 10n ** BigInt(position.baseTokenDecimals);
   }
   const calcStart = Date.now();
+  await maybeVetCollateralM1(deps, position as unknown as Record<string, unknown>); // porteiro M1 (observar)
   const outcome = await calculateOptimalCompoundLiquidation(position, {
     env,
     client: ctx.client,
@@ -993,6 +998,7 @@ async function _runMorphoPipelineInner(
 
   // 1. Calculator
   const calcStart = Date.now();
+  await maybeVetCollateralM1(deps, position as unknown as Record<string, unknown>); // porteiro M1 (observar)
   const outcome = await calculateOptimalMorphoLiquidation(position, {
     env,
     client: ctx.client,
@@ -1225,6 +1231,7 @@ async function _runMoonwellPipelineInner(
   // 1. Calculator
   const cap = contractCapByDebtAsset.get(position.borrowedUnderlying.toLowerCase());
   const calcStart = Date.now();
+  await maybeVetCollateralM1(deps, position as unknown as Record<string, unknown>); // porteiro M1 (observar)
   const outcome = calculateOptimalMoonwellLiquidation(position, { env, capWei: cap });
   observeCalc(deps, 'moonwell', calcStart);
   if (!outcome.ok || !outcome.decision) {
@@ -1409,6 +1416,7 @@ async function _runMorphoPreLiquidationPipelineInner(
 
   // 1. Calculator (planPreLiquidation + quote colateral→loanToken, profit SEM flashloan fee).
   const calcStart = Date.now();
+  await maybeVetCollateralM1(deps, position as unknown as Record<string, unknown>); // porteiro M1 (observar)
   const outcome = await calculateOptimalPreLiquidation(position, {
     env,
     client: ctx.client,

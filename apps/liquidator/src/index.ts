@@ -60,6 +60,7 @@ import {
   slippageCache,
   PnlTracker,
   StrategyStatsTracker,
+  VettingUniverseTracker,
   FailureTracker,
   PositionDedupTracker,
   GasReserveTracker,
@@ -174,6 +175,8 @@ interface LiquidatorState {
   preLiqSenderPool?: WalletPoolOrchestrator;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker: StrategyStatsTracker;
+  /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */
+  vettingTracker: VettingUniverseTracker;
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -252,6 +255,8 @@ export async function boot(): Promise<LiquidatorState> {
   // PnL Tracker — em dryrun, autoKill é forçado false (estado interno é suficiente)
   // Tracker de estratégias (candidatos+executados por estratégia) — lido pelo heartbeat (tela "Estratégias").
   const strategyTracker = new StrategyStatsTracker();
+  // Porteiro de tokens (M1) — verdict por colateral, lido pelo heartbeat (tela "Tokens").
+  const vettingTracker = new VettingUniverseTracker();
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
@@ -989,6 +994,7 @@ export async function boot(): Promise<LiquidatorState> {
           ops: discoveryPulse.opsTotal,
           netPnl24hUsd: pnlStats.netPnlUsd,
           strategyStats: strategyTracker.snapshot(),
+          vettedUniverse: vettingTracker.snapshot(),
           discovery: discoveryPulse.last,
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
           intel: {
@@ -1275,6 +1281,7 @@ export async function boot(): Promise<LiquidatorState> {
     preLiquidationBorrowerCaches,
     preLiqSenderPool,
     strategyTracker,
+    vettingTracker,
     discoveryPulse,
     pnlTracker,
     failureTracker,
@@ -1644,6 +1651,7 @@ export async function processOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1690,6 +1698,7 @@ export async function processCompoundOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1733,6 +1742,7 @@ export async function processMorphoOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1776,6 +1786,7 @@ export async function processMoonwellOpportunity(
     orphanRecoveryManager: state.orphanRecoveryManager,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1819,6 +1830,7 @@ export async function processMorphoPreLiquidationOpportunity(
     tracer: state.tracer,
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
+    vettingTracker: state.vettingTracker,
     senderPool: state.preLiqSenderPool,
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });

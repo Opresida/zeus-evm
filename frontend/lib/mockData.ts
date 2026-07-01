@@ -43,6 +43,7 @@ export const MOCK = {
     { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: seguro, mas sem edge de arbitragem (não vale a pena pro arb)", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
     { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true, lockPct: 88, locker: "UniCrypt", unlockIso: "2027-03-01T00:00:00Z" },
     { token: "0x00000000000000000000000000000000deadbeef", symbol: "SCAM", motor: "motor2" as const, verdict: "reject" as const, reason: "saiu: é honeypot (não dá pra vender) — bloqueado", liquidityUsd: 0, locked: false },
+    { token: "0x00000000000000000000000000000000feed0001", symbol: "NEWCOIN", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: não deu pra confirmar segurança (GoPlus fora) — por precaução não entra", liquidityUsd: 95_000, locked: false, partial: true },
   ],
   tokenLog: [
     { time: "14:32", symbol: "DEGEN", motor: "M2", action: "entrou", reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", color: "var(--green)" },

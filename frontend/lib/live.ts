@@ -303,6 +303,7 @@ export function deriveSnapshot(
         lockPct: typeof t.lockPct === "number" && Number.isFinite(t.lockPct) ? t.lockPct : undefined,
         locker: t.locker ?? undefined,
         unlockIso: t.unlockIso ?? undefined,
+        partial: Boolean(t.partial),
       });
     }
   }

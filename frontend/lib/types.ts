@@ -123,7 +123,7 @@ export interface ServiceStatusRow {
     | null;
   /** Universo vetado por token (tela "Tokens") — porteiro de tokens. */
   vetted_universe:
-    | { token: string; symbol: string; motor: 'motor1' | 'motor2'; verdict: 'pass' | 'reject'; reason: string; exitDex?: string; liquidityUsd: number; locked: boolean; lockPct?: number; locker?: string; unlockIso?: string }[]
+    | { token: string; symbol: string; motor: 'motor1' | 'motor2'; verdict: 'pass' | 'reject'; reason: string; exitDex?: string; liquidityUsd: number; locked: boolean; lockPct?: number; locker?: string; unlockIso?: string; partial?: boolean }[]
     | null;
   /** Estado do filtro de tokens por motor (badge "filtro ligado"). */
   vetting_enforce: { motor1?: boolean; motor2?: boolean } | null;
@@ -199,6 +199,8 @@ export interface VettedToken {
   lockPct?: number;
   locker?: string;
   unlockIso?: string;
+  /** Verdict feito com dados incompletos (fail-safe: M1 não bloqueia, M2 rejeita) → selo "dados parciais". */
+  partial?: boolean;
 }
 
 /** Estado de UI controlado pelo painel. */

@@ -52,6 +52,7 @@ function sanitizeVettedUniverse(raw: unknown) {
       lockPct: Math.max(0, Math.min(100, finNum(t.lockPct))),
       locker: t.locker != null ? String(t.locker).slice(0, 40) : null,
       unlockIso: typeof t.unlockIso === "string" ? t.unlockIso.slice(0, 40) : null,
+      partial: Boolean(t.partial), // verdict feito com dados incompletos (fail-safe) → selo no painel
     }));
   return out.length ? out : null;
 }

@@ -228,7 +228,7 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
         service: "mis-scanner",
         vetted_universe: [
           { token: "0xcbETH", symbol: "cbETH", motor: "motor2", verdict: "reject", reason: "rejeitado: sem edge", liquidityUsd: 1_000_000, locked: false },
-          { token: "0xSCAM", symbol: "SCAM", motor: "motor2", verdict: "reject", reason: "saiu: honeypot", liquidityUsd: 0, locked: false },
+          { token: "0xSCAM", symbol: "SCAM", motor: "motor2", verdict: "reject", reason: "saiu: honeypot", liquidityUsd: 0, locked: false, partial: true }, // Fase A: dado incompleto
         ],
       }),
     ]);
@@ -236,7 +236,10 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     const m1 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor1");
     const m2 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor2");
     expect(m1?.verdict).toBe("pass");
+    expect(m1?.partial).toBe(false); // sem flag → false, nunca undefined
     expect(m2?.verdict).toBe("reject");
+    // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
+    expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
   });
 
   it("Tokens: lixo no jsonb (motor/verdict inválido) é descartado", () => {

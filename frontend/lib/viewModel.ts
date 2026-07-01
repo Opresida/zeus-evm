@@ -162,6 +162,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     lock: t.locked
       ? `${t.lockPct ? t.lockPct + "% " : ""}${t.locker ?? "travado"}${t.unlockIso ? " · até " + new Date(t.unlockIso).toLocaleDateString("pt-BR", { month: "2-digit", year: "2-digit" }) : ""}`
       : "",
+    // Verdict feito com dados incompletos → selo "dados parciais" (o painel deixa de esconder a incerteza).
+    partial: Boolean(t.partial),
   }));
   const tokenCounts = {
     total: tokenCards.length,

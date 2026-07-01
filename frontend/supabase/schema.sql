@@ -49,7 +49,7 @@ create table if not exists public.service_status (
   auto_paused         boolean,
   motor_stats         jsonb,
   strategy_stats      jsonb,                      -- comparativo por estratégia: [{strategy,candidates24h,candidateProfitUsd24h,executed24h,netUsd24h}]
-  vetted_universe     jsonb,                      -- porteiro de tokens: [{token,symbol,motor,verdict,reason,exitDex,liquidityUsd,locked}]
+  vetted_universe     jsonb,                      -- porteiro de tokens: [{token,symbol,motor,verdict,reason,exitDex,liquidityUsd,locked,lockPct,locker,unlockIso,partial}]
   vetting_enforce     jsonb,                      -- estado do filtro por motor: {motor1?,motor2?}
   vetting_revet_at    text,                       -- ISO do último re-vet do porteiro (freshness)
   discovery           jsonb,                      -- pulso do radar (item 2): {positions,dispatched,rejected,atIso}

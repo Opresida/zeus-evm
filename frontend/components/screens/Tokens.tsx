@@ -95,7 +95,14 @@ export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
               </span>
               <span data-label="Saída" style={css("font:500 11px/1.3 'IBM Plex Mono'; color:var(--cyan, #56b6c2);" + cellPad)}>{t.exitDex}</span>
               <span data-label="Liquidez" style={css("font:500 11px/1.3 'IBM Plex Mono'; color:var(--muted);" + cellPad)}>{t.liquidity}</span>
-              <span data-label="Motivo" style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--text2, var(--text));" + cellPad)}>{t.reason}</span>
+              <span data-label="Motivo" style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--text2, var(--text));" + cellPad)}>
+                {t.reason}
+                {t.partial ? (
+                  <span title="Verdict feito com dados incompletos (ex.: segurança ou saída não confirmada). M1 não bloqueia; M2 rejeita por segurança." style={css("margin-left:7px; font:600 9.5px/1 'IBM Plex Mono'; color:var(--gold, #d0a215); white-space:nowrap;")}>
+                    ⚠ dados parciais
+                  </span>
+                ) : null}
+              </span>
             </div>
           ))}
         </div>

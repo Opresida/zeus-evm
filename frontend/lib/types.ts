@@ -87,6 +87,7 @@ export interface ZeusEvent {
   autoPaused?: boolean;
   motorStats?: { tag: string; ops: number; netPnl24hUsd: number }[];
   errorMetrics?: { failedOps: number; totalOps: number };
+  combatBundle?: { executionLive: boolean; adaptive: boolean; competitiveBribe: boolean; walletPoolReady: number; walletPoolActive: boolean };
   // catch-all
   [k: string]: unknown;
 }
@@ -170,6 +171,7 @@ export interface ServiceStatusRow {
   reorgs: { window24h: number; orphansRecovered: number; orphansDetected: number } | null;
   competition: Competition | null;
   error_metrics: { failedOps: number; totalOps: number } | null;
+  combat_bundle: CombatBundle | null;
   updated_at: string;
 }
 
@@ -193,6 +195,15 @@ export interface StrategyStat {
 }
 
 /** Token vetado (porteiro) — linha achatada pro painel (tela "Tokens"). */
+/** Chave-mestra — "pacote de combate" que acende quando o toggle de execução liga. */
+export interface CombatBundle {
+  executionLive: boolean;
+  adaptive: boolean;
+  competitiveBribe: boolean;
+  walletPoolReady: number;
+  walletPoolActive: boolean;
+}
+
 /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
 export interface Competition {
   topBuilders: { alias: string; blocks: number; competitorTxs: number; ourTxs: number }[];
@@ -317,6 +328,8 @@ export interface LiveSnapshot {
   errorMetrics?: { failedOps: number; totalOps: number };
   /** Uptime real (KPI Saúde) — segundos, do heartbeat mais fresco. */
   uptimeSec?: number;
+  /** Chave-mestra — pacote de combate (Motor 2). */
+  combatBundle?: CombatBundle;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

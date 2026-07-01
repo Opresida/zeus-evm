@@ -400,6 +400,10 @@ export function deriveSnapshot(
   const errSvc = liq?.error_metrics ? liq : statuses.find((s) => s.error_metrics);
   if (errSvc?.error_metrics) snap.errorMetrics = errSvc.error_metrics;
 
+  // Chave-mestra — pacote de combate (Motor 2 emite; mostra o que acende com o toggle).
+  const cbSvc = byService("mis-scanner")?.combat_bundle ? byService("mis-scanner") : statuses.find((s) => s.combat_bundle);
+  if (cbSvc?.combat_bundle) snap.combatBundle = cbSvc.combat_bundle;
+
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
   if (walletSnaps.length) {

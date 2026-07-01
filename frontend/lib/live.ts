@@ -202,12 +202,16 @@ export function deriveSnapshot(
   }
 
   // ----- Fase 2b: post-mortem (corridas perdidas) — failure.recorded COM vencedor resolvido -----
-  const lostRows = rows.filter((r) => r.type === "failure.recorded" && (r.payload as ZeusEvent)?.competitorAlias).slice(0, 6);
+  // Corrida perdida = houve VENCEDOR (alias resolvido OU só o endereço OU a gorjeta). Sem vencedor = revert técnico → não entra.
+  const isLostRace = (p: ZeusEvent) => !!(p?.competitorAlias || p?.competitorSender || p?.winnerPriorityFeeGwei != null);
+  const lostRows = rows.filter((r) => r.type === "failure.recorded" && isLostRace(r.payload as ZeusEvent)).slice(0, 6);
   if (lostRows.length) {
     snap.postmortem = lostRows.map((r) => {
       const p = r.payload as ZeusEvent;
-      const alias = (p.competitorAlias as string) || "—";
-      const gwei = p.winner_priority_fee_gwei != null ? ` · ${Number(p.winner_priority_fee_gwei).toFixed(2)} gwei` : "";
+      const shortSender = p.competitorSender ? `${p.competitorSender.slice(0, 6)}…${p.competitorSender.slice(-4)}` : "";
+      // alias resolvido → endereço curto → "desconhecido" (nunca some com a perda por não ter nome).
+      const alias = (p.competitorAlias as string) || shortSender || "desconhecido";
+      const gwei = p.winnerPriorityFeeGwei != null ? ` · ${Number(p.winnerPriorityFeeGwei).toFixed(2)} gwei` : "";
       const idx = p.our_tx_index != null ? `pos #${p.our_tx_index}` : p.is_bottom_10pct ? "fim do bloco" : "—";
       return {
         time: hhmm(r.ts),
@@ -303,6 +307,7 @@ export function deriveSnapshot(
         lockPct: typeof t.lockPct === "number" && Number.isFinite(t.lockPct) ? t.lockPct : undefined,
         locker: t.locker ?? undefined,
         unlockIso: t.unlockIso ?? undefined,
+        partial: Boolean(t.partial),
       });
     }
   }
@@ -344,8 +349,21 @@ export function deriveSnapshot(
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");
-  const healthSvc = liq?.health ? liq : statuses.find((s) => s.health);
-  if (healthSvc?.health?.components?.length) snap.health = healthSvc.health.components;
+  // Fase 3 — funde os componentes de saúde de TODOS os motores (antes só mostrava um serviço → Motor 2 invisível).
+  // Cada componente é rotulado por motor (M1/M2/M3); ordem estável (M1 primeiro, desconhecidos por último).
+  const HEALTH_ORDER = ["liquidator", "mis-scanner", "backrun-engine"];
+  const motorTag = (svc?: string) =>
+    svc === "liquidator" ? "M1" : svc === "mis-scanner" ? "M2" : svc === "backrun-engine" ? "M3" : "";
+  const mergedHealth = [...statuses]
+    .filter((s) => s.health?.components?.length)
+    .sort((a, b) => (HEALTH_ORDER.indexOf(a.service ?? "") + 1 || 99) - (HEALTH_ORDER.indexOf(b.service ?? "") + 1 || 99))
+    .flatMap((s) =>
+      s.health!.components.map((c) => {
+        const tag = motorTag(s.service);
+        return { ...c, name: tag ? `${tag} · ${c.name}` : c.name };
+      }),
+    );
+  if (mergedHealth.length) snap.health = mergedHealth;
 
   const compSvc = liq?.competitors ? liq : statuses.find((s) => s.competitors);
   if (compSvc?.competitors?.length) snap.competitors = compSvc.competitors;
@@ -366,6 +384,10 @@ export function deriveSnapshot(
   // Motor 1 — resiliência de reorg (reorgs 24h + órfãs recuperadas).
   const reorgSvc = liq?.reorgs ? liq : statuses.find((s) => s.reorgs);
   if (reorgSvc?.reorgs) snap.reorgs = reorgSvc.reorgs;
+
+  // Item 4 — diagnóstico de concorrência (builders dominantes + posição no bloco), do liquidator.
+  const compeSvc = liq?.competition ? liq : statuses.find((s) => s.competition);
+  if (compeSvc?.competition) snap.competition = compeSvc.competition;
 
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).

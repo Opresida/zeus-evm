@@ -1,4 +1,4 @@
-import type { TxRow } from "./types";
+import type { TxRow, Competition } from "./types";
 
 // ===== Dados representativos portados de ZEUS Command.dc.html =====
 // Servem de fallback (modo demo) e definem o layout exato do painel.
@@ -34,6 +34,7 @@ export const MOCK = {
     { strategy: "classic-liq" as const, candidates24h: 34, candidateProfitUsd24h: 412.5, executed24h: 9, netUsd24h: 128.3 },
     { strategy: "pre-liq" as const, candidates24h: 21, candidateProfitUsd24h: 689.2, executed24h: 6, netUsd24h: 241.7 },
     { strategy: "filler" as const, candidates24h: 58, candidateProfitUsd24h: 173.9, executed24h: 12, netUsd24h: 47.1 },
+    { strategy: "arb" as const, candidates24h: 47, candidateProfitUsd24h: 318.4, executed24h: 0, netUsd24h: 0 },
   ],
 
   // Porteiro de tokens (tela "Tokens") — semente que mostra a política POR MOTOR no dia 1:
@@ -43,6 +44,7 @@ export const MOCK = {
     { token: "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", symbol: "cbETH", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: seguro, mas sem edge de arbitragem (não vale a pena pro arb)", exitDex: "Aerodrome volatile", liquidityUsd: 1_200_000, locked: false },
     { token: "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", symbol: "DEGEN", motor: "motor2" as const, verdict: "pass" as const, reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", exitDex: "UniV3 0.3%", liquidityUsd: 380_000, locked: true, lockPct: 88, locker: "UniCrypt", unlockIso: "2027-03-01T00:00:00Z" },
     { token: "0x00000000000000000000000000000000deadbeef", symbol: "SCAM", motor: "motor2" as const, verdict: "reject" as const, reason: "saiu: é honeypot (não dá pra vender) — bloqueado", liquidityUsd: 0, locked: false },
+    { token: "0x00000000000000000000000000000000feed0001", symbol: "NEWCOIN", motor: "motor2" as const, verdict: "reject" as const, reason: "rejeitado: não deu pra confirmar segurança (GoPlus fora) — por precaução não entra", liquidityUsd: 95_000, locked: false, partial: true },
   ],
   tokenLog: [
     { time: "14:32", symbol: "DEGEN", motor: "M2", action: "entrou", reason: "entrou: tem saída na UniV3 0.3%, liquidez ok ($380k), passou no exame de segurança", color: "var(--green)" },
@@ -133,6 +135,8 @@ export const MOCK = {
   ],
   postmortem: [
     { time: "14:33", text: "Morpho · perdemos para bob-the-builder.eth", pos: "pos #2" },
+    { time: "14:20", text: "Aave V3 · perdemos para 0x9a3c…d21f · 0.42 gwei", pos: "—" }, // vencedor sem alias → endereço curto
+    { time: "14:05", text: "Compound · perdemos para desconhecido", pos: "—" }, // sem alias nem endereço, só evidência de derrota
     { time: "13:50", text: "Aave V3 · incluído 1 bloco depois", pos: "pos #5" },
     { time: "13:12", text: "WETH/USDC · bribe insuficiente (−0.27 gwei)", pos: "pos #3" },
     { time: "12:47", text: "Aerodrome · reorg desfez inclusão", pos: "reorg" },
@@ -149,15 +153,31 @@ export const MOCK = {
     { pair: "AERO/WETH", edge: "64%", pct: "64", note: "volátil" },
     { pair: "WETH/DAI", edge: "51%", pct: "51", note: "intermitente" },
   ],
+  // Espelha o AO VIVO (item 4): builders dominantes (do topByCompetitorVolume) + posição no bloco.
+  competition: {
+    topBuilders: [
+      { alias: "beaverbuild", blocks: 412, competitorTxs: 189, ourTxs: 6 },
+      { alias: "Titan Builder", blocks: 298, competitorTxs: 141, ourTxs: 3 },
+      { alias: "0x9a3c…d21f", blocks: 87, competitorTxs: 44, ourTxs: 0 },
+    ],
+    position: { samples: 24, bottom10pctPct: 33, top10pctPct: 12, avgRelative: 0.58 },
+  } as Competition | null,
 
+  // Espelha EXATAMENTE o AO VIVO: componentes reais dos 2 motores, rotulados M1·/M2· (o live.ts prefixa por motor).
+  // Só há 2 estados reais (READY/DOWN via ok:boolean) — sem "DEGRADED". Snapshot de bot saudável.
   components: [
-    { name: "RPC primário (Base)", status: "READY", color: "var(--green)", detail: "38ms" },
-    { name: "RPC fallback", status: "READY", color: "var(--green)", detail: "64ms" },
-    { name: "Mempool stream", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "Bundle relay", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "DuckDB sink", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "Price oracle", status: "DEGRADED", color: "var(--gold)", detail: "stale 4s" },
-    { name: "Heartbeat", status: "READY", color: "var(--green)", detail: "30s" },
+    { name: "M1 · rpc / Base", status: "READY", color: "var(--green)", detail: "bloco há 2s" },
+    { name: "M1 · auto-pause", status: "READY", color: "var(--green)", detail: "ativo" },
+    { name: "M1 · gás-reserva", status: "READY", color: "var(--green)", detail: "0.0842 ETH" },
+    { name: "M1 · reorg", status: "READY", color: "var(--green)", detail: "0 na janela" },
+    { name: "M1 · kill-switch", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "M1 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 48s" },
+    { name: "M2 · rpc / Base", status: "READY", color: "var(--green)", detail: "bloco há 2s" },
+    { name: "M2 · auto-pause", status: "READY", color: "var(--green)", detail: "ativo" },
+    { name: "M2 · gás-reserva", status: "READY", color: "var(--green)", detail: "0.0842 ETH" },
+    { name: "M2 · reorg", status: "READY", color: "var(--green)", detail: "0 na janela" },
+    { name: "M2 · perda 24h", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "M2 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 51s" },
   ],
   cooldowns: [
     { scope: "Motor 1 · Liquidações", state: "ATIVO", color: "var(--gold)", reason: "3 falhas consecutivas · expira em 00:42" },
@@ -232,6 +252,7 @@ export const EMPTY: typeof MOCK = {
   postmortem: [],
   calib: [],
   edgePairs: [],
+  competition: null,
   components: [],
   cooldowns: [],
   latP50: [],

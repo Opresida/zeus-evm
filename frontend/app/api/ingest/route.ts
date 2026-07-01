@@ -34,6 +34,28 @@ const MOTOR_KEYS = new Set(["motor1", "motor2"]);
 const VERDICT_KEYS = new Set(["pass", "reject"]);
 
 /** Sanea `vettedUniverse` do heartbeat ANTES do jsonb (mesma defesa de fronteira do strategyStats). */
+function sanitizeCompetition(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  const topBuilders = (Array.isArray(c.topBuilders) ? c.topBuilders : [])
+    .filter((b): b is Record<string, unknown> => !!b && typeof b === "object")
+    .slice(0, 5)
+    .map((b) => ({
+      alias: String(b.alias ?? "?").slice(0, 40),
+      blocks: Math.max(0, finNum(b.blocks)),
+      competitorTxs: Math.max(0, finNum(b.competitorTxs)),
+      ourTxs: Math.max(0, finNum(b.ourTxs)),
+    }));
+  const p = (c.position ?? {}) as Record<string, unknown>;
+  const position = {
+    samples: Math.max(0, finNum(p.samples)),
+    bottom10pctPct: Math.max(0, Math.min(100, finNum(p.bottom10pctPct))),
+    top10pctPct: Math.max(0, Math.min(100, finNum(p.top10pctPct))),
+    avgRelative: Math.max(0, Math.min(1, finNum(p.avgRelative))),
+  };
+  return topBuilders.length || position.samples ? { topBuilders, position } : null;
+}
+
 function sanitizeVettedUniverse(raw: unknown) {
   if (!Array.isArray(raw)) return null;
   const out = raw
@@ -52,6 +74,7 @@ function sanitizeVettedUniverse(raw: unknown) {
       lockPct: Math.max(0, Math.min(100, finNum(t.lockPct))),
       locker: t.locker != null ? String(t.locker).slice(0, 40) : null,
       unlockIso: typeof t.unlockIso === "string" ? t.unlockIso.slice(0, 40) : null,
+      partial: Boolean(t.partial), // verdict feito com dados incompletos (fail-safe) → selo no painel
     }));
   return out.length ? out : null;
 }
@@ -135,6 +158,7 @@ export async function POST(req: Request) {
       kill_switch: e.killSwitch ?? null,
       latency: e.latency ?? null, // Fase 2b — p50/p95 de dispatch
       reorgs: e.reorgs ?? null, // Motor 1 — resiliência de reorg + órfãs recuperadas
+      competition: sanitizeCompetition(e.competition), // item 4 — builders dominantes + posição no bloco
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

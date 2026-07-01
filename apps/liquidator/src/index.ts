@@ -334,7 +334,7 @@ export async function boot(): Promise<LiquidatorState> {
   });
 
   // Check inicial pra reportar estado no boot
-  const initialGasStatus = await gasReserveTracker.check(ctx.client, ctx.account);
+  const initialGasStatus = await gasReserveTracker.check(ctx.client, ctx.watchAccount ?? ctx.account);
   const initialGasStats = gasReserveTracker.stats();
   logger.info(
     {
@@ -986,6 +986,20 @@ export async function boot(): Promise<LiquidatorState> {
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
 
+      // Porteiro de tokens (Fase 2) — o loop de re-vet está pulsando? Só aparece quando o porteiro está ligado.
+      // Verde = re-vet fresco; vermelho = loop parado (idade > 2× o intervalo). Sem re-vet contínuo = ativo na entrada.
+      const vettingComponent: { name: string; ok: boolean; detail: string } | null = !env.VETTING_ENABLED
+        ? null
+        : !env.VETTING_REVET_ENABLED
+          ? { name: 'porteiro-tokens', ok: true, detail: 'ativo (sem re-vet)' }
+          : !vettingLastRevet.iso
+            ? { name: 'porteiro-tokens', ok: true, detail: 'aguardando 1º re-vet' }
+            : (() => {
+                const ageSec = Math.max(0, (Date.now() - Date.parse(vettingLastRevet.iso)) / 1000);
+                const ok = ageSec <= env.VETTING_REVET_SEC * 2;
+                return { name: 'porteiro-tokens', ok, detail: ok ? `checado há ${ageSec.toFixed(0)}s` : `re-vet parado há ${ageSec.toFixed(0)}s` };
+              })();
+
       // Heartbeat ~30s pro painel (gás-agora / uptime / estado real / radar / inteligência) —
       // reusa valores JÁ coletados acima (mkt, drift, scannerStats, gasStats, pnlStats, discoveryPulse).
       if (hbTick++ % 6 === 0) {
@@ -1026,10 +1040,14 @@ export async function boot(): Promise<LiquidatorState> {
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {
             components: [
+              // RPC / conexão com a Base — o "coração pulsando". staleness (getBlock latest) já é lido acima
+              // a cada tick: se o RPC cai, getBlock estoura → status 'critical' com error. age = frescor do bloco.
+              { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
               { name: 'auto-pause', ok: !pauseStatus.paused, detail: pauseStatus.paused ? pauseStatus.reasons.map((r) => r.message).join('; ') : 'ativo' },
               { name: 'gás-reserva', ok: Number(gasStats.balanceEth ?? 0) > 0.002, detail: `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` },
               { name: 'reorg', ok: finStats.reorgsInWindow === 0, detail: `${finStats.reorgsInWindow} na janela` },
               { name: 'kill-switch', ok: !pnlStats.killSwitchTriggered, detail: pnlStats.killSwitchTriggered ? 'ATIVO' : 'ok' },
+              ...(vettingComponent ? [vettingComponent] : []),
             ],
           },
           competitors: senderRegistry.topThreats(8).map((p) => ({
@@ -1053,6 +1071,17 @@ export async function boot(): Promise<LiquidatorState> {
             window24h: finStats.reorgsInWindow,
             orphansRecovered: orphanRecoveryManager.getStats().total_recoveries_succeeded,
             orphansDetected: orphanRecoveryManager.getStats().total_orphans_detected,
+          },
+          // Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco.
+          // Antes morria em logs/competitors/*.json; agora vai pro painel (aba Inteligência).
+          competition: {
+            topBuilders: builderAttribution.topByCompetitorVolume(3).map((b) => ({
+              alias: b.builder_alias ?? `${b.builder_address.slice(0, 6)}…${b.builder_address.slice(-4)}`,
+              blocks: b.total_blocks_seen,
+              competitorTxs: b.competitor_txs_seen,
+              ourTxs: b.our_txs_included,
+            })),
+            position: blockPositionTracker.summary(),
           },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
@@ -1976,7 +2005,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const stats = { aave: 0, compound: 0, morpho: 0, moonwell: 0, preliq: 0, dispatched: 0, dryrun: 0, rejected: 0 };
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
-  await state.gasReserveTracker.check(ctx.client, ctx.account);
+  await state.gasReserveTracker.check(ctx.client, ctx.watchAccount ?? ctx.account);
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
   // H3 (resiliência): NÃO gateamos o loop inteiro em THEGRAPH_API_KEY. O discovery on-chain

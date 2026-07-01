@@ -19,6 +19,7 @@ import type {
   HeartbeatKillSwitch,
   HeartbeatLatency,
   HeartbeatReorgs,
+  HeartbeatCompetition,
   HeartbeatStrategyStat,
   VettedEntry,
   ZeusHeartbeatEvent,
@@ -61,6 +62,7 @@ export interface HeartbeatInput {
   edgePairs?: HeartbeatEdgePair[];
   latency?: HeartbeatLatency;
   reorgs?: HeartbeatReorgs;
+  competition?: HeartbeatCompetition;
 }
 
 /** Constrói o evento `zeus.heartbeat` a partir de valores já coletados pelo loop de métricas. */
@@ -91,6 +93,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     ...(i.edgePairs && i.edgePairs.length ? { edgePairs: i.edgePairs } : {}),
     ...(i.latency && i.latency.samples > 0 ? { latency: i.latency } : {}),
     ...(i.reorgs ? { reorgs: i.reorgs } : {}),
+    ...(i.competition ? { competition: i.competition } : {}),
   };
 }
 

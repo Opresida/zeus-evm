@@ -11,9 +11,17 @@ describe('StrategyStatsTracker', () => {
     tr.candidate('pre-liq', 20);
     tr.candidate('filler', 2);
     tr.candidate('filler', 3);
+    tr.candidate('arb', 12.5); // Fase B — arb cross-DEX (Motor 2) vira estratégia visível
+    tr.candidate('arb', 7.5);
+    tr.executed('arb', 11);
 
     const snap = tr.snapshot();
     const by = (s: string) => snap.find((x) => x.strategy === s)!;
+
+    expect(by('arb').candidates24h).toBe(2);
+    expect(by('arb').candidateProfitUsd24h).toBe(20);
+    expect(by('arb').executed24h).toBe(1);
+    expect(by('arb').netUsd24h).toBe(11);
 
     expect(by('classic-liq').candidates24h).toBe(2);
     expect(by('classic-liq').candidateProfitUsd24h).toBe(15);
@@ -28,9 +36,9 @@ describe('StrategyStatsTracker', () => {
     expect(by('filler').candidateProfitUsd24h).toBe(5);
   });
 
-  it('sempre retorna as 3 estratégias (mesmo vazias)', () => {
+  it('sempre retorna as 4 estratégias (mesmo vazias)', () => {
     const snap = new StrategyStatsTracker().snapshot();
-    expect(snap.map((s) => s.strategy).sort()).toEqual(['classic-liq', 'filler', 'pre-liq']);
+    expect(snap.map((s) => s.strategy).sort()).toEqual(['arb', 'classic-liq', 'filler', 'pre-liq']);
     expect(snap.every((s) => s.candidates24h === 0 && s.netUsd24h === 0)).toBe(true);
   });
 

@@ -38,6 +38,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     motor_stats: partial.motor_stats ?? null,
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
+    competition: partial.competition ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
@@ -133,29 +134,45 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     const snap = deriveSnapshot([], [
       status({
         service: "liquidator",
-        health: { components: [{ name: "auto-pause", ok: true, detail: "ativo" }] },
+        health: { components: [
+          { name: "rpc / Base", ok: false, detail: "sem resposta" }, // Fase 1: RPC caído → deve chegar como DOWN
+          { name: "auto-pause", ok: true, detail: "ativo" },
+          { name: "porteiro-tokens", ok: true, detail: "checado há 12s" }, // Fase 2: freshness do re-vet
+        ] },
         competitors: [{ alias: "bob.eth", category: "mev_searcher", txs: 12, bribeGwei: 0.5, threat: 0.8 }],
         cooldowns: [{ label: "auto-pause", reason: "oracle stale", active: true }],
         kill_switch: { loss24hUsd: 40, limitUsd: 100, triggered: false },
       }),
       status({
         service: "mis-scanner",
+        health: { components: [{ name: "rpc / Base", ok: true, detail: "bloco há 2s" }] }, // Fase 3: Motor 2 reporta prontidão
         edge_pairs: [{ pair: "WETH/USDC", score: 9.2, persistPct: "62%", avgBps: 18, samples: 30 }],
       }),
     ]);
-    expect(snap.health?.[0]).toMatchObject({ name: "auto-pause", ok: true });
+    // Fase 3: componentes fundidos dos 2 motores, rotulados por motor (M1 primeiro, depois M2).
+    expect(snap.health?.[0]).toMatchObject({ name: "M1 · rpc / Base", ok: false });
+    expect(snap.health?.[1]).toMatchObject({ name: "M1 · auto-pause", ok: true });
+    expect(snap.health?.[2]).toMatchObject({ name: "M1 · porteiro-tokens", ok: true });
+    expect(snap.health?.[3]).toMatchObject({ name: "M2 · rpc / Base", ok: true }); // Motor 2 agora visível
+    expect(snap.health).toHaveLength(4);
     expect(snap.competitors?.[0]).toMatchObject({ alias: "bob.eth", txs: 12 });
     expect(snap.cooldowns?.[0]).toMatchObject({ active: true });
     expect(snap.killSwitch).toMatchObject({ loss24hUsd: 40, limitUsd: 100 });
     expect(snap.edgePairs?.[0]).toMatchObject({ pair: "WETH/USDC", samples: 30 });
   });
 
-  it("Fase 2b: post-mortem de failure.recorded COM vencedor + log de calibration.applied", () => {
+  it("Fase 2b/E: post-mortem COM vencedor (alias, endereço curto, gorjeta) + log de calibration.applied", () => {
     const snap = deriveSnapshot([
       row({
         type: "failure.recorded",
         protocol: "morpho-blue",
-        payload: { competitorAlias: "bob.eth", winner_priority_fee_gwei: 0.51, our_tx_index: 3 } as ZeusEvent,
+        payload: { competitorAlias: "bob.eth", winnerPriorityFeeGwei: 0.51, our_tx_index: 3 } as ZeusEvent,
+      }),
+      // Fase E: vencedor SEM alias resolvido → mostra endereço curto (não some com a perda).
+      row({
+        type: "failure.recorded",
+        protocol: "aave-v3",
+        payload: { competitorSender: "0x9a3c00000000000000000000000000000000d21f" } as ZeusEvent,
       }),
       row({ type: "failure.recorded", protocol: "aave-v3", payload: { failureCategory: "reverted_on_chain" } as ZeusEvent }), // sem vencedor → não vira post-mortem
       row({
@@ -163,9 +180,12 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
         payload: { oldThresholdUsd: 3.6, newThresholdUsd: 4.2, reason: "sequência de reverts" } as ZeusEvent,
       }),
     ]);
-    expect(snap.postmortem).toHaveLength(1);
-    expect(snap.postmortem![0].text).toContain("bob.eth");
-    expect(snap.postmortem![0].pos).toBe("pos #3");
+    expect(snap.postmortem).toHaveLength(2); // a falha sem vencedor NÃO entra
+    const texts = snap.postmortem!.map((p) => p.text).join(" | ");
+    expect(texts).toContain("bob.eth");
+    expect(texts).toContain("0.51 gwei"); // gorjeta do vencedor agora aparece
+    expect(texts).toContain("0x9a3c…d21f"); // vencedor sem alias → endereço curto
+    expect(snap.postmortem!.find((p) => p.text.includes("bob.eth"))?.pos).toBe("pos #3");
     expect(snap.calib).toHaveLength(1);
     expect(snap.calib![0].effect).toContain("3.60");
     expect(snap.calib![0].effect).toContain("4.20");
@@ -218,7 +238,7 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
         service: "mis-scanner",
         vetted_universe: [
           { token: "0xcbETH", symbol: "cbETH", motor: "motor2", verdict: "reject", reason: "rejeitado: sem edge", liquidityUsd: 1_000_000, locked: false },
-          { token: "0xSCAM", symbol: "SCAM", motor: "motor2", verdict: "reject", reason: "saiu: honeypot", liquidityUsd: 0, locked: false },
+          { token: "0xSCAM", symbol: "SCAM", motor: "motor2", verdict: "reject", reason: "saiu: honeypot", liquidityUsd: 0, locked: false, partial: true }, // Fase A: dado incompleto
         ],
       }),
     ]);
@@ -226,7 +246,24 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     const m1 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor1");
     const m2 = snap.vettedUniverse!.find((t) => t.symbol === "cbETH" && t.motor === "motor2");
     expect(m1?.verdict).toBe("pass");
+    expect(m1?.partial).toBe(false); // sem flag → false, nunca undefined
     expect(m2?.verdict).toBe("reject");
+    // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
+    expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("Item 4: diagnóstico de concorrência (builders + posição) flui do liquidator pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({
+        service: "liquidator",
+        competition: {
+          topBuilders: [{ alias: "beaverbuild", blocks: 400, competitorTxs: 180, ourTxs: 5 }],
+          position: { samples: 24, bottom10pctPct: 33, top10pctPct: 12, avgRelative: 0.58 },
+        },
+      }),
+    ]);
+    expect(snap.competition?.topBuilders[0]).toMatchObject({ alias: "beaverbuild", ourTxs: 5 });
+    expect(snap.competition?.position.samples).toBe(24);
   });
 
   it("Tokens: lixo no jsonb (motor/verdict inválido) é descartado", () => {

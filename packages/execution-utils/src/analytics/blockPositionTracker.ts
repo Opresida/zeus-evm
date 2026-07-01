@@ -43,10 +43,28 @@ export interface BlockPositionTrackerOpts {
 export class BlockPositionTracker {
   private readonly client: AnyPublicClient;
   private readonly logger: LoggerLike | undefined;
+  // Janela rolante das últimas posições resolvidas → responde "estamos sistematicamente no fundo?".
+  private readonly window: { relative: number; bottom: boolean; top: boolean }[] = [];
+  private readonly maxSamples = 200;
 
   constructor(opts: BlockPositionTrackerOpts) {
     this.client = opts.client;
     this.logger = opts.logger;
+  }
+
+  /** Agregado da janela (pro heartbeat/painel). samples=0 até a 1ª tx nossa ser resolvida. */
+  summary(): { samples: number; bottom10pctPct: number; top10pctPct: number; avgRelative: number } {
+    const n = this.window.length;
+    if (n === 0) return { samples: 0, bottom10pctPct: 0, top10pctPct: 0, avgRelative: 0 };
+    const bottom = this.window.filter((w) => w.bottom).length;
+    const top = this.window.filter((w) => w.top).length;
+    const avg = this.window.reduce((s, w) => s + w.relative, 0) / n;
+    return {
+      samples: n,
+      bottom10pctPct: Math.round((bottom / n) * 100),
+      top10pctPct: Math.round((top / n) * 100),
+      avgRelative: Math.round(avg * 100) / 100,
+    };
   }
 
   /**
@@ -72,6 +90,10 @@ export class BlockPositionTracker {
 
       const total = txs.length;
       const relative = total > 1 ? idx / (total - 1) : 0;
+
+      // Acumula na janela rolante (pro summary do heartbeat).
+      this.window.push({ relative, bottom: relative >= 0.9, top: relative <= 0.1 });
+      if (this.window.length > this.maxSamples) this.window.shift();
 
       return {
         our_tx_hash: txHash,

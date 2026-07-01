@@ -53,6 +53,9 @@ export interface ZeusEvent {
   failureCategory?: string;
   gasUsdLost?: number;
   competitorAlias?: string;
+  // Fase E (item 5) — vencedor da corrida mesmo sem alias resolvido.
+  competitorSender?: string;
+  winnerPriorityFeeGwei?: number;
   // Fase 2b — post-mortem (no payload do failure.recorded)
   winner_priority_fee_gwei?: number;
   our_tx_index?: number;
@@ -119,11 +122,11 @@ export interface ServiceStatusRow {
   motor_stats: { tag: string; ops: number; netPnl24hUsd: number }[] | null;
   /** Comparativo por estratégia (tela "Estratégias"). */
   strategy_stats:
-    | { strategy: 'classic-liq' | 'pre-liq' | 'filler'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
+    | { strategy: 'classic-liq' | 'pre-liq' | 'filler' | 'arb'; candidates24h: number; candidateProfitUsd24h: number; executed24h: number; netUsd24h: number }[]
     | null;
   /** Universo vetado por token (tela "Tokens") — porteiro de tokens. */
   vetted_universe:
-    | { token: string; symbol: string; motor: 'motor1' | 'motor2'; verdict: 'pass' | 'reject'; reason: string; exitDex?: string; liquidityUsd: number; locked: boolean; lockPct?: number; locker?: string; unlockIso?: string }[]
+    | { token: string; symbol: string; motor: 'motor1' | 'motor2'; verdict: 'pass' | 'reject'; reason: string; exitDex?: string; liquidityUsd: number; locked: boolean; lockPct?: number; locker?: string; unlockIso?: string; partial?: boolean }[]
     | null;
   /** Estado do filtro de tokens por motor (badge "filtro ligado"). */
   vetting_enforce: { motor1?: boolean; motor2?: boolean } | null;
@@ -161,6 +164,7 @@ export interface ServiceStatusRow {
   latency: { p50Ms: number; p95Ms: number; samples: number } | null;
   /** Motor 1 — resiliência de reorg (reorgs na janela + órfãs recuperadas). */
   reorgs: { window24h: number; orphansRecovered: number; orphansDetected: number } | null;
+  competition: Competition | null;
   updated_at: string;
 }
 
@@ -176,7 +180,7 @@ export interface WalletSnapshotRow {
 
 /** Agregado comparativo por estratégia (clássica × pré-liq × filler) — tela "Estratégias". */
 export interface StrategyStat {
-  strategy: "classic-liq" | "pre-liq" | "filler";
+  strategy: "classic-liq" | "pre-liq" | "filler" | "arb";
   candidates24h: number;
   candidateProfitUsd24h: number;
   executed24h: number;
@@ -184,6 +188,12 @@ export interface StrategyStat {
 }
 
 /** Token vetado (porteiro) — linha achatada pro painel (tela "Tokens"). */
+/** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
+export interface Competition {
+  topBuilders: { alias: string; blocks: number; competitorTxs: number; ourTxs: number }[];
+  position: { samples: number; bottom10pctPct: number; top10pctPct: number; avgRelative: number };
+}
+
 export interface VettedToken {
   token: string;
   symbol: string;
@@ -199,6 +209,8 @@ export interface VettedToken {
   lockPct?: number;
   locker?: string;
   unlockIso?: string;
+  /** Verdict feito com dados incompletos (fail-safe: M1 não bloqueia, M2 rejeita) → selo "dados parciais". */
+  partial?: boolean;
 }
 
 /** Estado de UI controlado pelo painel. */
@@ -294,6 +306,8 @@ export interface LiveSnapshot {
   latency?: { p50Ms: number; p95Ms: number; samples: number };
   /** Resiliência de reorg (Motor 1) — reorgs 24h + órfãs recuperadas. */
   reorgs?: { window24h: number; orphansRecovered: number; orphansDetected: number };
+  /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
+  competition?: Competition;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

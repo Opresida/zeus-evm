@@ -112,6 +112,7 @@ export type {
   HeartbeatEdgePair,
   HeartbeatLatency,
   HeartbeatReorgs,
+  HeartbeatCompetition,
   CalibrationAppliedEvent,
   WalletSnapshotEvent,
 } from './events';

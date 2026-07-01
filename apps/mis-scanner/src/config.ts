@@ -74,6 +74,9 @@ const envSchema = z.object({
   ARB_MAX_SLIPPAGE_BPS: posInt(50),
   GAS_COST_USD_ESTIMATE: num(0.5),
   ETH_USD_PRICE_ESTIMATE: num(3000),
+  /** Reserva de gás (saúde M2): warn/critical em ETH da EOA que paga o gás do arb. */
+  GAS_RESERVE_WARN_ETH: num(0.01),
+  GAS_RESERVE_CRITICAL_ETH: num(0.002),
   GAS_PRIORITY_FEE_GWEI: num(0.01),
   GAS_MAX_FEE_MULTIPLIER: posInt(200),
   // ── Bribe (gorjeta do gás) competitivo auto-ligável (Motor 2) ──

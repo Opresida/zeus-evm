@@ -449,8 +449,14 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           txHash,
           gasUsdLost: revertGasUsd,
           reason: 'on-chain revert',
-          // Post-mortem: quem nos ganhou (quando o CompetitorResolver resolveu acima) → painel mostra.
+          // Post-mortem: quem nos ganhou. alias quando resolvido; sender + gorjeta SEMPRE que houve vencedor
+          // (mesmo sem alias) → o painel mostra "desconhecido"/endereço curto em vez de sumir com a perda.
           competitorAlias: failureEvent.competitor_winner_alias,
+          competitorSender: failureEvent.competitor_winner_sender,
+          winnerPriorityFeeGwei:
+            failureEvent.competitor_winner_priority_fee_wei != null
+              ? Number(failureEvent.competitor_winner_priority_fee_wei) / 1e9
+              : undefined,
         });
       }
 

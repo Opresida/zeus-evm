@@ -14,7 +14,7 @@ import type { HeartbeatStrategyStat } from './events';
 
 export type StrategyKey = HeartbeatStrategyStat['strategy'];
 
-const STRATEGIES: readonly StrategyKey[] = ['classic-liq', 'pre-liq', 'filler'];
+const STRATEGIES: readonly StrategyKey[] = ['classic-liq', 'pre-liq', 'filler', 'arb'];
 
 interface Entry {
   ts: number;

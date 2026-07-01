@@ -287,6 +287,10 @@ export interface FailureRecordedEvent extends BaseEvent {
   reason?: string;
   /** Post-mortem (Fase 5b): alias do competidor que nos ganhou, quando resolvido. */
   competitorAlias?: string;
+  /** Endereço do vencedor (sempre presente quando houve corrida perdida, mesmo sem alias resolvido). */
+  competitorSender?: string;
+  /** Gorjeta (priority fee, gwei) do vencedor — "perdemos por X gwei". */
+  winnerPriorityFeeGwei?: number;
 }
 
 /**
@@ -345,7 +349,7 @@ export interface MotorStat {
  * Em DRY_RUN, `executed`/`netUsd` ficam 0 e `candidates`/`candidateProfitUsd` mostram o POTENCIAL.
  */
 export interface HeartbeatStrategyStat {
-  strategy: 'classic-liq' | 'pre-liq' | 'filler';
+  strategy: 'classic-liq' | 'pre-liq' | 'filler' | 'arb';
   /** Candidatos LUCRATIVOS vistos na janela (24h). */
   candidates24h: number;
   /** Soma do lucro esperado desses candidatos (USD). */
@@ -511,4 +515,14 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   latency?: HeartbeatLatency;
   /** Resiliência de reorg (Motor 1 mainnet) — reorgs na janela + órfãs recuperadas. */
   reorgs?: HeartbeatReorgs;
+  /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco (tela Inteligência). */
+  competition?: HeartbeatCompetition;
+}
+
+/** Diagnóstico de concorrência: quem controla o blockspace + se caímos no fundo do bloco. */
+export interface HeartbeatCompetition {
+  /** Builders dominantes (por volume de tx de competidores). */
+  topBuilders: { alias: string; blocks: number; competitorTxs: number; ourTxs: number }[];
+  /** Nossa posição no bloco (janela rolante). samples=0 até executarmos de verdade. */
+  position: { samples: number; bottom10pctPct: number; top10pctPct: number; avgRelative: number };
 }

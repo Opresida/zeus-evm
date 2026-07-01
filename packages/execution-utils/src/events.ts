@@ -517,6 +517,8 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   reorgs?: HeartbeatReorgs;
   /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco (tela Inteligência). */
   competition?: HeartbeatCompetition;
+  /** Taxa de erro real (KPI da Saúde) — falhas vs total de ops. Do FailureTracker; 0/0 em DRY_RUN. */
+  errorMetrics?: { failedOps: number; totalOps: number };
 }
 
 /** Diagnóstico de concorrência: quem controla o blockspace + se caímos no fundo do bloco. */

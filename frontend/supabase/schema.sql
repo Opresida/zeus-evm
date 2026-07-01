@@ -53,6 +53,7 @@ create table if not exists public.service_status (
   vetting_enforce     jsonb,                      -- estado do filtro por motor: {motor1?,motor2?}
   vetting_revet_at    text,                       -- ISO do último re-vet do porteiro (freshness)
   competition         jsonb,                       -- item 4: {topBuilders:[{alias,blocks,competitorTxs,ourTxs}], position:{samples,bottom10pctPct,top10pctPct,avgRelative}}
+  error_metrics       jsonb,                       -- taxa de erro real (KPI Saúde): {failedOps,totalOps}
   discovery           jsonb,                      -- pulso do radar (item 2): {positions,dispatched,rejected,atIso}
   intel               jsonb,                      -- inteligência (item 3): {marketBribeP50Gwei,...,driftBps}
   updated_at          timestamptz not null default now()
@@ -65,6 +66,7 @@ alter table public.service_status add column if not exists vetted_universe jsonb
 alter table public.service_status add column if not exists vetting_enforce jsonb;
 alter table public.service_status add column if not exists vetting_revet_at text;
 alter table public.service_status add column if not exists competition jsonb;
+alter table public.service_status add column if not exists error_metrics jsonb;
 
 -- ---------- realtime ----------
 -- habilita streaming de INSERT na tabela events + UPDATE/INSERT em service_status

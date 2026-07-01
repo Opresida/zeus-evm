@@ -50,7 +50,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
 
   // ---- uptime / clock (tick) ----
   const baseUp = 287400 + ui.tick;
-  const uptime = demo ? uptimeFromSec(baseUp) : "—";
+  // Uptime real (Saúde item 3): usa o uptimeSec do heartbeat; DEMO anima com o tick; sem dado → "—".
+  const uptime = live?.uptimeSec != null ? uptimeFromSec(live.uptimeSec) : demo ? uptimeFromSec(baseUp) : "—";
   const now = new Date();
   const clock =
     String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + ":" + String(now.getSeconds()).padStart(2, "0");
@@ -391,7 +392,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     : M.cooldowns;
   // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
   const failures = live?.failures ?? [];
-  const discovery = live?.discovery ?? null;
+  const discovery = live?.discovery ?? (demo ? M.discovery : null);
   const latAll = M.latP50.concat(M.latP95);
   const lmin = Math.min(...latAll);
   const lmax = Math.max(...latAll);
@@ -407,6 +408,12 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
         last: ksLive.triggered ? "DISPARADO" : "—",
       }
     : { loss: usd(M.ks.loss), limit: usdp(M.ks.limit), pct: M.ks.pct, last: M.ks.last };
+  // Taxa de erro real (Fase G) — do FailureTracker via heartbeat. 0 ops (DRY_RUN) → "—" honesto, sem inventar.
+  const em = live?.errorMetrics ?? (demo ? M.errorMetrics : null);
+  const errKpi =
+    em && em.totalOps > 0
+      ? { big: `${((em.failedOps / em.totalOps) * 100).toFixed(1)}%`, sub: `${em.failedOps} de ${em.totalOps} ops` }
+      : { big: "—", sub: em ? "sem ops ainda" : "" };
   const healthKpis = [
     {
       label: "Kill switch",
@@ -422,7 +429,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     { label: "Dispatch p50", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p50Ms) : demo ? "142" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--text)", sub: live?.latency ? `${live.latency.samples} amostras` : demo ? "alvo <200ms" : "" },
     { label: "Dispatch p95", isStatus: false, isVal: true, dot: "", big: live?.latency ? String(live.latency.p95Ms) : demo ? "410" : "—", unit: live?.latency || demo ? "ms" : "", color: "var(--gold)", sub: live?.latency ? "alvo <500ms" : demo ? "alvo <500ms" : "" },
     { label: "Reorgs · 24h", isStatus: false, isVal: true, dot: "", big: live?.reorgs ? String(live.reorgs.window24h) : demo ? "3" : "—", unit: "", color: "var(--text2)", sub: live?.reorgs ? `${live.reorgs.orphansRecovered} órfãs recuperadas` : demo ? "prof. máx. 2" : "" },
-    { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: demo ? "1.3%" : "—", unit: "", color: "var(--cyan)", sub: demo ? "6 de 477 ops" : "" },
+    { label: "Taxa de erro", isStatus: false, isVal: true, dot: "", big: errKpi.big, unit: "", color: "var(--cyan)", sub: errKpi.sub },
   ];
   const eventLog = live?.eventLog ?? M.eventLog;
 

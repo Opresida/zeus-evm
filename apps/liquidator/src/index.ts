@@ -1083,6 +1083,11 @@ export async function boot(): Promise<LiquidatorState> {
             })),
             position: blockPositionTracker.summary(),
           },
+          // Taxa de erro real (Fase G) — falhas vs total de ops (FailureTracker). 0/0 em DRY_RUN → painel mostra "—".
+          errorMetrics: (() => {
+            const fs = failureTracker.stats();
+            return { failedOps: fs.totalFailures, totalOps: fs.totalFailures + fs.totalSuccesses };
+          })(),
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }

@@ -39,6 +39,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
     competition: partial.competition ?? null,
+    error_metrics: partial.error_metrics ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
@@ -71,11 +72,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.failures![0].detail).toContain("bob-the-builder.eth");
   });
 
-  it("item 2: discovery do service_status do liquidator", () => {
+  it("item 2/4: discovery multi-motor — mais fresco vence, rotulado por motor", () => {
     const snap = deriveSnapshot([], [
-      status({ service: "liquidator", discovery: { positions: 15, dispatched: 1, rejected: 2, atIso: now() } }),
+      status({ service: "liquidator", discovery: { positions: 15, dispatched: 1, rejected: 2, atIso: now() }, updated_at: "2020-01-01T00:00:00Z" }),
+      status({ service: "mis-scanner", discovery: { positions: 58, dispatched: 3, rejected: 12, atIso: now() }, updated_at: "2020-01-01T00:05:00Z" }),
     ]);
-    expect(snap.discovery).toMatchObject({ service: "liquidator", positions: 15, dispatched: 1, rejected: 2 });
+    // mis-scanner é mais fresco (updated_at maior) → radar mostra o Motor 2, rotulado.
+    expect(snap.discovery).toMatchObject({ service: "Motor 2", positions: 58, dispatched: 3, rejected: 12 });
   });
 
   it("item 3: intel do service_status (market-bribe + drift)", () => {
@@ -250,6 +253,14 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(m2?.verdict).toBe("reject");
     // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("Itens 1+3 (Saúde): taxa de erro + uptime reais fluem do heartbeat pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "liquidator", error_metrics: { failedOps: 6, totalOps: 477 }, uptime_sec: 12345 }),
+    ]);
+    expect(snap.errorMetrics).toMatchObject({ failedOps: 6, totalOps: 477 });
+    expect(snap.uptimeSec).toBe(12345);
   });
 
   it("Item 4: diagnóstico de concorrência (builders + posição) flui do liquidator pro snapshot", () => {

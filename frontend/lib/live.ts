@@ -168,6 +168,8 @@ export function deriveSnapshot(
     });
   }
   if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
+  // Uptime real (Saúde item 3) — do serviço mais fresco (o heartbeat já traz uptime_sec).
+  if (freshest?.uptime_sec != null) snap.uptimeSec = freshest.uptime_sec;
 
   // ----- inteligência: drift sustentado real (de pnl.reconciled) -----
   const recon = rows.filter((r) => r.type === "pnl.reconciled").slice(0, 6);
@@ -236,13 +238,16 @@ export function deriveSnapshot(
     });
   }
 
-  // ----- item 2: pulso do radar (discovery, do heartbeat em service_status) -----
-  // Prioriza o liquidator (motor que faz discovery); fallback = qualquer serviço com discovery.
-  const discSvc = (byService("liquidator")?.discovery ? byService("liquidator") : statuses.find((s) => s.discovery))!;
+  // ----- item 2/4: pulso do radar (discovery) — multi-motor: pega o serviço MAIS FRESCO com discovery -----
+  // Antes fixava o liquidator (M2 ficava invisível). Agora M1 e M2 emitem radar; mostra o mais recente, rotulado.
+  const discSvc = statuses
+    .filter((s) => s.discovery)
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
   if (discSvc?.discovery) {
     const d = discSvc.discovery;
+    const motor = discSvc.service === "liquidator" ? "Motor 1" : discSvc.service === "mis-scanner" ? "Motor 2" : (discSvc.service ?? "");
     snap.discovery = {
-      service: discSvc.service,
+      service: motor,
       positions: d.positions,
       dispatched: d.dispatched,
       rejected: d.rejected,
@@ -388,6 +393,10 @@ export function deriveSnapshot(
   // Item 4 — diagnóstico de concorrência (builders dominantes + posição no bloco), do liquidator.
   const compeSvc = liq?.competition ? liq : statuses.find((s) => s.competition);
   if (compeSvc?.competition) snap.competition = compeSvc.competition;
+
+  // Taxa de erro real (KPI Saúde) — do liquidator (FailureTracker).
+  const errSvc = liq?.error_metrics ? liq : statuses.find((s) => s.error_metrics);
+  if (errSvc?.error_metrics) snap.errorMetrics = errSvc.error_metrics;
 
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).

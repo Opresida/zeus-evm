@@ -986,6 +986,20 @@ export async function boot(): Promise<LiquidatorState> {
       metricRegistry.set('zeus_drift_sustained_alerts', drift.sustained_alerts_count, { chain });
       metricRegistry.set('zeus_pnl_avg_drift_bps_all', drift.avg_drift_bps_all, { chain });
 
+      // Porteiro de tokens (Fase 2) — o loop de re-vet está pulsando? Só aparece quando o porteiro está ligado.
+      // Verde = re-vet fresco; vermelho = loop parado (idade > 2× o intervalo). Sem re-vet contínuo = ativo na entrada.
+      const vettingComponent: { name: string; ok: boolean; detail: string } | null = !env.VETTING_ENABLED
+        ? null
+        : !env.VETTING_REVET_ENABLED
+          ? { name: 'porteiro-tokens', ok: true, detail: 'ativo (sem re-vet)' }
+          : !vettingLastRevet.iso
+            ? { name: 'porteiro-tokens', ok: true, detail: 'aguardando 1º re-vet' }
+            : (() => {
+                const ageSec = Math.max(0, (Date.now() - Date.parse(vettingLastRevet.iso)) / 1000);
+                const ok = ageSec <= env.VETTING_REVET_SEC * 2;
+                return { name: 'porteiro-tokens', ok, detail: ok ? `checado há ${ageSec.toFixed(0)}s` : `re-vet parado há ${ageSec.toFixed(0)}s` };
+              })();
+
       // Heartbeat ~30s pro painel (gás-agora / uptime / estado real / radar / inteligência) —
       // reusa valores JÁ coletados acima (mkt, drift, scannerStats, gasStats, pnlStats, discoveryPulse).
       if (hbTick++ % 6 === 0) {
@@ -1026,10 +1040,14 @@ export async function boot(): Promise<LiquidatorState> {
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {
             components: [
+              // RPC / conexão com a Base — o "coração pulsando". staleness (getBlock latest) já é lido acima
+              // a cada tick: se o RPC cai, getBlock estoura → status 'critical' com error. age = frescor do bloco.
+              { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
               { name: 'auto-pause', ok: !pauseStatus.paused, detail: pauseStatus.paused ? pauseStatus.reasons.map((r) => r.message).join('; ') : 'ativo' },
               { name: 'gás-reserva', ok: Number(gasStats.balanceEth ?? 0) > 0.002, detail: `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` },
               { name: 'reorg', ok: finStats.reorgsInWindow === 0, detail: `${finStats.reorgsInWindow} na janela` },
               { name: 'kill-switch', ok: !pnlStats.killSwitchTriggered, detail: pnlStats.killSwitchTriggered ? 'ATIVO' : 'ok' },
+              ...(vettingComponent ? [vettingComponent] : []),
             ],
           },
           competitors: senderRegistry.topThreats(8).map((p) => ({

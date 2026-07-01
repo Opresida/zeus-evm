@@ -553,10 +553,31 @@ async function main(): Promise<void> {
   const emitHeartbeat = () => {
     const armed = !!arbExec && arbExec.deps.mode !== 'dryrun';
     const live = !!arbExec?.deps.liveExecutionEnabled;
+    // Prontidão do Motor 2 (Fase 3) — antes o M2 não reportava NENHUM componente (invisível no painel).
+    // rpc (frescor de bloco, já polido pelo blockStalenessCheck) + auto-pause + porteiro de tokens (M2).
+    const staleness = blockStalenessCheck.getStatus();
+    const paused = autoPauseManager.shouldPause();
+    const vettingComponent: { name: string; ok: boolean; detail: string } | null = !env.VETTING_ENABLED
+      ? null
+      : !env.VETTING_REVET_ENABLED
+        ? { name: 'porteiro-tokens', ok: true, detail: 'ativo (sem re-vet)' }
+        : !vettingLastRevet.iso
+          ? { name: 'porteiro-tokens', ok: true, detail: 'aguardando 1º re-vet' }
+          : (() => {
+              const ageSec = Math.max(0, (Date.now() - Date.parse(vettingLastRevet.iso)) / 1000);
+              const ok = ageSec <= env.VETTING_REVET_SEC * 2;
+              return { name: 'porteiro-tokens', ok, detail: ok ? `checado há ${ageSec.toFixed(0)}s` : `re-vet parado há ${ageSec.toFixed(0)}s` };
+            })();
+    const healthComponents = [
+      { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
+      { name: 'auto-pause', ok: !paused, detail: paused ? autoPauseManager.summary() : 'ativo' },
+      ...(vettingComponent ? [vettingComponent] : []),
+    ];
     eventBus.emit({
       type: 'zeus.heartbeat', timestamp: new Date().toISOString(), chain: chainConfig.name,
       mode: arbExec?.deps.mode ?? 'dryrun', severity: 'info', service: 'mis-scanner',
       uptimeSec: Math.floor(process.uptime()),
+      health: { components: healthComponents }, // Fase 3 — prontidão do Motor 2 (rpc + auto-pause + porteiro)
       adaptiveMinEvUsd: arbExec?.deps.minProfitUsd,
       // Travado por toggle remoto (só quando armado) OU pausado por saúde/reorg (sensores reais).
       autoPaused: (armed ? !live : false) || autoPauseManager.shouldPause(),

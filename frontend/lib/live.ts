@@ -344,8 +344,21 @@ export function deriveSnapshot(
   // ----- Fase 2: blocos extras do heartbeat (service_status jsonb) -----
   // health / competitors / cooldowns / kill_switch vêm do liquidator; edge_pairs do mis-scanner.
   const liq = byService("liquidator");
-  const healthSvc = liq?.health ? liq : statuses.find((s) => s.health);
-  if (healthSvc?.health?.components?.length) snap.health = healthSvc.health.components;
+  // Fase 3 — funde os componentes de saúde de TODOS os motores (antes só mostrava um serviço → Motor 2 invisível).
+  // Cada componente é rotulado por motor (M1/M2/M3); ordem estável (M1 primeiro, desconhecidos por último).
+  const HEALTH_ORDER = ["liquidator", "mis-scanner", "backrun-engine"];
+  const motorTag = (svc?: string) =>
+    svc === "liquidator" ? "M1" : svc === "mis-scanner" ? "M2" : svc === "backrun-engine" ? "M3" : "";
+  const mergedHealth = [...statuses]
+    .filter((s) => s.health?.components?.length)
+    .sort((a, b) => (HEALTH_ORDER.indexOf(a.service ?? "") + 1 || 99) - (HEALTH_ORDER.indexOf(b.service ?? "") + 1 || 99))
+    .flatMap((s) =>
+      s.health!.components.map((c) => {
+        const tag = motorTag(s.service);
+        return { ...c, name: tag ? `${tag} · ${c.name}` : c.name };
+      }),
+    );
+  if (mergedHealth.length) snap.health = mergedHealth;
 
   const compSvc = liq?.competitors ? liq : statuses.find((s) => s.competitors);
   if (compSvc?.competitors?.length) snap.competitors = compSvc.competitors;

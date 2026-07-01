@@ -133,17 +133,27 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     const snap = deriveSnapshot([], [
       status({
         service: "liquidator",
-        health: { components: [{ name: "auto-pause", ok: true, detail: "ativo" }] },
+        health: { components: [
+          { name: "rpc / Base", ok: false, detail: "sem resposta" }, // Fase 1: RPC caído → deve chegar como DOWN
+          { name: "auto-pause", ok: true, detail: "ativo" },
+          { name: "porteiro-tokens", ok: true, detail: "checado há 12s" }, // Fase 2: freshness do re-vet
+        ] },
         competitors: [{ alias: "bob.eth", category: "mev_searcher", txs: 12, bribeGwei: 0.5, threat: 0.8 }],
         cooldowns: [{ label: "auto-pause", reason: "oracle stale", active: true }],
         kill_switch: { loss24hUsd: 40, limitUsd: 100, triggered: false },
       }),
       status({
         service: "mis-scanner",
+        health: { components: [{ name: "rpc / Base", ok: true, detail: "bloco há 2s" }] }, // Fase 3: Motor 2 reporta prontidão
         edge_pairs: [{ pair: "WETH/USDC", score: 9.2, persistPct: "62%", avgBps: 18, samples: 30 }],
       }),
     ]);
-    expect(snap.health?.[0]).toMatchObject({ name: "auto-pause", ok: true });
+    // Fase 3: componentes fundidos dos 2 motores, rotulados por motor (M1 primeiro, depois M2).
+    expect(snap.health?.[0]).toMatchObject({ name: "M1 · rpc / Base", ok: false });
+    expect(snap.health?.[1]).toMatchObject({ name: "M1 · auto-pause", ok: true });
+    expect(snap.health?.[2]).toMatchObject({ name: "M1 · porteiro-tokens", ok: true });
+    expect(snap.health?.[3]).toMatchObject({ name: "M2 · rpc / Base", ok: true }); // Motor 2 agora visível
+    expect(snap.health).toHaveLength(4);
     expect(snap.competitors?.[0]).toMatchObject({ alias: "bob.eth", txs: 12 });
     expect(snap.cooldowns?.[0]).toMatchObject({ active: true });
     expect(snap.killSwitch).toMatchObject({ loss24hUsd: 40, limitUsd: 100 });

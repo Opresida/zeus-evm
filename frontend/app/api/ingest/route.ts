@@ -162,6 +162,15 @@ export async function POST(req: Request) {
       error_metrics: e.errorMetrics // taxa de erro real (KPI Saúde)
         ? { failedOps: Math.max(0, finNum(e.errorMetrics.failedOps)), totalOps: Math.max(0, finNum(e.errorMetrics.totalOps)) }
         : null,
+      combat_bundle: e.combatBundle // chave-mestra — pacote de combate
+        ? {
+            executionLive: Boolean(e.combatBundle.executionLive),
+            adaptive: Boolean(e.combatBundle.adaptive),
+            competitiveBribe: Boolean(e.combatBundle.competitiveBribe),
+            walletPoolReady: Math.max(0, finNum(e.combatBundle.walletPoolReady)),
+            walletPoolActive: Boolean(e.combatBundle.walletPoolActive),
+          }
+        : null,
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

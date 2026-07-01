@@ -523,6 +523,14 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   competition?: HeartbeatCompetition;
   /** Taxa de erro real (KPI da Saúde) — falhas vs total de ops. Do FailureTracker; 0/0 em DRY_RUN. */
   errorMetrics?: { failedOps: number; totalOps: number };
+  /** Chave-mestra — "pacote de combate": o que acende quando o toggle de execução liga (transparência). */
+  combatBundle?: {
+    executionLive: boolean;      // o toggle de execução está ligado?
+    adaptive: boolean;           // adaptive thresholds injetando no gate?
+    competitiveBribe: boolean;   // bribe competitivo ativo?
+    walletPoolReady: number;     // nº de carteiras paralelas derivadas (0 = sender único)
+    walletPoolActive: boolean;   // pool efetivamente em uso (live ou force-on)?
+  };
 }
 
 /** Diagnóstico de concorrência: quem controla o blockspace + se caímos no fundo do bloco. */

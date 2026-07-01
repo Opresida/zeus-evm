@@ -40,6 +40,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     vetted_universe: partial.vetted_universe ?? null,
     competition: partial.competition ?? null,
     error_metrics: partial.error_metrics ?? null,
+    combat_bundle: partial.combat_bundle ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
@@ -259,6 +260,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(m2?.verdict).toBe("reject");
     // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("Chave-mestra: combat_bundle (Motor 2) flui do heartbeat pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "mis-scanner", combat_bundle: { executionLive: true, adaptive: true, competitiveBribe: true, walletPoolReady: 22, walletPoolActive: true } }),
+    ]);
+    expect(snap.combatBundle).toMatchObject({ executionLive: true, walletPoolReady: 22, walletPoolActive: true });
   });
 
   it("#3 automação: escalada de gás (gasEscalationPct) flui do intel pro snapshot", () => {

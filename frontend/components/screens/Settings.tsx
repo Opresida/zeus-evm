@@ -117,7 +117,7 @@ function Toggle({ on, trackBg, knobLeft, onClick }: { on: boolean; trackBg: stri
 }
 
 export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
-  const { notifRules, channels } = vm;
+  const { notifRules, channels, combatBundle } = vm;
   const [pushMsg, setPushMsg] = useState<string | null>(null);
 
   const onChan = async (key: string, on: boolean) => {
@@ -137,6 +137,28 @@ export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?:
         <div className="z-grid-2" style={css("display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:0;")}>
           <ExecutionControl motor="motor1" label="Motor 1 (liquidações + pré-liq)" />
           <ExecutionControl motor="motor2" label="Motor 2 (arbitragem + filler UniswapX)" />
+        </div>
+      )}
+
+      {/* Chave-mestra (Fase C): o "pacote de combate" que acende quando o toggle de execução liga (Motor 2). */}
+      {isAdmin && combatBundle && (
+        <div style={css(card + "margin-top:14px;")}>
+          <span style={css(kicker)}>Pacote de combate · Motor 2 {combatBundle.executionLive ? "(LIGADO)" : "(observando)"}</span>
+          <p style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--muted); margin:8px 0 12px;")}>
+            Ligar o toggle de execução acende tudo isto de uma vez — o porteiro de tokens fica independente.
+          </p>
+          <div style={css("display:flex; gap:10px; flex-wrap:wrap;")}>
+            {[
+              { on: combatBundle.adaptive, label: "Piso de EV auto-calibrável" },
+              { on: combatBundle.competitiveBribe, label: "Bribe competitivo" },
+              { on: combatBundle.walletPoolActive, label: `Wallet-pool (${combatBundle.walletPoolReady} carteiras)` },
+            ].map((f, i) => (
+              <span key={i} style={{ ...css("font:600 11px/1 'IBM Plex Mono'; padding:7px 11px; border-radius:20px; display:inline-flex; align-items:center; gap:6px;"), background: f.on ? "var(--greensoft, rgba(34,197,94,.12))" : "var(--bg2)", color: f.on ? "var(--green)" : "var(--muted)" }}>
+                <span style={{ ...css("width:7px; height:7px; border-radius:50%;"), background: f.on ? "var(--green)" : "var(--muted)" }} />
+                {f.on ? "●" : "○"} {f.label}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

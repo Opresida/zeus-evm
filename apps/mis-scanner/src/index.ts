@@ -636,6 +636,14 @@ async function main(): Promise<void> {
         ? { discovery: { positions: misDiscovery.positions, dispatched: misDiscovery.dispatched, rejected: misDiscovery.rejected, atIso: misDiscovery.atIso } }
         : {}),
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
+      // Chave-mestra (Fase C) — o "pacote de combate" que acende quando o toggle de execução liga.
+      combatBundle: {
+        executionLive: live,
+        adaptive: !!arbExec && (env.ADAPTIVE_THRESHOLDS_ENABLED || live),
+        competitiveBribe: !!arbExec && (live || env.COMPETITIVE_BRIBE_ENABLED),
+        walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
+        walletPoolActive: !!walletPool && (live || env.WALLET_POOL_ENABLED),
+      },
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
       vettingEnforce: { motor2: vettingEnforce.m2 }, // estado do filtro M2 (badge "filtro ligado")

@@ -569,6 +569,8 @@ async function _runAavePipelineInner(
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
     strategyTracker: deps.strategyTracker,
+    senderPool: deps.senderPool, // 🔑 wallet-pool tbm na liquidação clássica (dispara N posições em paralelo)
+    poolExposureWei: 1n, // 1 unidade/fill → breaker agregado limita a CONCORRÊNCIA (compartilhado com a pré-liq)
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -875,6 +877,8 @@ async function _runCompoundPipelineInner(
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
     strategyTracker: deps.strategyTracker,
+    senderPool: deps.senderPool, // 🔑 wallet-pool tbm na liquidação clássica (dispara N posições em paralelo)
+    poolExposureWei: 1n, // 1 unidade/fill → breaker agregado limita a CONCORRÊNCIA (compartilhado com a pré-liq)
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1110,6 +1114,8 @@ async function _runMorphoPipelineInner(
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
     strategyTracker: deps.strategyTracker,
+    senderPool: deps.senderPool, // 🔑 wallet-pool tbm na liquidação clássica (dispara N posições em paralelo)
+    poolExposureWei: 1n, // 1 unidade/fill → breaker agregado limita a CONCORRÊNCIA (compartilhado com a pré-liq)
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,
@@ -1302,6 +1308,8 @@ async function _runMoonwellPipelineInner(
     mode: env.LIQUIDATOR_MODE,
     liveExecutionEnabled: deps.liveExecutionEnabled,
     strategyTracker: deps.strategyTracker,
+    senderPool: deps.senderPool, // 🔑 wallet-pool tbm na liquidação clássica (dispara N posições em paralelo)
+    poolExposureWei: 1n, // 1 unidade/fill → breaker agregado limita a CONCORRÊNCIA (compartilhado com a pré-liq)
     client: ctx.client,
     wallet: ctx.wallet,
     account: ctx.account,

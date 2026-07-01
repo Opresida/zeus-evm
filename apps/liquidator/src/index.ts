@@ -174,7 +174,7 @@ interface LiquidatorState {
   preLiquidationCache?: PreLiquidationContractInfo[];
   /** BorrowerCache acumulativo por market id de pré-liquidação. */
   preLiquidationBorrowerCaches: Map<string, BorrowerCache>;
-  /** Wallet-pool da pré-liquidação (opt-in, mode != dryrun). Undefined = sender único de sempre. */
+  /** Wallet-pool compartilhado (liquidação clássica + pré-liq); acende com a seed + toggle. Undefined = sender único. */
   preLiqSenderPool?: WalletPoolOrchestrator;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker: StrategyStatsTracker;
@@ -1337,7 +1337,7 @@ export async function boot(): Promise<LiquidatorState> {
     account: ctx.account ?? null,
   });
 
-  // ─── Wallet-pool — SÓ a pré-liquidação usa (grind de presença paralela) ───
+  // ─── Wallet-pool — liquidação clássica + pré-liquidação (dispatch paralelo em N carteiras) ───
   // 🔑 CHAVE-MESTRA (espelha o Motor 2): constrói quando a SEED existe (+ não-dryrun) — não exige mais o
   // flag WALLET_POOL_ENABLED (era o "flag esquecido" que deixava o pool morto após ligar o toggle). A
   // ATIVAÇÃO segue o toggle: o dispatch da pré-liq só roda com execução ligada (gate a montante), então

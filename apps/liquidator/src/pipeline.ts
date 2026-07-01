@@ -130,7 +130,7 @@ export interface PipelineDeps {
    *  Gateia o Motor 1 inteiro (clássico + pré-liq). */
   liveExecutionEnabled?: boolean;
   /** Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela). Default ausente. */
-  senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  senderPool?: import('@zeus-evm/execution-utils').WalletPoolOrchestrator;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */

@@ -475,3 +475,10 @@ export {
   type DecodedSwap,
   type WhaleSwapSubscriptionParams,
 } from './mempool/whaleSwapSubscription';
+
+// Wallet-pool — N EOAs paralelos (nonce-lane por sender + breaker agregado + funding). Compartilhado M1+M2.
+export { WalletPool, type PooledSender } from './walletPool/walletPool';
+export { NoncePool } from './walletPool/noncePool';
+export { AggregatedExposureBreaker, type ExposureStats } from './walletPool/exposureBreaker';
+export { planGasTopUps, planGasSweeps, totalTopUpWei, type GasTopUp, type GasSweep } from './walletPool/funding';
+export { WalletPoolOrchestrator, buildWalletPoolOrchestrator, type AcquiredSender } from './walletPool/orchestrator';

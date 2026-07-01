@@ -65,7 +65,7 @@ export interface DispatchInput {
    * pool (selecionado + nonce local + reserva no breaker AGREGADO) em vez do sender único. `acquire`
    * retorna null se o teto coletivo estouraria → a tx é SEGURADA (não dispara). Default ausente = sender único.
    */
-  senderPool?: import('./walletPool/orchestrator').WalletPoolOrchestrator;
+  senderPool?: import('@zeus-evm/execution-utils').WalletPoolOrchestrator;
   /** Tracker de estratégias — registra o resultado executado (clássica vs pré-liq) pro painel. */
   strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   /** Exposição (wei) a reservar no breaker agregado por esta tx (ex: tamanho do trade). */
@@ -230,7 +230,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
   }
 
   // Wallet-pool (opt-in): adquire UM sender sob o teto AGREGADO + nonce local. null = teto estourado → segura.
-  let acquired: import('./walletPool/orchestrator').AcquiredSender | null = null;
+  let acquired: import('@zeus-evm/execution-utils').AcquiredSender | null = null;
   if (senderPool) {
     acquired = await senderPool.acquire(client, poolExposureWei ?? 0n);
     if (!acquired) {

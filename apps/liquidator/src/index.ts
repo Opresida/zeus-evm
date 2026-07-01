@@ -53,7 +53,7 @@ import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discover
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
 import { createWalletClient, http } from 'viem';
-import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from './walletPool/orchestrator';
+import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from '@zeus-evm/execution-utils';
 import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
 import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
 import type { PreLiquidationContractInfo, PrePosition } from './protocols/morpho-preliq/types';

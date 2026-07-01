@@ -36,4 +36,19 @@ describe('getChainContext — RPC fallback (H2)', () => {
   it('lança quando nem o primário está setado', () => {
     expect(() => getChainContext(baseEnv({ BASE_RPC_HTTP: undefined } as Partial<LiquidatorEnv>))).toThrow();
   });
+
+  // Fase D (item 6) — saldo/gás visível em DRY_RUN via watchAccount (só leitura).
+  it('deriva watchAccount (só leitura) da chave em DRY_RUN, sem criar wallet nem account', () => {
+    // Chave de teste PÚBLICA (Anvil #0) → endereço 0xf39F…2266. Nunca é usada pra assinar.
+    const ctx = getChainContext(
+      baseEnv({ EXECUTOR_PRIVATE_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' } as Partial<LiquidatorEnv>),
+    );
+    expect(ctx.wallet).toBeUndefined(); // dryrun → não assina
+    expect(ctx.account).toBeUndefined(); // account só fora do dryrun
+    expect(ctx.watchAccount?.toLowerCase()).toBe('0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266'); // só leitura
+  });
+
+  it('sem chave em DRY_RUN → watchAccount undefined (nada pra monitorar)', () => {
+    expect(getChainContext(baseEnv()).watchAccount).toBeUndefined();
+  });
 });

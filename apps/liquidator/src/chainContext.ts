@@ -38,8 +38,10 @@ export interface LiquidatorChainContext {
   client: AnyPublicClient;
   /** Wallet pra submissão de tx. Pode ser undefined em dryrun mode. */
   wallet?: AnyWalletClient;
-  /** Conta on-chain do wallet (= bot operator address). */
+  /** Conta on-chain do wallet (= bot operator address). Só existe fora do dryrun (com wallet pra assinar). */
   account?: Address;
+  /** Endereço SÓ-LEITURA pra monitorar saldo/gás (inclusive em DRY_RUN). Deriva da chave; nunca assina. */
+  watchAccount?: Address;
   /** ZeusExecutor address na chain ativa. Obrigatório em testnet/mainnet, opcional em dryrun. */
   executorContractAddress?: Address;
   /** Subgraph ID Aave V3 pra essa chain (pro liquidator reusar discovery). */
@@ -101,12 +103,23 @@ export function getChainContext(env: LiquidatorEnv): LiquidatorChainContext {
     });
   }
 
+  // watchAccount (só leitura): a EOA cujo saldo/gás queremos VER, mesmo em DRY_RUN (sem wallet/assinatura).
+  // Deriva o endereço da chave quando presente — usado só pra ler saldo (nunca assina). Sem chave → undefined.
+  let watchAccount: Address | undefined = account;
+  if (!watchAccount && env.EXECUTOR_PRIVATE_KEY) {
+    const pkRaw = env.EXECUTOR_PRIVATE_KEY.startsWith('0x')
+      ? env.EXECUTOR_PRIVATE_KEY
+      : `0x${env.EXECUTOR_PRIVATE_KEY}`;
+    watchAccount = privateKeyToAccount(pkRaw as `0x${string}`).address;
+  }
+
   return {
     chainConfig: bp.cfg,
     rpcUrl: bp.rpc,
     client,
     wallet,
     account,
+    watchAccount,
     executorContractAddress: bp.executorAddr as Address | undefined,
     subgraphId: bp.subgraphId,
     isTestnet: bp.cfg.isTestnet ?? false,

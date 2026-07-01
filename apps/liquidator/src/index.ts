@@ -334,7 +334,7 @@ export async function boot(): Promise<LiquidatorState> {
   });
 
   // Check inicial pra reportar estado no boot
-  const initialGasStatus = await gasReserveTracker.check(ctx.client, ctx.account);
+  const initialGasStatus = await gasReserveTracker.check(ctx.client, ctx.watchAccount ?? ctx.account);
   const initialGasStats = gasReserveTracker.stats();
   logger.info(
     {
@@ -1994,7 +1994,7 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
   const stats = { aave: 0, compound: 0, morpho: 0, moonwell: 0, preliq: 0, dispatched: 0, dryrun: 0, rejected: 0 };
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
-  await state.gasReserveTracker.check(ctx.client, ctx.account);
+  await state.gasReserveTracker.check(ctx.client, ctx.watchAccount ?? ctx.account);
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
   // H3 (resiliência): NÃO gateamos o loop inteiro em THEGRAPH_API_KEY. O discovery on-chain

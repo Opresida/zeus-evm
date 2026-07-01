@@ -181,7 +181,7 @@ zeus-evm/
 
 ---
 
-## 🆕 SESSÃO 2026-06-30 (noite) — Token Vetting Service (porteiro de tokens) — Etapas 1-3 (branch `claude/token-vetting`)
+## ✅ SESSÃO 2026-06-30→07-01 — Token Vetting Service (porteiro de tokens) COMPLETO 7/7 (mergeado na `main`)
 
 **Plano APROVADO** (`~/.claude/plans/...parasol.md`): porteiro de tokens compartilhado pelos 2 motores que decide
 quem ENTRA/SAI do universo de trading, com observabilidade total no painel (entrou/saiu + motivo PT-BR simples),
@@ -195,21 +195,31 @@ um do outro — dá pra enviar TX com o filtro off (universo cheio, sem porteiro
 token IMPOSTO (colateral) → "dá pra VENDER com segurança?" (sem filtro de edge; LSDs aceitos). Mesmo verdict, política
 parametrizada. Fail-safe: dado parcial → M1 `pass` (nunca bloqueia liquidação lucrativa), M2 `reject`.
 
-**Feito (verde a cada etapa; sem contrato tocado):**
-- **Etapa 1** — realoca o motor de safety (`tokenSafety`+`tokenSafetyFilters`) de `apps/discovery-scraper` →
-  `packages/execution-utils/src/vetting` (camada correta; 3 importadores religados). `vetToken(opts,deps)` compõe
-  safety (GoPlus) + saída multi-DEX (`bestSwapAcrossDexes`) + piso de liquidez + lock; `policy.ts`/`reasons.ts`.
-  Tela **"Tokens"** ponta-a-ponta (schema `vetted_universe` → ingest saneado → live → viewModel → `Tokens.tsx` → NAV),
-  renderiza em DEMO.
-- **Etapa 2** — M2 **observar**: `runVettingObserve` veta o universo do M2 (não filtra), `VettingUniverseTracker` +
-  eventos `token.entered`/`token.exited` (anti-flicker) → log "Entrou/Saiu" no painel.
-- **Etapa 3** — M2 **enforce** (botão admin via `engine_control('vetting_m2_enforce')`): filtra o universo de scan +
-  gate ao vivo no caminho de execução; badge "filtro M2 ligado/observando". **Motor 2 fechado.**
-- Responsividade da tela Tokens (padrão `z-txtable`/`z-card-row`, igual Transações/Inteligência).
+**Todas as 7 etapas na `main` (verde a cada etapa; sem contrato tocado):**
+- **1** — `vetToken(opts,deps)` compõe safety GoPlus + saída multi-DEX (`bestSwapAcrossDexes`) + piso de liquidez +
+  lock; `policy.ts`/`reasons.ts` (PT-BR); safety realocado de `apps/discovery-scraper` → `packages/execution-utils/src/vetting`.
+  Tela **"Tokens"** ponta-a-ponta (schema `vetted_universe` → ingest saneado → live → viewModel → `Tokens.tsx` → NAV).
+- **2** — M2 **observar** (`runVettingObserve`; eventos `token.entered`/`token.exited` anti-flicker → log "Entrou/Saiu").
+- **3** — M2 **enforce** (botão admin `engine_control('vetting_m2_enforce')`) → **Motor 2 fechado**.
+- **4** — M1 **observar** (colateral: "dá pra vender com segurança?", sem filtro de edge; heartbeat do liquidator
+  funde `vettedUniverse` com o do mis-scanner).
+- **5** — M1 **enforce** (botão admin `engine_control('vetting_m1_enforce')`, fail-safe: parcial não bloqueia) → **Motor 1 fechado**.
+- **6** — liquidez **round-trip** (USDC→token→USDC, `VETTING_MAX_ROUNDTRIP_BPS`) + **re-vet contínuo** (`runRevetTick`,
+  auto-demote/promote — "porteiro vivo", tira o restart) + lock rico **Tier 0** (parseia `lp_holders` do GoPlus: % travado,
+  locker, data de unlock — custo ZERO).
+- **7** — **histórico no DuckDB** (`token.*` → categoria `token_vetted` via EventIngester) + hardening (cada emit isolado
+  em try/catch) + docs + sweep + merge.
 
-**Verde:** typecheck 0 · execution-utils 365 · mis-scanner 52 (RPC) · frontend 39 · tsc 0.
-**Pendente (próxima sessão):** Etapa 4 (M1 observar) · 5 (M1 enforce) · 6 (lock on-chain + liquidez round-trip +
-re-vet contínuo/auto-demote) · 7 (histórico DuckDB + hardening + docs + sweep). Detalhe em `docs/TOKEN_VETTING.md`.
+**Toggles do painel:** `vetting_m1_enforce` / `vetting_m2_enforce` (admin-only, via `engine_control`; env `VETTING_M{1,2}_ENFORCE`
+é a chave-mestra). Flags: `VETTING_ENABLED`, `VETTING_M{1,2}_OBSERVE`, `VETTING_REVET_ENABLED/SEC(600)`,
+`VETTING_DEEP_LIQUIDITY`, `VETTING_MAX_ROUNDTRIP_BPS(300)`, `VETTING_ROUNDTRIP_USD(1000)`.
+
+**Verde (sweep final, RPC ON):** typecheck 0 · execution-utils 368 · liquidator 114 (fork) · mis-scanner 52 (fork) ·
+frontend 39 · tsc 0 · contratos **intocados** (100% off-chain). Detalhe em `docs/TOKEN_VETTING.md`.
+
+**Refinamento opcional documentado (NÃO iniciar sem OK):** Tier 1 = confirmação de lock **on-chain** pros tokens de maior
+valor (ABI do locker via BaseScan + leitura via RPC multicall). A **Atena** vigia na mainnet o lock rico Tier 0
+(lock vencendo / % caindo / locker suspeito) — anotado em `docs/ATENA_AGENT_DESIGN.md`.
 
 ---
 

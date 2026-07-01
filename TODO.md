@@ -1,20 +1,21 @@
 # TODO — ZEUS EVM
 
-> ## 🛂 TOKEN VETTING (porteiro de tokens) — em andamento (branch `claude/token-vetting`, 2026-06-30)
+> ## ✅ TOKEN VETTING (porteiro de tokens) — COMPLETO 7/7 (mergeado na `main`, 2026-07-01)
 >
 > Porteiro compartilhado pelos 2 motores: decide quem entra/sai do universo de trading + observabilidade no
-> painel (tela Tokens). **Off-chain, sem contrato tocado.** Doc: `docs/TOKEN_VETTING.md`. Plano em fatias verticais
+> painel (tela Tokens). **Off-chain, sem contrato tocado.** Doc: `docs/TOKEN_VETTING.md`. Entregue em fatias verticais
 > (backend+frontend juntos), M2 completo antes do M1, observar antes de filtrar, botão admin (`engine_control`).
 >
 > - [x] **Etapa 1** — `vetToken`/policy/reasons (safety+saída multi-DEX+liquidez+lock) + tela Tokens (DEMO)
 > - [x] **Etapa 2** — M2 **observar** + log entrou/saiu (`token.entered`/`token.exited`)
 > - [x] **Etapa 3** — M2 **enforce** (botão admin `vetting_m2_enforce`) → **Motor 2 fechado**
-> - [ ] **Etapa 4** — M1 **observar** (colateral: "dá pra vender com segurança?", política sem-edge, LSDs aceitos)
-> - [ ] **Etapa 5** — M1 **enforce** (botão admin `vetting_m1_enforce`)
-> - [ ] **Etapa 6** — lock **on-chain** (Unicrypt/Team Finance) + liquidez **round-trip** + **re-vet contínuo** (auto-demote)
-> - [ ] **Etapa 7** — histórico DuckDB + hardening + sweep final + merge na `main`
+> - [x] **Etapa 4** — M1 **observar** (colateral: "dá pra vender com segurança?", política sem-edge, LSDs aceitos)
+> - [x] **Etapa 5** — M1 **enforce** (botão admin `vetting_m1_enforce`, fail-safe: parcial não bloqueia) → **Motor 1 fechado**
+> - [x] **Etapa 6** — liquidez **round-trip** + **re-vet contínuo** (auto-demote/promote) + lock rico **Tier 0** (GoPlus `lp_holders`)
+> - [x] **Etapa 7** — histórico DuckDB (`token_vetted`) + hardening (emits isolados) + docs + sweep + merge na `main`
 >
-> Verde até aqui: typecheck 0 · execution-utils 365 · mis-scanner 52 (RPC) · frontend 39 · tsc 0.
+> Verde final (RPC ON): typecheck 0 · execution-utils 368 · liquidator 114 (fork) · mis-scanner 52 (fork) · frontend 39 · tsc 0.
+> **Refinamento opcional (NÃO iniciar sem OK):** Tier 1 = lock **on-chain** (ABI locker via BaseScan + RPC multicall) pros tokens de maior valor.
 
 ---
 

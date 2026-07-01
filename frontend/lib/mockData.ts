@@ -152,14 +152,18 @@ export const MOCK = {
     { pair: "WETH/DAI", edge: "51%", pct: "51", note: "intermitente" },
   ],
 
+  // Espelha EXATAMENTE o AO VIVO: componentes reais dos 2 motores, rotulados M1·/M2· (o live.ts prefixa por motor).
+  // Só há 2 estados reais (READY/DOWN via ok:boolean) — sem "DEGRADED". Snapshot de bot saudável.
   components: [
-    { name: "RPC primário (Base)", status: "READY", color: "var(--green)", detail: "38ms" },
-    { name: "RPC fallback", status: "READY", color: "var(--green)", detail: "64ms" },
-    { name: "Mempool stream", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "Bundle relay", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "DuckDB sink", status: "READY", color: "var(--green)", detail: "ok" },
-    { name: "Price oracle", status: "DEGRADED", color: "var(--gold)", detail: "stale 4s" },
-    { name: "Heartbeat", status: "READY", color: "var(--green)", detail: "30s" },
+    { name: "M1 · rpc / Base", status: "READY", color: "var(--green)", detail: "bloco há 2s" },
+    { name: "M1 · auto-pause", status: "READY", color: "var(--green)", detail: "ativo" },
+    { name: "M1 · gás-reserva", status: "READY", color: "var(--green)", detail: "0.0842 ETH" },
+    { name: "M1 · reorg", status: "READY", color: "var(--green)", detail: "0 na janela" },
+    { name: "M1 · kill-switch", status: "READY", color: "var(--green)", detail: "ok" },
+    { name: "M1 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 48s" },
+    { name: "M2 · rpc / Base", status: "READY", color: "var(--green)", detail: "bloco há 2s" },
+    { name: "M2 · auto-pause", status: "READY", color: "var(--green)", detail: "ativo" },
+    { name: "M2 · porteiro-tokens", status: "READY", color: "var(--green)", detail: "checado há 51s" },
   ],
   cooldowns: [
     { scope: "Motor 1 · Liquidações", state: "ATIVO", color: "var(--gold)", reason: "3 falhas consecutivas · expira em 00:42" },

@@ -168,6 +168,8 @@ export function deriveSnapshot(
     });
   }
   if (sysLines.length) snap.eventLog = sysLines.slice(0, 7);
+  // Uptime real (Saúde item 3) — do serviço mais fresco (o heartbeat já traz uptime_sec).
+  if (freshest?.uptime_sec != null) snap.uptimeSec = freshest.uptime_sec;
 
   // ----- inteligência: drift sustentado real (de pnl.reconciled) -----
   const recon = rows.filter((r) => r.type === "pnl.reconciled").slice(0, 6);

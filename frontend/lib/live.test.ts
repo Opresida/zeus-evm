@@ -253,11 +253,12 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
   });
 
-  it("Item 1 (Saúde): taxa de erro real flui do heartbeat pro snapshot", () => {
+  it("Itens 1+3 (Saúde): taxa de erro + uptime reais fluem do heartbeat pro snapshot", () => {
     const snap = deriveSnapshot([], [
-      status({ service: "liquidator", error_metrics: { failedOps: 6, totalOps: 477 } }),
+      status({ service: "liquidator", error_metrics: { failedOps: 6, totalOps: 477 }, uptime_sec: 12345 }),
     ]);
     expect(snap.errorMetrics).toMatchObject({ failedOps: 6, totalOps: 477 });
+    expect(snap.uptimeSec).toBe(12345);
   });
 
   it("Item 4: diagnóstico de concorrência (builders + posição) flui do liquidator pro snapshot", () => {

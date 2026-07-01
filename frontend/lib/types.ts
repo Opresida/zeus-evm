@@ -312,6 +312,8 @@ export interface LiveSnapshot {
   competition?: Competition;
   /** Taxa de erro real (KPI Saúde) — falhas vs total de ops. */
   errorMetrics?: { failedOps: number; totalOps: number };
+  /** Uptime real (KPI Saúde) — segundos, do heartbeat mais fresco. */
+  uptimeSec?: number;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

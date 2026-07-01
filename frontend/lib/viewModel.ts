@@ -50,7 +50,8 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
 
   // ---- uptime / clock (tick) ----
   const baseUp = 287400 + ui.tick;
-  const uptime = demo ? uptimeFromSec(baseUp) : "—";
+  // Uptime real (Saúde item 3): usa o uptimeSec do heartbeat; DEMO anima com o tick; sem dado → "—".
+  const uptime = live?.uptimeSec != null ? uptimeFromSec(live.uptimeSec) : demo ? uptimeFromSec(baseUp) : "—";
   const now = new Date();
   const clock =
     String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0") + ":" + String(now.getSeconds()).padStart(2, "0");

@@ -53,7 +53,7 @@ import { discoverMorphoLiquidatablePositions } from './protocols/morpho/discover
 import { buildMoonwellMarketCache, type MoonwellMarketCache } from './protocols/moonwell/markets';
 import { discoverMoonwellLiquidatablePositions } from './protocols/moonwell/discovery';
 import { createWalletClient, http } from 'viem';
-import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from './walletPool/orchestrator';
+import { buildWalletPoolOrchestrator, type WalletPoolOrchestrator } from '@zeus-evm/execution-utils';
 import { buildPreLiquidationCache } from './protocols/morpho-preliq/factory';
 import { discoverPreLiquidatablePositions } from './protocols/morpho-preliq/discovery';
 import type { PreLiquidationContractInfo, PrePosition } from './protocols/morpho-preliq/types';
@@ -155,6 +155,8 @@ interface LiquidatorState {
   env: ReturnType<typeof loadConfig>;
   ctx: LiquidatorChainContext;
   callerAddress: Address;
+  /** #1 automação — último EV adaptativo observado (pra emitir a calibração só quando MUDA, inclusive em observe). */
+  lastObservedEvUsd?: number;
   contractCapByDebtAsset: Map<string, bigint>;
   /** Cache de reserves Aave (decimals, bonus, etc) — buildado 1x no boot */
   aaveReservesCache?: AaveReservesCache;
@@ -925,6 +927,10 @@ export async function boot(): Promise<LiquidatorState> {
   let lastSnapshotDay = ''; // Fase 2b — dia UTC do último snapshot de saldo (1×/dia)
   // supressões de dedup também são COUNTER por status → delta desde o último sync (Fase 6)
   const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
+  // #3 automação — histórico do p95 de bribe do mercado (pra detectar escalada de gás dos competidores).
+  const gasP95History: { ts: number; p95: number }[] = [];
+  const GAS_ESCALATION_WINDOW_MS = 30 * 60 * 1000; // compara com ~30min atrás
+  let gasEscalationPct = 0; // aviso: aumento % (0 = sem escalada); lido pelo heartbeat
   const metricsSyncInterval = setInterval(() => {
     try {
       const chain = ctx.chainConfig.name;
@@ -977,6 +983,16 @@ export async function boot(): Promise<LiquidatorState> {
       }
       // Market-bribe (Fase 1) — lance de mercado agregado dos competidores ativos
       const mkt = senderRegistry.marketBribeStats();
+      // #3 automação — escalada de gás: p95 do mercado subiu forte na janela? (trava: >50% E ≥2 competidores).
+      {
+        const nowMs = Date.now();
+        if (mkt.p95Gwei > 0) gasP95History.push({ ts: nowMs, p95: mkt.p95Gwei });
+        while (gasP95History.length && gasP95History[0]!.ts < nowMs - GAS_ESCALATION_WINDOW_MS) gasP95History.shift();
+        const base = gasP95History[0]?.p95 ?? 0; // p95 do começo da janela (~30min atrás)
+        const pct = base > 0 ? Math.round(((mkt.p95Gwei - base) / base) * 100) : 0;
+        // Só alerta com escalada real: +50% E vários competidores ativos (não é 1 tx cara isolada); histerese natural pela janela.
+        gasEscalationPct = pct >= 50 && mkt.competitorsActive >= 2 ? pct : 0;
+      }
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain, percentile: 'p50' });
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain, percentile: 'p75' });
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p95Gwei, { chain, percentile: 'p95' });
@@ -1036,13 +1052,15 @@ export async function boot(): Promise<LiquidatorState> {
             ...(bribeTracker.stats()?.autoRaised
               ? { bribeAutoRaised: true, bribeReason: bribeTracker.stats()!.reason }
               : {}),
+            // #3 automação — escalada de gás do competidor (só quando forte + vários competidores).
+            ...(gasEscalationPct > 0 ? { gasEscalationPct } : {}),
           },
           // ── Fase 2 — blocos extras (reusam pauseStatus/pnlStats/gasStats/finStats/senderRegistry) ──
           health: {
             components: [
               // RPC / conexão com a Base — o "coração pulsando". staleness (getBlock latest) já é lido acima
               // a cada tick: se o RPC cai, getBlock estoura → status 'critical' com error. age = frescor do bloco.
-              { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
+              { name: 'rpc / Base', ok: staleness.status !== 'critical', warn: staleness.status === 'warn', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s${staleness.status === 'warn' ? ' (degradado)' : ''}` },
               { name: 'auto-pause', ok: !pauseStatus.paused, detail: pauseStatus.paused ? pauseStatus.reasons.map((r) => r.message).join('; ') : 'ativo' },
               { name: 'gás-reserva', ok: Number(gasStats.balanceEth ?? 0) > 0.002, detail: `${Number(gasStats.balanceEth ?? 0).toFixed(4)} ETH` },
               { name: 'reorg', ok: finStats.reorgsInWindow === 0, detail: `${finStats.reorgsInWindow} na janela` },
@@ -1699,7 +1717,7 @@ export async function processOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1747,7 +1765,7 @@ export async function processCompoundOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1792,7 +1810,7 @@ export async function processMorphoOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -1837,7 +1855,7 @@ export async function processMoonwellOpportunity(
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
-    competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
+    competitiveBribeEnabled: state.liveExecutionEnabled || state.env.COMPETITIVE_BRIBE_ENABLED, // chave-mestra: toggle liga; env é override force-on
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
     minProfitUsd: state.env.MIN_LIQUIDATION_PROFIT_USD,
@@ -2450,27 +2468,36 @@ async function main() {
         chain: state.ctx.chainConfig.name,
         windowMs: state.env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       });
-      const applied = state.env.ADAPTIVE_THRESHOLDS_ENABLED;
+      // Chave-mestra: o toggle de execução LIGA o adaptive (injeta no gate); env é override force-on. Off → observa.
+      const applied = state.liveExecutionEnabled || state.env.ADAPTIVE_THRESHOLDS_ENABLED;
+      const computedEvUsd = adaptive.MIN_OPPORTUNITY_EV_USD;
+      // Base da comparação: o gate ATIVO quando aplicado; o último OBSERVADO quando em modo observação.
+      const prevEvUsd = applied ? (state.env.MIN_OPPORTUNITY_EV_USD ?? 0) : state.lastObservedEvUsd;
       if (applied) {
-        const oldThresholdUsd = state.env.MIN_OPPORTUNITY_EV_USD;
         // Injeção opt-in: liquidationEdgeGate lê deps.env.MIN_OPPORTUNITY_EV_USD (= state.env).
-        state.env.MIN_OPPORTUNITY_EV_USD = adaptive.MIN_OPPORTUNITY_EV_USD;
-        // Fase 2b — registra a calibração aplicada no painel (só quando muda de fato + foi aplicada).
-        if (adaptive.MIN_OPPORTUNITY_EV_USD !== oldThresholdUsd) {
-          state.eventBus.emit({
-            type: 'calibration.applied',
-            timestamp: new Date().toISOString(),
-            chain: state.ctx.chainConfig.name,
-            mode: state.env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
-            severity: 'info',
-            dimension: 'global',
-            oldThresholdUsd: oldThresholdUsd ?? 0,
-            newThresholdUsd: adaptive.MIN_OPPORTUNITY_EV_USD,
-            topProtocol: adaptive.topProtocol,
-            reason: `MIN_EV recalculado dos sinais do ledger (${state.env.ADAPTIVE_WINDOW_DAYS}d)`,
-          });
-        }
+        state.env.MIN_OPPORTUNITY_EV_USD = computedEvUsd;
       }
+      // #1 automação — registra a calibração no painel quando o valor MUDA, nos 2 modos:
+      //   aplicado (injetado no gate) OU observação ("o que faria" no DRY_RUN — cultura observar-antes-de-ligar).
+      //   Claude NUNCA auto-liga: a injeção real segue gated por ADAPTIVE_THRESHOLDS_ENABLED (env/humano).
+      if (prevEvUsd != null && computedEvUsd !== prevEvUsd) {
+        state.eventBus.emit({
+          type: 'calibration.applied',
+          timestamp: new Date().toISOString(),
+          chain: state.ctx.chainConfig.name,
+          mode: state.env.LIQUIDATOR_MODE as 'dryrun' | 'testnet' | 'mainnet',
+          severity: 'info',
+          dimension: 'global',
+          oldThresholdUsd: prevEvUsd,
+          newThresholdUsd: computedEvUsd,
+          topProtocol: adaptive.topProtocol,
+          applied,
+          reason: applied
+            ? `MIN_EV recalculado dos sinais do ledger (${state.env.ADAPTIVE_WINDOW_DAYS}d)`
+            : `MIN_EV que o auto-ajuste FARIA (observando — ligar via ADAPTIVE_THRESHOLDS_ENABLED)`,
+        });
+      }
+      state.lastObservedEvUsd = computedEvUsd;
       logger.info(
         { applied, ...adaptive },
         `📈 OIE adaptive: MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD} MIN_PROFIT=$${adaptive.MIN_PROFIT_USD} top=${adaptive.topProtocol ?? '-'} ${applied ? '(APLICADO)' : '(só log)'}`,

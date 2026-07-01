@@ -311,6 +311,8 @@ export interface CalibrationAppliedEvent extends BaseEvent {
   topProtocol?: string | null;
   /** Motivo curto/legível. */
   reason?: string;
+  /** true = injetado no gate (ADAPTIVE_THRESHOLDS_ENABLED); false = só observação ("o que faria") no DRY_RUN. */
+  applied?: boolean;
 }
 
 /**
@@ -404,6 +406,8 @@ export interface HeartbeatIntel {
   competitiveBribeAutoEnabled?: boolean;
   /** Por que ligou (ex.: "N corridas perdidas no gás na última hora"). */
   bribeAutoEnableReason?: string;
+  /** #3 automação — escalada de gás: aumento % do p95 do mercado vs ~janela atrás (só quando forte + vários competidores). */
+  gasEscalationPct?: number;
 }
 
 /**
@@ -412,8 +416,8 @@ export interface HeartbeatIntel {
  * jsonb de `service_status`. Opcionais → motor que não tem o dado simplesmente omite o bloco.
  */
 export interface HeartbeatHealth {
-  /** Prontidão dos componentes (espelha o /readyz): nome + ok + detalhe curto. */
-  components: { name: string; ok: boolean; detail?: string }[];
+  /** Prontidão dos componentes (espelha o /readyz): nome + ok + detalhe curto. `warn` = degradado (amarelo). */
+  components: { name: string; ok: boolean; detail?: string; warn?: boolean }[];
 }
 export interface HeartbeatCompetitor {
   /** Alias conhecido ou endereço encurtado. */

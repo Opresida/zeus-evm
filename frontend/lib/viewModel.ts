@@ -331,6 +331,16 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
           color: "var(--green)",
         }
       : null;
+  // #3 automação — banner de escalada de gás do competidor (só ao vivo, quando o detector dispara).
+  const gasEscalation =
+    !demo && intelLive?.gasEscalationPct
+      ? {
+          text: `⚠️ Competidores aceleraram o gás +${intelLive.gasEscalationPct}% na última ~30min — avaliar recuar em pares disputados ou subir o bribe (dentro do lucro).`,
+          color: "var(--gold)",
+        }
+      : demo
+        ? { text: "⚠️ Competidores aceleraram o gás +64% na última ~30min — avaliar recuar em pares disputados (exemplo).", color: "var(--gold)" }
+        : null;
   // drift real (pnl.reconciled) quando há eventos; senão o mock do design.
   const driftAlarms = live?.driftAlarms?.length ? live.driftAlarms : M.driftAlarms;
   // competidores reais do heartbeat. "won" = corridas que ele nos ganhou (wonVsUs, Fase 2b) quando há
@@ -377,8 +387,9 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   const components = live?.health?.length
     ? live.health.map((c) => ({
         name: c.name,
-        status: c.ok ? "READY" : "DOWN",
-        color: c.ok ? "var(--green)" : "var(--red)",
+        // #2 automação: tri-estado — verde (ok) / amarelo (degradado/warn) / vermelho (down).
+        status: c.ok ? (c.warn ? "DEGRADADO" : "READY") : "DOWN",
+        color: c.ok ? (c.warn ? "var(--gold)" : "var(--green)") : "var(--red)",
         detail: c.detail ?? "",
       }))
     : M.components;
@@ -518,6 +529,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     ourBribe,
     bribeNote,
     bribeAutoEnabled,
+    gasEscalation,
     driftAlarms,
     intelLive,
     failures,

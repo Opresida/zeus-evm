@@ -65,6 +65,8 @@ import {
   ProcessCheck,
   LatencyTracker,
   GasReserveTracker,
+  buildWalletPoolOrchestrator,
+  type WalletPoolOrchestrator,
   type InefficiencyObservation,
   type PoolGroup,
 } from '@zeus-evm/execution-utils';
@@ -146,6 +148,20 @@ async function main(): Promise<void> {
   const botAccount: Address = env.EXECUTOR_PRIVATE_KEY
     ? privateKeyToAccount(env.EXECUTOR_PRIVATE_KEY as `0x${string}`).address
     : ZERO;
+
+  // Wallet-pool (Motor 2) — N EOAs paralelos. Sobe SÓ se houver seed-mestre (custo ZERO derivar). Ativa quando
+  // a chave-mestra (toggle) liga OU WALLET_POOL_ENABLED força; sem seed → cai no sender único (comportamento de antes).
+  let walletPool: WalletPoolOrchestrator | undefined;
+  if (env.WALLET_POOL_MNEMONIC) {
+    walletPool = buildWalletPoolOrchestrator({
+      mnemonic: env.WALLET_POOL_MNEMONIC,
+      size: env.WALLET_POOL_SIZE,
+      startIndex: 0,
+      maxAggregateWei: parseUnits(env.WALLET_POOL_MAX_INFLIGHT_ETH.toString(), 18),
+      makeWallet: (s) => createWalletClient({ account: s.account, chain: sel.viem, transport: http(sel.rpc) }),
+    });
+    logger.info({ size: env.WALLET_POOL_SIZE, maxInflightEth: env.WALLET_POOL_MAX_INFLIGHT_ETH }, '👛 wallet-pool (M2) derivado — pronto pra N frentes paralelas quando a execução ligar');
+  }
 
   // MIS com window de 7 dias (persistência precisa de tempo) + snapshot a cada sample
   const minDivergenceBps = env.MIS_MIN_DIVERGENCE_BPS;
@@ -544,10 +560,12 @@ async function main(): Promise<void> {
         store, chain: chainConfig.name,
         windowMs: env.ADAPTIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       });
-      if (env.ADAPTIVE_THRESHOLDS_ENABLED && arbExec) {
+      // Chave-mestra: o toggle de execução LIGA o adaptive (injeta no gate); env é override force-on.
+      const adaptiveApplied = !!arbExec && (env.ADAPTIVE_THRESHOLDS_ENABLED || arbExec.deps.liveExecutionEnabled);
+      if (adaptiveApplied && arbExec) {
         arbExec.deps.minProfitUsd = adaptive.MIN_OPPORTUNITY_EV_USD; // mesma ref → afeta o gate
       }
-      logger.info({ applied: env.ADAPTIVE_THRESHOLDS_ENABLED && !!arbExec, minEv: adaptive.MIN_OPPORTUNITY_EV_USD, top: adaptive.topProtocol }, `📈 adaptive (MIS): MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD}`);
+      logger.info({ applied: adaptiveApplied, minEv: adaptive.MIN_OPPORTUNITY_EV_USD, top: adaptive.topProtocol }, `📈 adaptive (MIS): MIN_EV=$${adaptive.MIN_OPPORTUNITY_EV_USD}`);
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : err }, 'adaptive recalc MIS falhou (skip)');
     }
@@ -588,7 +606,7 @@ async function main(): Promise<void> {
               return { name: 'porteiro-tokens', ok, detail: ok ? `checado há ${ageSec.toFixed(0)}s` : `re-vet parado há ${ageSec.toFixed(0)}s` };
             })();
     const healthComponents = [
-      { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
+      { name: 'rpc / Base', ok: staleness.status !== 'critical', warn: staleness.status === 'warn', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s${staleness.status === 'warn' ? ' (degradado)' : ''}` },
       { name: 'auto-pause', ok: !paused, detail: paused ? autoPauseManager.summary() : 'ativo' },
       // gás-reserva só aparece se há EOA pra monitorar (com chave); sem chave → omitido (não é bolinha decorativa).
       ...(gasMonitorAddr
@@ -863,30 +881,50 @@ async function main(): Promise<void> {
 
         // ─── EXECUÇÃO (opt-in): re-cota FRESCO os top-N por lucro e dispara ───
         if (arbExec && execCandidates.length > 0) {
-          const top = execCandidates.sort((a, b2) => b2.netProfitUsd - a.netProfitUsd).slice(0, arbExec.topN);
-          for (const cand of top) {
-            // Gate de execução do filtro M2 (ao vivo): nunca dispara arb em token reprovado no porteiro.
+          const arb = arbExec; // narrow (não-null dentro do bloco)
+          const top = execCandidates.sort((a, b2) => b2.netProfitUsd - a.netProfitUsd).slice(0, arb.topN);
+          const maxTradeWei = parseUnits(env.MAX_TRADE_ETH.toString(), 18); // exposição por carteira (trava agregada)
+          // Chave-mestra: N FRENTES PARALELAS quando a execução ligou (toggle) OU force-on, E há pool derivado.
+          const poolActive = !!walletPool && (arb.deps.liveExecutionEnabled || env.WALLET_POOL_ENABLED);
+
+          // Processa 1 candidato. NONCE: a carteira do pool só é ADQUIRIDA depois do findFreshArb confirmar que
+          // vai disparar → nunca aloca nonce à toa quando o spread fecha (zero buraco de nonce). release() no fim.
+          const runOne = async (cand: (typeof top)[number]): Promise<void> => {
+            // Gate do filtro M2 (ao vivo): nunca dispara arb em token reprovado no porteiro.
             if (
               vettingEnforce.m2 &&
               (vettingTracker.current(cand.group.tokenA, 'motor2')?.verdict === 'reject' ||
                 vettingTracker.current(cand.group.tokenB, 'motor2')?.verdict === 'reject')
             ) {
               logger.debug?.({ par: cand.group.label }, 'arb: token reprovado no porteiro (filtro M2) — pulado');
-              continue;
+              return;
             }
+            let acq: Awaited<ReturnType<NonNullable<typeof walletPool>['acquire']>> = null;
             try {
               const estUsdA = await fetchTokenUsd(client, chainConfig, cand.group.tokenA, cand.group.decimalsA);
               const estUsdB = await fetchTokenUsd(client, chainConfig, cand.group.tokenB, cand.group.decimalsB);
               const opp = await findFreshArb({
-                client, group: cand.group, notionalUsd: arbExec.notionalUsd,
+                client, group: cand.group, notionalUsd: arb.notionalUsd,
                 estimatedUsdValueA: estUsdA, estimatedUsdValueB: estUsdB,
               });
               if (!opp) {
                 logger.debug?.({ par: cand.group.label }, 'arb: re-cotação não confirmou lucro (spread fechou)');
-                continue;
+                return;
               }
-              const res = await dispatchArb(opp, arbExec.deps);
-              logger.info({ par: cand.group.label, status: res.status, txHash: res.txHash, net: res.netProfitUsd, flashSource: res.flashSource }, `⚡ arb ${cand.group.label}: ${res.status}`);
+              // Vai disparar → AGORA pega a carteira (nonce só é alocado aqui). Sem pool → sender único de sempre.
+              let deps = arb.deps;
+              if (poolActive) {
+                acq = await walletPool!.acquire(client, maxTradeWei);
+                if (!acq) {
+                  logger.debug?.({ par: cand.group.label }, 'wallet-pool: teto agregado atingido — candidato pulado');
+                  return;
+                }
+                deps = { ...arb.deps, wallet: acq.wallet, account: acq.sender.address };
+              }
+              const res = await dispatchArb(opp, deps);
+              logger.info({ par: cand.group.label, sender: acq?.sender.address, status: res.status, txHash: res.txHash, net: res.netProfitUsd, flashSource: res.flashSource }, `⚡ arb ${cand.group.label}: ${res.status}`);
+              // Nonce consumido on-chain só se um TX foi REALMENTE enviado (dispatched/reverted). rejected = não enviou → re-sync.
+              acq?.release(res.status === 'dispatched' || res.status === 'reverted_on_chain');
               // Estratégia "arb": execução REAL (status 'dispatched') → alimenta o "Net $" do card. DRY_RUN não conta.
               if (res.status === 'dispatched') {
                 try {
@@ -896,8 +934,17 @@ async function main(): Promise<void> {
                 }
               }
             } catch (err) {
+              acq?.release(false); // envio estourou → estado de nonce incerto → força re-sync (fail-safe)
               logger.warn({ par: cand.group.label, err: err instanceof Error ? err.message : err }, 'execução de arb falhou (continua)');
             }
+          };
+
+          if (poolActive) {
+            // Cada candidato numa carteira/nonce INDEPENDENTE → dispara as N oportunidades AO MESMO TEMPO.
+            await Promise.all(top.map((cand) => runOne(cand)));
+          } else {
+            // Fallback (1 carteira): sequencial, comportamento de sempre.
+            for (const cand of top) await runOne(cand);
           }
         }
         // Radar do Motor 2 (Saúde item 4): pulso da varredura deste tick → heartbeat.

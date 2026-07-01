@@ -46,6 +46,26 @@ describe('WalletPoolOrchestrator', () => {
     expect(o.stats().aggregateWei).toBe(60n);
   });
 
+  // ─── Validação de PARALELISMO (a que o Humberto pediu: 1 → 2 carteiras) ───
+  it('PARALELO size 2: 2 acquire simultâneos pegam carteiras DIFERENTES (sem colisão)', async () => {
+    const o = buildWalletPoolOrchestrator({ mnemonic: TEST_MNEMONIC, size: 2, startIndex: 0, maxAggregateWei: 10_000n, makeWallet });
+    const client = mockClient(3);
+    const [a, b] = await Promise.all([o.acquire(client as never, 1n), o.acquire(client as never, 1n)]);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a!.sender.address).not.toBe(b!.sender.address); // carteiras DISTINTAS → nonce-lanes independentes
+    expect(a!.nonce).toBe(3); // cada sender novo começa no seu próprio pending
+    expect(b!.nonce).toBe(3);
+  });
+
+  it('PARALELO size 1: 2 acquire no MESMO sender → nonces SEQUENCIAIS 9,10 (fix da corrida, nunca 9,9)', async () => {
+    const o = buildWalletPoolOrchestrator({ mnemonic: TEST_MNEMONIC, size: 1, startIndex: 0, maxAggregateWei: 10_000n, makeWallet });
+    const client = mockClient(9);
+    const [a, b] = await Promise.all([o.acquire(client as never, 1n), o.acquire(client as never, 1n)]);
+    const nonces = [a!.nonce, b!.nonce].sort((x, y) => x - y);
+    expect(nonces).toEqual([9, 10]); // SEM colisão — a blindagem (reserva antes do await + re-check do sync) segura
+  });
+
   it('nonce sequencial por sender; sincroniza só 1x (ou re-sync após falha)', async () => {
     const o = buildWalletPoolOrchestrator({ mnemonic: TEST_MNEMONIC, size: 1, startIndex: 0, maxAggregateWei: 10_000n, makeWallet });
     const client = mockClient(5);

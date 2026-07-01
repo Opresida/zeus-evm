@@ -65,6 +65,7 @@ export interface ZeusEvent {
   oldThresholdUsd?: number;
   newThresholdUsd?: number;
   topProtocol?: string | null;
+  applied?: boolean; // #1 automação: true=injetado, false=observando ("o que faria")
   // gas.*
   account?: string;
   balanceEth?: number;
@@ -149,10 +150,12 @@ export interface ServiceStatusRow {
     /** Motor 2: o ZEUS LIGOU sozinho a gorjeta competitiva (nível-feature). */
     competitiveBribeAutoEnabled?: boolean;
     bribeAutoEnableReason?: string;
+    /** #3 automação — escalada de gás do competidor (aumento % do p95). */
+    gasEscalationPct?: number;
   } | null;
   // ----- Fase 2 — blocos extras (jsonb) -----
   /** Prontidão dos componentes (tela Saúde). */
-  health: { components: { name: string; ok: boolean; detail?: string }[] } | null;
+  health: { components: { name: string; ok: boolean; detail?: string; warn?: boolean }[] } | null;
   /** Top competidores observados (tela Inteligência). */
   competitors: { alias: string; category: string; txs: number; bribeGwei: number; threat: number }[] | null;
   /** Ranking de pares com edge persistente (Motor 2). */
@@ -257,7 +260,7 @@ export interface LiveSnapshot {
   /** Pulso do radar (item 2) — "scanner vivo · viu N posições · há Xs". */
   discovery?: { service: string; positions: number; dispatched: number; rejected: number; ago: string };
   /** Inteligência real (item 3) — market-bribe / competidores / drift (substitui mock quando presente). */
-  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number; bribeAutoRaised?: boolean; bribeReason?: string; competitiveBribeAutoEnabled?: boolean; bribeAutoEnableReason?: string };
+  intel?: { marketBribeP50Gwei?: number; marketBribeP75Gwei?: number; marketBribeP95Gwei?: number; competitorsActive?: number; driftBps?: number; sustainedAlerts?: number; ourBribeGwei?: number; bribeAutoRaised?: boolean; bribeReason?: string; competitiveBribeAutoEnabled?: boolean; bribeAutoEnableReason?: string; gasEscalationPct?: number };
   /** Mini-cards por motor (item 4) — PnL + ops por motor, derivado dos eventos tx.*. */
   motorCards?: { tag: string; label: string; netUsd: number; ops: number }[];
   /** Comparativo por estratégia (tela "Estratégias") — fundido dos heartbeats liquidator+mis-scanner. */
@@ -293,7 +296,7 @@ export interface LiveSnapshot {
   /** Ranking de pares com edge persistente (Motor 2). */
   edgePairs?: { pair: string; score: number; persistPct: string; avgBps: number; samples: number }[];
   /** Prontidão dos componentes (tela Saúde). */
-  health?: { name: string; ok: boolean; detail?: string }[];
+  health?: { name: string; ok: boolean; detail?: string; warn?: boolean }[];
   /** Cooldowns / auto-pause ativos. */
   cooldowns?: { label: string; reason: string; active: boolean }[];
   /** Kill switch (perda 24h vs limite). */

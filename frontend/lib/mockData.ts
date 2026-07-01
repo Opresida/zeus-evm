@@ -142,6 +142,7 @@ export const MOCK = {
     { time: "12:47", text: "Aerodrome · reorg desfez inclusão", pos: "reorg" },
   ],
   calib: [
+    { time: "hoje 11:34", effect: "min EV $3.60 → $4.80 (faria)", text: "auto-ajuste observando (ligar via ADAPTIVE_THRESHOLDS_ENABLED)" },
     { time: "hoje 11:20", effect: "win-rate +4.2%", text: "min EV elevado de $3.60 → $4.20 após sequência de reverts" },
     { time: "ontem 18:05", effect: "gás −9%", text: "priority fee teto reduzido em pares de baixa disputa" },
     { time: "ontem 07:30", effect: "win-rate +2.1%", text: "cooldown de falhas encurtado de 90s → 60s" },

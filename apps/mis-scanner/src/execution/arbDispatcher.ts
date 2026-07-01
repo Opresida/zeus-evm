@@ -193,9 +193,9 @@ export async function dispatchArb(opp: CrossDexOpportunity, deps: ArbDispatchDep
     let priorityFee = fees.maxPriorityFeePerGas;
     let maxFee = fees.maxFeePerGas;
 
-    // Bribe competitivo (gorjeta do gás): liga por config OU quando o ZEUS auto-ligou (gas_outbid).
+    // Bribe competitivo (gorjeta do gás): liga pela CHAVE-MESTRA (toggle de execução) OU por config OU auto (gas_outbid).
     // Sobe o priority fee pra ganhar a corrida, SEMPRE limitado pelo lucro da própria oportunidade.
-    const bribeActive = deps.competitiveBribeEnabled || deps.bribeAutoState?.enabled;
+    const bribeActive = deps.liveExecutionEnabled || deps.competitiveBribeEnabled || deps.bribeAutoState?.enabled;
     if (bribeActive && deps.senderRegistry && sim.gasUsed && sim.gasUsed > 0n && deps.ethUsdPrice > 0) {
       const mkt = deps.senderRegistry.marketBribeStats();
       const pct = deps.bribeTargetPercentile ?? 'p75';

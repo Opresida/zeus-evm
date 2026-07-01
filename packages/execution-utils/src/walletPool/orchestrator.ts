@@ -68,21 +68,27 @@ export class WalletPoolOrchestrator {
     // 1. Teto AGREGADO (soma de todos os senders) — nega se estouraria.
     if (!this.breaker.tryReserve(sender.address, exposureWei)) return null;
 
-    // 2. Nonce local: sincroniza 1x com a chain, depois aloca sequencial.
+    // 2. RESERVA O SLOT DE OCUPAÇÃO **ANTES** DO await (blindagem contra corrida em acquire paralelo):
+    //    sem isso, dois acquire simultâneos leem `leastBusy` com inFlight ainda 0 e pegam a MESMA carteira/nonce
+    //    (→ "nonce too low" em um dos TX). Reservando aqui, o 2º acquire vê o sender ocupado e pega outro.
+    const key = sender.address.toLowerCase();
+    this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
+
+    // 3. Nonce local: sincroniza 1x com a chain, depois aloca sequencial.
     try {
       if (this.nonces.requiresSync(sender.address)) {
         const onchain = await client.getTransactionCount({ address: sender.address, blockTag: 'pending' });
-        this.nonces.sync(sender.address, Number(onchain));
+        // Re-checa APÓS o await: outro acquire paralelo no MESMO sender (pool size 1) pode já ter sincronizado —
+        // sincronizar de novo RESETARIA o contador e colidiria o nonce. Só sincroniza se ainda precisar.
+        if (this.nonces.requiresSync(sender.address)) this.nonces.sync(sender.address, Number(onchain));
       }
     } catch {
-      // sem nonce confiável → desfaz a reserva e nega (fail-safe).
+      // sem nonce confiável → desfaz reserva + slot e nega (fail-safe).
       this.breaker.release(sender.address, exposureWei);
+      this.inFlight.set(key, Math.max(0, (this.inFlight.get(key) ?? 1) - 1));
       return null;
     }
     const nonce = this.nonces.allocate(sender.address);
-
-    const key = sender.address.toLowerCase();
-    this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
 
     return {
       sender,

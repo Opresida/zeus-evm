@@ -6,7 +6,7 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
+  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, gasEscalation, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
   const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
@@ -58,6 +58,11 @@ export function Intelligence({ vm }: ScreenProps) {
           {bribeAutoEnabled && (
             <div style={css(`margin-top:10px; padding:12px 14px; background:var(--greensoft, rgba(34,197,94,.12)); border:1px solid ${bribeAutoEnabled.color}; border-radius:9px; font:600 12px/1.4 'IBM Plex Sans'; color:${bribeAutoEnabled.color};`)}>
               {bribeAutoEnabled.text}
+            </div>
+          )}
+          {gasEscalation && (
+            <div style={css(`margin-top:10px; padding:12px 14px; background:var(--goldsoft, rgba(208,162,21,.12)); border:1px solid ${gasEscalation.color}; border-radius:9px; font:600 12px/1.4 'IBM Plex Sans'; color:${gasEscalation.color};`)}>
+              {gasEscalation.text}
             </div>
           )}
         </div>

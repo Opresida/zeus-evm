@@ -230,10 +230,12 @@ export function deriveSnapshot(
       const p = r.payload as ZeusEvent;
       const oldV = Number(p.oldThresholdUsd ?? 0);
       const newV = Number(p.newThresholdUsd ?? 0);
+      // #1 automação: distingue "aplicado" (injetado) de "observando" (o que faria em DRY_RUN).
+      const observando = p.applied === false;
       return {
         time: hhmm(r.ts),
-        effect: `min EV $${oldV.toFixed(2)} → $${newV.toFixed(2)}`,
-        text: (p.reason as string) || "calibração aplicada",
+        effect: `min EV $${oldV.toFixed(2)} → $${newV.toFixed(2)}${observando ? " (faria)" : ""}`,
+        text: (p.reason as string) || (observando ? "auto-ajuste observando" : "calibração aplicada"),
       };
     });
   }

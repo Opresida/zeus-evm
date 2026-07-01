@@ -588,7 +588,7 @@ async function main(): Promise<void> {
               return { name: 'porteiro-tokens', ok, detail: ok ? `checado há ${ageSec.toFixed(0)}s` : `re-vet parado há ${ageSec.toFixed(0)}s` };
             })();
     const healthComponents = [
-      { name: 'rpc / Base', ok: staleness.status !== 'critical', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s` },
+      { name: 'rpc / Base', ok: staleness.status !== 'critical', warn: staleness.status === 'warn', detail: staleness.error ? 'sem resposta' : `bloco há ${Math.max(0, staleness.age_seconds).toFixed(0)}s${staleness.status === 'warn' ? ' (degradado)' : ''}` },
       { name: 'auto-pause', ok: !paused, detail: paused ? autoPauseManager.summary() : 'ativo' },
       // gás-reserva só aparece se há EOA pra monitorar (com chave); sem chave → omitido (não é bolinha decorativa).
       ...(gasMonitorAddr

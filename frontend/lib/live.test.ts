@@ -148,7 +148,7 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
       }),
       status({
         service: "mis-scanner",
-        health: { components: [{ name: "rpc / Base", ok: true, detail: "bloco há 2s" }] }, // Fase 3: Motor 2 reporta prontidão
+        health: { components: [{ name: "rpc / Base", ok: true, warn: true, detail: "bloco há 20s (degradado)" }] }, // Fase 3 + #2: warn (degradado)
         edge_pairs: [{ pair: "WETH/USDC", score: 9.2, persistPct: "62%", avgBps: 18, samples: 30 }],
       }),
     ]);
@@ -156,7 +156,7 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.health?.[0]).toMatchObject({ name: "M1 · rpc / Base", ok: false });
     expect(snap.health?.[1]).toMatchObject({ name: "M1 · auto-pause", ok: true });
     expect(snap.health?.[2]).toMatchObject({ name: "M1 · porteiro-tokens", ok: true });
-    expect(snap.health?.[3]).toMatchObject({ name: "M2 · rpc / Base", ok: true }); // Motor 2 agora visível
+    expect(snap.health?.[3]).toMatchObject({ name: "M2 · rpc / Base", ok: true, warn: true }); // Motor 2 visível + #2 estado degradado
     expect(snap.health).toHaveLength(4);
     expect(snap.competitors?.[0]).toMatchObject({ alias: "bob.eth", txs: 12 });
     expect(snap.cooldowns?.[0]).toMatchObject({ active: true });
@@ -182,6 +182,11 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
         type: "calibration.applied",
         payload: { oldThresholdUsd: 3.6, newThresholdUsd: 4.2, reason: "sequência de reverts" } as ZeusEvent,
       }),
+      // #1 automação: observação ("o que faria") — deve aparecer com sufixo "(faria)".
+      row({
+        type: "calibration.applied",
+        payload: { oldThresholdUsd: 3.6, newThresholdUsd: 4.8, applied: false } as ZeusEvent,
+      }),
     ]);
     expect(snap.postmortem).toHaveLength(2); // a falha sem vencedor NÃO entra
     const texts = snap.postmortem!.map((p) => p.text).join(" | ");
@@ -189,9 +194,10 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(texts).toContain("0.51 gwei"); // gorjeta do vencedor agora aparece
     expect(texts).toContain("0x9a3c…d21f"); // vencedor sem alias → endereço curto
     expect(snap.postmortem!.find((p) => p.text.includes("bob.eth"))?.pos).toBe("pos #3");
-    expect(snap.calib).toHaveLength(1);
-    expect(snap.calib![0].effect).toContain("3.60");
-    expect(snap.calib![0].effect).toContain("4.20");
+    expect(snap.calib).toHaveLength(2);
+    expect(snap.calib!.some((c) => c.effect.includes("3.60") && c.effect.includes("4.20"))).toBe(true);
+    // #1 automação: a calibração em modo observação aparece com "(faria)".
+    expect(snap.calib!.some((c) => c.effect.includes("4.80") && c.effect.includes("(faria)"))).toBe(true);
   });
 
   it("Fase 2b: latência (service_status) + histórico de saldo (wallet_snapshots)", () => {
@@ -253,6 +259,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(m2?.verdict).toBe("reject");
     // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("#3 automação: escalada de gás (gasEscalationPct) flui do intel pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "liquidator", intel: { marketBribeP95Gwei: 2.1, competitorsActive: 4, gasEscalationPct: 64 } }),
+    ]);
+    expect(snap.intel?.gasEscalationPct).toBe(64);
   });
 
   it("Itens 1+3 (Saúde): taxa de erro + uptime reais fluem do heartbeat pro snapshot", () => {

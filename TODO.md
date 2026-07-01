@@ -1,5 +1,28 @@
 # TODO — ZEUS EVM
 
+> ## 🤖 CHAVE-MESTRA + AUTOMAÇÕES (Parte 3) — mergeado na `main` (2026-07-01). Doc: `docs/AUTOMACOES.md`
+>
+> Automação "viva" (auto-ajusta dentro de travas + avisa + reversível) + chave-mestra de execução.
+> **Regras:** Claude NUNCA auto-liga execução · observe-first · mock espelha o AO VIVO · teste RPC profundo por leva.
+>
+> **Chave-mestra de execução (o toggle acende o "pacote de combate"):**
+> - [x] Fase A — adaptive + bribe competitivo seguem o toggle (env vira override force-on)
+> - [x] Fase B — **wallet-pool realocado p/ execution-utils (M1+M2)** + **Motor 2 dispatch PARALELO** (N carteiras/nonce) + 🐛 fix corrida de nonce + nonce explícito
+> - [x] Fase C — painel mostra o `combatBundle`. Vetting fica INDEPENDENTE.
+>
+> **Automações (14 — Levas 1-2 feitas, 5/14):**
+> - [x] **#1** piso de EV auto-calibrável OBSERVÁVEL · [x] **#2** RPC degradado visível · [x] **#3** escalada de gás
+> - [x] **#4** cooldown adaptativo (backoff observe-first) · [x] **#6** edge sumindo (alerta)
+> - [ ] **#5** slippage por DEX — **via DUNE** (recortar histórico p/ calibrar per-DEX sem esperar mainnet; ideia do Humberto)
+> - [ ] **Leva 3:** #7 quarentena token · #8 pool depth · #9 calibração de gás
+> - [ ] **Leva 4:** #10 throttle varredura · #11 revet dinâmico · #12 wallet-pool rebalance (mainnet)
+> - [ ] **Leva 5:** #13 flashloan health · #14 relay latency (Motor 3)
+>
+> **🔜 Feed de inteligência Dune** (recon competidores + calibração + backtest, tira carga histórica do RPC) — #5 é o 1º caso.
+> Verde (RPC ON): typecheck 0 · execution-utils 392 · liquidator 98 · mis-scanner 52 · frontend 43 + tsc 0 · forge 191 (intocado).
+
+---
+
 > ## ✅ PAINEL — FIOS SOLTOS & PRONTIDÃO — mergeado na `main` (2026-07-01). Doc: `docs/PAINEL_FIOS_SOLTOS.md`
 >
 > Pente-fino de "fios soltos" (dado que o bot coleta mas não chega ao painel) + prontidão da Saúde/Inteligência.

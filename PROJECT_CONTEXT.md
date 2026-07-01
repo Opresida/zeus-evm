@@ -91,6 +91,15 @@ Detalhamento em [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## 📊 Status atual (snapshot 2026-06-15)
 
+### 🆕 Sessão 2026-07-01 — Chave-mestra de execução + Automações (Parte 3, Levas 1-2) — tudo na `main`
+- **Chave-mestra:** o toggle de execução acende o "pacote de combate" (adaptive + bribe competitivo + wallet-pool);
+  env vira override; vetting fica independente; painel mostra via `combatBundle`.
+- **Wallet-pool COMPARTILHADO** (`packages/execution-utils/src/walletPool/`, era do liquidator) + **Motor 2 dispatch
+  PARALELO** (N carteiras/nonce por oportunidade) + fix crítico de corrida de nonce.
+- **Automações "vivas" (5/14):** #1 piso auto-calibrável observável · #2 RPC degradado · #3 escalada de gás ·
+  #4 cooldown adaptativo · #6 edge sumindo. **#5 slippage por DEX = via Dune** (calibrar do histórico). Doc: `docs/AUTOMACOES.md`.
+- **Porteiro de tokens (vetting) 7/7** + **painel Saúde/Inteligência completo** (fios soltos) — sessões anteriores do mesmo dia.
+
 ### 🆕 Sessão 2026-06-30 noite — Token Vetting (porteiro de tokens), Etapas 1-3 (branch `claude/token-vetting`)
 - Porteiro compartilhado pelos 2 motores decide quem entra/sai do universo de trading + tela **Tokens** no painel
   (entrou/saiu + motivo PT-BR). **Off-chain, sem contrato tocado.** Política por motor (M2 exige edge; M1 = "dá pra

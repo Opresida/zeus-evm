@@ -15,6 +15,11 @@ Filler UniswapX** (`ZeusUniswapXFiller`; recebe ordens do feed; **execução Uni
 Permit2, **provada em fork** = 1568 USDC real). Verde: **contratos 190/0** · typecheck monorepo 0. **Posicionamento
 na MAINNET = pendente** (deploy mainnet + DRY_RUN + ligar). Observabilidade dos motores novos pro painel = próxima sessão.
 
+**🆕 Atualização 2026-07-01:** porteiro de tokens (vetting) 7/7 · painel Saúde/Inteligência completo (fios soltos) ·
+**chave-mestra de execução** (o toggle acende adaptive+bribe+wallet-pool) · **wallet-pool compartilhado M1+M2 com
+dispatch paralelo no Motor 2** · Automações "vivas" Levas 1-2 (5/14). Detalhes: `CLAUDE.md` (blocos de sessão) +
+`docs/AUTOMACOES.md` + `docs/PAINEL_FIOS_SOLTOS.md` + `docs/TOKEN_VETTING.md`.
+
 **Status (snapshot 2026-06-15):**
 - **6 contratos:** BribeManager + ZeusLiquidator + ZeusArbExecutor + ZeusMoonwellLiquidator + **ZeusMorphoPreLiquidator** + **ZeusUniswapXFiller**
 - **Flashloan 3 fontes** (Aave V3 / Morpho Blue / Balancer V2) — Morpho e Balancer com **0% fee** (multi-fonte) + multi-hop N steps

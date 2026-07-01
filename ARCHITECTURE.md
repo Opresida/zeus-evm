@@ -33,8 +33,9 @@ Estrutura de pastas, fluxos de dados e decisões arquiteturais.
 >
 > **🆕 2026-06-26 — módulos novos (mergeado na `main`):**
 > - **Motor 1 / Pré-liquidação:** `apps/liquidator/src/protocols/morpho-preliq/` (math/factory/discovery/calculator/
->   builder/simulator/runner — a "caça" automática roda no `discoveryTick`) + `apps/liquidator/src/walletPool/`
->   (walletPool/noncePool/exposureBreaker/funding/**orchestrator** plugado no dispatch). Default OFF.
+>   builder/simulator/runner — a "caça" automática roda no `discoveryTick`) + `packages/execution-utils/src/walletPool/`
+>   (walletPool/noncePool/exposureBreaker/funding/**orchestrator** — COMPARTILHADO M1+M2 desde 2026-07-01, plugado no
+>   dispatch de ambos; M2 dispara N frentes paralelas). Acende com a chave-mestra (toggle de execução). Default OFF.
 > - **Motor 2 / Filler:** `apps/mis-scanner/src/uniswapx/` (types/abi/evaluator/builder/orderFeed/runner/tokens +
 >   `v4/quoter`) — recebe ordens do feed da API UniswapX (reativo), bestQuote compara V3 vs **V4**. Default OFF.
 > - **Contratos:** satélites `ZeusMorphoPreLiquidator` + `ZeusUniswapXFiller` + `UniswapV4Lib` (Universal Router + Permit2).
@@ -343,7 +344,7 @@ zeus-evm/
 │   │       ├── discovery.ts                # pipeline subgraph→Multicall3→par dominante
 │   │       └── index.ts                    # re-exports
 │   │
-│   ├── execution-utils/        # ═══ PACOTE GRANDE COMPARTILHADO (trackers + OIE + vetting) ═══
+│   ├── execution-utils/        # ═══ PACOTE GRANDE COMPARTILHADO (trackers + OIE + vetting + walletPool M1+M2) ═══
 │   │   ├── package.json        # @zeus-evm/execution-utils
 │   │   └── src/
 │   │       ├── vetting/        # 🛂 porteiro de tokens (off-chain): tokenVetting/policy/reasons/universeTracker

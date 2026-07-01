@@ -163,7 +163,7 @@ zeus-evm/
 │   ├── dex-adapters/       # quoteUniswapV3 + quoteAerodrome (off-chain pricing)
 │   ├── strategy/           # opportunities (crossDex/filters/fanout) + executor (txBuilder/simulator/abi)
 │   ├── aave-discovery/     # package shared (ABIs + reserves cache + discovery + types) reusável
-│   ├── execution-utils/    # PACOTE GRANDE — trackers (pnl/failure/dedup/gas) + gasOracle + eventBus/events
+│   ├── execution-utils/    # PACOTE GRANDE — trackers (pnl/failure/dedup/gas) + gasOracle + eventBus/events + walletPool (M1+M2)
 │   │                       #   + intelligence DuckDB (TimeseriesStore + EventIngester + observation)
 │   │                       #   + pnlReconciler/attribution + failureCollector + senderRegistry
 │   │                       #   + scoring (chainProfitability/opportunity/dimension/dimensionStatsQuery)
@@ -178,6 +178,42 @@ zeus-evm/
 │                           # + Web Push/Email. LER frontend/HANDOFF.md ANTES de mexer.
 └── deploy/fly/             # Dockerfile raiz + detector/liquidator/mis-scanner.toml (volume persistente)
 ```
+
+---
+
+## ✅ SESSÃO 2026-07-01 (noite) — Chave-mestra de execução + Automações Parte 3 (Levas 1-2) (tudo mergeado na `main`)
+
+Sessão grande de **automação "viva"** (o bot se auto-ajusta dentro de travas + avisa + reversível) + a
+**chave-mestra de execução**. **Regra honrada:** Claude NUNCA auto-liga execução; tudo observe-first, mock
+espelha o AO VIVO, teste RPC profundo a cada leva. **Vários merges na `main`, sweep verde a cada um.**
+
+**🔑 Chave-mestra de execução (o toggle do painel acende o "pacote de combate"):** ao ligar "enviar TX" de um
+motor (`liveExecutionEnabled` via `engine_control`), acende JUNTO: adaptive thresholds + bribe competitivo +
+wallet-pool. Env vira **override force-on** (`liveExecutionEnabled || env.*`); default segue o toggle. **Vetting
+fica INDEPENDENTE** (decisão do Humberto). Painel (Configurações) mostra o pacote via `combatBundle` no heartbeat.
+- **Fase A** — adaptive + bribe competitivo seguem o toggle (M1 4 call-sites + M2 arbDispatcher).
+- **Fase B** — **wallet-pool REALOCADO** `apps/liquidator/src/walletPool` → `packages/execution-utils/src/walletPool`
+  (compartilhado M1+M2). **Motor 2 ganha dispatch PARALELO** (N frentes, uma carteira/nonce por oportunidade,
+  `Promise.all`). 🐛 **FIX CRÍTICO de corrida** no `orchestrator.acquire` (2 acquire paralelos pegavam a MESMA
+  carteira/nonce → "nonce too low"): reserva o slot ANTES do await + re-checa `requiresSync` DEPOIS. Provado:
+  size 2 → carteiras distintas; size 1 → nonces 9,10. + M2 usa o **nonce explícito** do pool (igual M1).
+- **Fase C** — painel mostra o pacote de combate (Motor 2).
+
+**🤖 Automações (Parte 3, relatório de 14) — Levas 1 e 2 feitas (5 de 14):**
+- **#1 Piso de EV auto-calibrável OBSERVÁVEL** — o adaptive já existia (opt-in) mas quando OFF só logava; agora
+  emite `calibration.applied` nos 2 modos com flag `applied` → card "o que faria" no DRY_RUN. Injeção segue gated.
+- **#2 RPC degradado visível** — destrava o `warn` do `BlockStalenessCheck` → componente tri-estado (verde/amarelo/vermelho).
+- **#3 Escalada de gás do competidor** — p95 do market-bribe sobe >50% + ≥2 competidores → banner (Inteligência).
+- **#4 Cooldown adaptativo** — backoff = base × (1+cooldowns), teto 30min, histerese; observe-first (`ADAPTIVE_COOLDOWN_ENABLED`).
+- **#6 Edge sumindo** — soma dos top-5 scores cai ≥30% em ~1h → banner (possível novo competidor).
+- **#5 slippage por DEX — ADIADO**: precisa dado real de swap. **Ideia do Humberto (aprovada): usar o Dune** — recortar
+  histórico de trades da Base, medir impacto por DEX × tamanho (p95), calibrar o `MAX_SLIPPAGE_BPS` por-DEX SEM esperar
+  mainnet. Vira o 1º caso de uso do feed de inteligência do Dune (ver `docs/AUTOMACOES.md`).
+- **Faltam:** Leva 3 (#7 quarentena token · #8 pool depth · #9 calibração de gás) · Leva 4 (#10-12) · Leva 5 (#13-14).
+
+**Verde final (RPC ON):** typecheck 0 · execution-utils 392 · liquidator 98 (18 testes walletPool realocados p/
+execution-utils) · mis-scanner 52 · frontend 43 + tsc 0 + `next build` · `forge test` 191 (contratos INTOCADOS).
+**Branches mergeadas+apagadas.** Detalhe em `docs/AUTOMACOES.md`.
 
 ---
 
@@ -347,8 +383,9 @@ duplicados, religuei pré-liq+wallet-pool no `liveExecutionEnabled` da `main`, p
 - Pipeline off-chain `apps/liquidator/src/protocols/morpho-preliq/` (math replica `preLiquidate`, factory/discovery/
   calculator/builder/simulator/runner). A "caça" é AUTOMÁTICA no discoveryTick (varre on-chain, não recebe ordem).
 - **KILL_SWITCH real** (mainnet recusa subir se != false) + corrigido footgun `z.coerce.boolean("false")===true` → helper `boolEnv`.
-- **Wallet-pool** (`apps/liquidator/src/walletPool/`): N EOAs de 1 seed-mestre + breaker AGREGADO (nega no teto) +
-  nonce-pool + funding planner + **orquestrador plugado no dispatch** (opt-in). Cobre os 4 cuidados do Humberto.
+- **Wallet-pool** (`packages/execution-utils/src/walletPool/` — COMPARTILHADO M1+M2 desde 2026-07-01): N EOAs de 1
+  seed-mestre + breaker AGREGADO (nega no teto) + nonce-pool (blindado contra corrida em acquire paralelo) + funding
+  planner + **orquestrador plugado no dispatch** (M1 + M2 paralelo). Cobre os 4 cuidados do Humberto. Acende com a chave-mestra.
 - Gated OFF (`MORPHO_PRELIQ_ENABLED`, `WALLET_POOL_ENABLED`).
 
 **Motor 2 — Filler UniswapX (pivô; recon deu viável-mas-disputado):**
@@ -725,6 +762,7 @@ Eu, Claude, tenho limites em áreas como:
 | `docs/ATENA_AGENT_DESIGN.md` | 🦉 Design da Atena (agente de IA operacional: autonomia graduada, 5 travas, custos API≠Max, rollout 0→4) |
 | `docs/TOKEN_VETTING.md` | 🛂 Porteiro de tokens (vetting): política por motor, matriz de flags/toggles, observar→enforce, estado das 7 etapas |
 | `docs/PAINEL_FIOS_SOLTOS.md` | 🔌 Auditoria de fios soltos + prontidão do painel (Saúde/Inteligência): o que foi ligado, cosméticos restantes (7–11), próximo = Parte 3 Automações |
+| `docs/AUTOMACOES.md` | 🤖 Chave-mestra de execução + Automações "vivas" (Parte 3, 14 itens): estado das levas, #5-via-Dune, regras (observe-first, nunca auto-liga) |
 
 **docs/refs/ (conhecimento externo — outro agente cuida, não editar aqui):**
 

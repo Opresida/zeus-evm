@@ -408,6 +408,10 @@ export interface HeartbeatIntel {
   bribeAutoEnableReason?: string;
   /** #3 automação — escalada de gás: aumento % do p95 do mercado vs ~janela atrás (só quando forte + vários competidores). */
   gasEscalationPct?: number;
+  /** #4 automação — cooldown adaptativo (backoff): base × adaptativo (segundos) + se está injetado. */
+  cooldownBaseSec?: number;
+  cooldownAdaptiveSec?: number;
+  cooldownAdaptiveApplied?: boolean;
 }
 
 /**

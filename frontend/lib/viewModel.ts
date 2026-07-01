@@ -401,6 +401,16 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
         reason: c.reason,
       }))
     : M.cooldowns;
+  // #4 automação — cooldown adaptativo (base × o que faria, e se está injetado). "faria" = observando.
+  const cooldownAdaptive =
+    intelLive?.cooldownAdaptiveSec != null
+      ? {
+          text: `Cooldown adaptativo: base ${intelLive.cooldownBaseSec ?? "—"}s → ${intelLive.cooldownAdaptiveSec}s${intelLive.cooldownAdaptiveApplied ? " (aplicado)" : " (faria)"}`,
+          applied: !!intelLive.cooldownAdaptiveApplied,
+        }
+      : demo
+        ? { text: "Cooldown adaptativo: base 300s → 600s (faria)", applied: false }
+        : null;
   // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
   const failures = live?.failures ?? [];
   const discovery = live?.discovery ?? (demo ? M.discovery : null);
@@ -544,6 +554,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     competition,
     components,
     cooldowns,
+    cooldownAdaptive,
     healthKpis,
     latP50Path,
     latP95Path,

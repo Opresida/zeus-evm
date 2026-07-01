@@ -235,6 +235,10 @@ export const envSchema = z.object({
   /** Duração do cooldown em segundos quando MAX_CONSECUTIVE_FAILURES é atingido.
    *  Default 5min — tempo pra calibração entre tentativas. */
   COOLDOWN_DURATION_SEC: z.coerce.number().int().positive().default(300),
+  /** #4 automação — injeta o cooldown ADAPTATIVO (backoff por cooldowns repetidos). Default false → observa "o que faria". */
+  ADAPTIVE_COOLDOWN_ENABLED: boolEnv(false),
+  /** Teto do cooldown adaptativo (segundos). Default 30min — trava contra backoff descontrolado. */
+  COOLDOWN_MAX_SEC: z.coerce.number().int().positive().default(1800),
 
   // ─── Position deduplication (gap crítico #3) ───
   /** Timeout (segundos) pra tx em pending. Se receipt não chega nesse tempo,

@@ -37,3 +37,6 @@ logs/
 apps/discovery-scraper/reports/
 apps/discovery-scraper/state/
 apps/backrun-engine/auto-targets/
+
+# Resultados de queries Dune (não segredos, mas fora do git)
+dune/out/

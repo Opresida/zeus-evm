@@ -725,6 +725,35 @@ Se RTK não estiver instalado nesta máquina, comandos normais.
 
 ---
 
+## 🧰 Ferramentas & integrações disponíveis (CRUZAR possibilidades antes de codar)
+
+**Regra:** antes de resolver um problema, olhar esta lista e escolher a ferramenta certa — muitas vezes uma
+integração já resolve (ou economiza RPC/tempo). Chaves ficam no `.env` raiz (ver `.env.example` p/ a lista completa).
+
+**MCPs (carregam no boot da sessão):**
+| MCP | O que faz | Quando usar (ZEUS) |
+|---|---|---|
+| **dune** 🆕 | Analytics on-chain — SQL sobre dados decodificados (dex.trades, etc.) | **Cérebro FRIO** (tira carga histórica do RPC): calibração de slippage por DEX (#5), recon de competidores, backtest de edge, market-bribe histórico. **NÃO** serve hot-path (latência de min). Scripts: `dune/dune.mjs` + `dune/*.sql`. Key `DUNE_API_KEY`. |
+| **firecrawl** | Web search/scrape/extract/crawl | Pesquisa web, recon de docs/protocolos, competitive landscape, ler specs externas |
+| **chrome-devtools** / **playwright** | Automação de browser | Testar/screenshot do painel (frontend), auditar responsividade mobile, checar overflow |
+| **neon** | Postgres serverless (branch/migrate/query) | Bancos de projetos (ex.: outros apps MAZARI); o ZEUS usa Supabase, mas útil pra protótipo |
+| **nano-banana** | Geração de imagem | Artes/design (pouco relevante pro ZEUS) |
+
+**Chaves/serviços no `.env` (hot-path × cold-path):**
+- **RPC (hot-path, tempo real):** `BASE_RPC_HTTP` + `BASE_RPC_ARCHIVE` (Alchemy — reads + fork tests) · `AVALANCHE_RPC_HTTP` (fork AVAX). Premium na mainnet (25 req/s free é apertado p/ multi-frente).
+- **Dune (cold-path, histórico):** `DUNE_API_KEY` — calibração/recon/backtest SEM gastar RPC.
+- **Execução:** `EXECUTOR_PRIVATE_KEY` (chave exclusiva) · `WALLET_POOL_MNEMONIC` (seed das N carteiras paralelas).
+- **Painel:** `SUPABASE_URL/ANON_KEY/SERVICE_ROLE_KEY` · `ZEUS_WEBHOOK_SECRET` · `GENERIC_WEBHOOK_URL` (bot→painel).
+- **Contratos:** `BASESCAN_API_KEY` (verify + ABI locker Tier 1) · `THEGRAPH_API_KEY` (subgraph Aave, só acelerador).
+
+**Cruzamentos típicos:**
+- Precisa de **dado histórico/calibração/quem-são-os-competidores** → **Dune** (não RPC).
+- Precisa de **cotação/dispatch em tempo real** → **RPC premium** (nunca Dune).
+- Precisa **pesquisar na web** (protocolo novo, doc, landscape) → **firecrawl**.
+- Precisa **ver/testar o painel renderizado** → **playwright / chrome-devtools**.
+
+---
+
 ## 🧠 Como expandir conhecimento da IA
 
 Eu, Claude, tenho limites em áreas como:

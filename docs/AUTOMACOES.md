@@ -58,8 +58,14 @@ em cima do dado real, **sem esperar mainnet**:
 4. Painel mostra a tabela ("UniV3 15bps · Aero 60bps · fonte: Dune 60d").
 5. **Validação cruzada:** quando a execução real rodar, compara o slippage MEDIDO vs o previsto pelo Dune.
 
-Custo: SQL rodado **manual na UI do Dune (grátis)** + tabela embutida no config = zero custo pra validar a hipótese.
-Cron via Dune API = tier pago (decisão de mainnet). É o **1º caso de uso do feed de inteligência do Dune** (recon de
-competidores, calibração, backtest — tira carga histórica do RPC).
+Tooling: `dune/slippage_by_dex.sql` + `dune/dune.mjs` (cliente API, sem jq). Chave em `.env` (`DUNE_API_KEY`).
+Dune MCP também configurado (`~/.claude.json`) — disponível a partir da próxima sessão.
+
+**✅ VALIDADO 2026-07-01 (query pública `7860473`, 66 linhas, Base 30d):** a hipótese se confirmou — slippage varia
+MUITO por DEX. p95 (bps) medido: `uniswap-3` ~90-127 · `uniswap-4` ~70-98 · `aerodrome-slipstream` ~64-107 ·
+`aerodrome-1` (volátil) ~147-255 · `pancakeswap-3` ~75-88. **Nosso 50 bps GLOBAL está apertado demais** pra quase
+todos → rejeita trades bons. **Ressalva honesta:** a métrica é um PROXY (desvio da mediana horária) que inclui
+ruído/MEV — ótima pra comparar DEXes e dar um chute inicial, refinar depois (impacto por reservas do pool).
+**Próximo:** gate de slippage por-DEX (seed dessa tabela) + refinar a métrica. É o **1º caso do feed Dune** (recon/backtest).
 
 > **Sem contrato tocado.** Tudo é gate/observabilidade de software. Relatório completo (PDF) em `C:\Users\user\ZEUS_Automacoes_Parte3.pdf`.

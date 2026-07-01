@@ -181,6 +181,45 @@ zeus-evm/
 
 ---
 
+## ✅ SESSÃO 2026-07-01 — Fios soltos do painel: prontidão da Saúde + Parte 2 + fios da Saúde (tudo mergeado na `main`)
+
+Sessão de **observabilidade honesta** — pente-fino de "fios soltos" (dado que o bot já coleta mas não chega ao
+painel) + prontidão completa da aba Saúde. **3 agentes** de auditoria (fios soltos frontend, cards da Saúde,
+automações). **Tudo 100% off-chain, mock sempre espelhando o AO VIVO** (regra nova do Humberto — ver `feedback_mock_mirrors_live`).
+**2 merges na `main`** (`claude/health-readiness` + `claude/health-loose-wires`), reteste completo verde a cada um.
+
+**Bloco 1 — Prontidão dos componentes (aba Saúde), de 4 → até 9 bolinhas rotuladas por motor:**
+- **RPC vivo** (`M1/M2 · rpc / Base`) — reusa o `BlockStalenessCheck` (0 chamada extra); vermelho "sem resposta" se cai.
+- **Porteiro de tokens** — freshness do re-vet (verde "checado há Xs" / vermelho "re-vet parado").
+- **Motor 2 antes INVISÍVEL** agora reporta prontidão própria; `live.ts` **funde os componentes dos 2 motores** (antes só um).
+- **Saúde M2 completa** (paridade com M1): +reorg (finalityTracker) +perda 24h (pnlTracker, nome honesto — autoKill OFF)
+  +gás-reserva (**novo `GasReserveTracker` no M2**, monitorando read-only a EOA via `botAccount`).
+
+**Bloco 2 — Parte 2 dos fios soltos (6 itens acionáveis, 100% feitos):**
+- **partial** (selo "⚠ dados parciais" na tela Tokens); **`decimals` ELIMINADO** (o bot nunca lê o universo de volta → peso morto).
+- **arb cross-DEX vira estratégia visível** (`StrategyKey 'arb'`) — o M2 alimenta `candidate('arb', netProfit)` na varredura →
+  tela Estratégias mostra o POTENCIAL do arb em DRY_RUN (antes morria no ledger).
+- **saldo/gás em US$ no DRY_RUN** — novo `ctx.watchAccount` (só-leitura, deriva da chave; nunca assina) → check de gás popula.
+- **perda de corrida nunca anônima** — `failure.recorded` passa a emitir `competitorSender`+`winnerPriorityFeeGwei`;
+  painel mostra alias → endereço curto → "desconhecido" (revert técnico sem vencedor segue fora do post-mortem).
+- **diagnóstico de concorrência** (builders dominantes + posição no bloco) do log → card novo na aba **Inteligência**
+  (`HeartbeatCompetition`; `BlockPositionTracker` ganhou janela rolante + `summary()`).
+
+**Bloco 3 — Fios soltos da própria aba Saúde:**
+- **Taxa de erro real** (do `FailureTracker` via `errorMetrics` no heartbeat; "—" honesto em DRY_RUN, sem inventar).
+- **Uptime real** no AO VIVO (o heartbeat já trazia `uptimeSec`; o painel ignorava).
+- **Radar de descoberta multi-motor** (o M2 passa a emitir pulso próprio; `live.ts` mostra o serviço **mais fresco**, rotulado).
+
+**Correções de rota honestas (o agente superestimou):** o filler JÁ estava ligado; a "conversão USD" JÁ existia;
+`decimals` era peso morto. Sempre verificado antes de codar.
+
+**Verde (RPC ON, 0 skip):** typecheck 0 · execution-utils 368 · liquidator 116 · mis-scanner 52 · frontend 41 + tsc 0 +
+`next build` · **forge test 191 (contratos INTOCADOS)**. **Pendente: só cosméticos 7–11** (drift-alerts no painel, wonVsUs
+type-safety, histórico de edge-pairs, motivo de bribe, ActivityPatternTracker) — baixo valor, deixados pro final.
+**Branches mergeadas+apagadas.** Detalhe em `docs/PAINEL_FIOS_SOLTOS.md`.
+
+---
+
 ## ✅ SESSÃO 2026-06-30→07-01 — Token Vetting Service (porteiro de tokens) COMPLETO 7/7 (mergeado na `main`)
 
 **Plano APROVADO** (`~/.claude/plans/...parasol.md`): porteiro de tokens compartilhado pelos 2 motores que decide
@@ -685,6 +724,7 @@ Eu, Claude, tenho limites em áreas como:
 | `docs/NO_EDGE_TOKENS.md` | Tokens sem edge (blacklist/filtro) |
 | `docs/ATENA_AGENT_DESIGN.md` | 🦉 Design da Atena (agente de IA operacional: autonomia graduada, 5 travas, custos API≠Max, rollout 0→4) |
 | `docs/TOKEN_VETTING.md` | 🛂 Porteiro de tokens (vetting): política por motor, matriz de flags/toggles, observar→enforce, estado das 7 etapas |
+| `docs/PAINEL_FIOS_SOLTOS.md` | 🔌 Auditoria de fios soltos + prontidão do painel (Saúde/Inteligência): o que foi ligado, cosméticos restantes (7–11), próximo = Parte 3 Automações |
 
 **docs/refs/ (conhecimento externo — outro agente cuida, não editar aqui):**
 

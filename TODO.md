@@ -1,5 +1,35 @@
 # TODO — ZEUS EVM
 
+> ## ✅ PAINEL — FIOS SOLTOS & PRONTIDÃO — mergeado na `main` (2026-07-01). Doc: `docs/PAINEL_FIOS_SOLTOS.md`
+>
+> Pente-fino de "fios soltos" (dado que o bot coleta mas não chega ao painel) + prontidão da Saúde/Inteligência.
+> **Off-chain, mock sempre espelhando o AO VIVO.** 2 merges, reteste verde a cada um.
+>
+> **Aba Saúde — prontidão (4 → 9 bolinhas rotuladas por motor):**
+> - [x] RPC vivo (`rpc / Base`) · auto-pause · **porteiro-tokens** (freshness re-vet)
+> - [x] **Motor 2 antes invisível** → reporta prontidão; `live.ts` funde os 2 motores
+> - [x] Saúde M2 completa: +reorg +perda 24h +**gás-reserva (novo GasReserveTracker no M2)**
+> - [x] **Taxa de erro real** (FailureTracker) · **Uptime real** · **Radar multi-motor** (M2 emite pulso; mostra o mais fresco)
+>
+> **Parte 2 do relatório de fios soltos — 6 acionáveis (100%):**
+> - [x] **1&2** `partial` (selo "dados parciais"); `decimals` **eliminado** (peso morto)
+> - [x] **3** arb cross-DEX vira estratégia visível no DRY_RUN
+> - [x] **4** diagnóstico de concorrência (builders + posição no bloco) → aba Inteligência
+> - [x] **5** perda de corrida nunca anônima (alias → endereço → "desconhecido")
+> - [x] **6** saldo/gás em US$ no DRY_RUN (`ctx.watchAccount` só-leitura)
+> - [x] **12** (cosmético) Motor 2 reporta gás sozinho — feito junto da Saúde M2
+>
+> **Cosméticos restantes (baixo valor, deixados pro FINAL):**
+> - [ ] **7** drift-alerts do log → painel · [ ] **8** wonVsUs type-safety · [ ] **9** histórico de edge-pairs
+> - [ ] **10** motivo do lance de bribe · [ ] **11** ActivityPatternTracker (horário competidores; futuro Atena)
+>
+> **Adiado (documentado):** gráfico de latência 24h (precisa histórico) · event log (cosmético).
+> Verde (RPC ON): typecheck 0 · execution-utils 368 · liquidator 116 · mis-scanner 52 · frontend 41 + tsc 0 · forge 191 (intocado).
+>
+> **🔜 PRÓXIMO: Parte 3 do relatório — Automações** (14 oportunidades; destaque = ligar o "lucro mínimo auto-calibrável").
+
+---
+
 > ## ✅ TOKEN VETTING (porteiro de tokens) — COMPLETO 7/7 (mergeado na `main`, 2026-07-01)
 >
 > Porteiro compartilhado pelos 2 motores: decide quem entra/sai do universo de trading + observabilidade no

@@ -927,7 +927,7 @@ async function main(): Promise<void> {
                   logger.debug?.({ par: cand.group.label }, 'wallet-pool: teto agregado atingido — candidato pulado');
                   return;
                 }
-                deps = { ...arb.deps, wallet: acq.wallet, account: acq.sender.address };
+                deps = { ...arb.deps, wallet: acq.wallet, account: acq.sender.address, nonce: acq.nonce };
               }
               const res = await dispatchArb(opp, deps);
               logger.info({ par: cand.group.label, sender: acq?.sender.address, status: res.status, txHash: res.txHash, net: res.netProfitUsd, flashSource: res.flashSource }, `⚡ arb ${cand.group.label}: ${res.status}`);

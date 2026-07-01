@@ -38,6 +38,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     motor_stats: partial.motor_stats ?? null,
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
+    competition: partial.competition ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
@@ -249,6 +250,20 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(m2?.verdict).toBe("reject");
     // Fase A: o flag "dados parciais" flui do heartbeat até o snapshot (selo no painel).
     expect(snap.vettedUniverse!.find((t) => t.symbol === "SCAM")?.partial).toBe(true);
+  });
+
+  it("Item 4: diagnóstico de concorrência (builders + posição) flui do liquidator pro snapshot", () => {
+    const snap = deriveSnapshot([], [
+      status({
+        service: "liquidator",
+        competition: {
+          topBuilders: [{ alias: "beaverbuild", blocks: 400, competitorTxs: 180, ourTxs: 5 }],
+          position: { samples: 24, bottom10pctPct: 33, top10pctPct: 12, avgRelative: 0.58 },
+        },
+      }),
+    ]);
+    expect(snap.competition?.topBuilders[0]).toMatchObject({ alias: "beaverbuild", ourTxs: 5 });
+    expect(snap.competition?.position.samples).toBe(24);
   });
 
   it("Tokens: lixo no jsonb (motor/verdict inválido) é descartado", () => {

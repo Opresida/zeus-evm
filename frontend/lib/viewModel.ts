@@ -353,6 +353,24 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
         note: `${e.avgBps} bps · ${e.samples} amostras`,
       }))
     : M.edgePairs;
+  // Item 4 — diagnóstico de concorrência (builders dominantes + nossa posição no bloco).
+  const competitionRaw = live?.competition ?? (demo ? M.competition : null);
+  const competition = competitionRaw
+    ? {
+        builders: competitionRaw.topBuilders.map((b) => ({
+          alias: b.alias,
+          blocks: b.blocks,
+          competitorTxs: b.competitorTxs,
+          ourTxs: b.ourTxs,
+        })),
+        // Resumo honesto: sem execução ainda → 0 amostras → não afirma nada sobre posição.
+        positionText:
+          competitionRaw.position.samples > 0
+            ? `${competitionRaw.position.bottom10pctPct}% das nossas tx caem no fundo do bloco · ${competitionRaw.position.samples} amostras`
+            : "sem execução real ainda — posição no bloco fica pronta quando o bot enviar tx",
+        hasPosition: competitionRaw.position.samples > 0,
+      }
+    : null;
 
   // ---- health ----
   const components = live?.health?.length
@@ -501,6 +519,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     postmortem,
     calib,
     edgePairs,
+    competition,
     components,
     cooldowns,
     healthKpis,

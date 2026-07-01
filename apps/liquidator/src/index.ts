@@ -1072,6 +1072,17 @@ export async function boot(): Promise<LiquidatorState> {
             orphansRecovered: orphanRecoveryManager.getStats().total_recoveries_succeeded,
             orphansDetected: orphanRecoveryManager.getStats().total_orphans_detected,
           },
+          // Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco.
+          // Antes morria em logs/competitors/*.json; agora vai pro painel (aba Inteligência).
+          competition: {
+            topBuilders: builderAttribution.topByCompetitorVolume(3).map((b) => ({
+              alias: b.builder_alias ?? `${b.builder_address.slice(0, 6)}…${b.builder_address.slice(-4)}`,
+              blocks: b.total_blocks_seen,
+              competitorTxs: b.competitor_txs_seen,
+              ourTxs: b.our_txs_included,
+            })),
+            position: blockPositionTracker.summary(),
+          },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }

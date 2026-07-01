@@ -164,6 +164,7 @@ export interface ServiceStatusRow {
   latency: { p50Ms: number; p95Ms: number; samples: number } | null;
   /** Motor 1 — resiliência de reorg (reorgs na janela + órfãs recuperadas). */
   reorgs: { window24h: number; orphansRecovered: number; orphansDetected: number } | null;
+  competition: Competition | null;
   updated_at: string;
 }
 
@@ -187,6 +188,12 @@ export interface StrategyStat {
 }
 
 /** Token vetado (porteiro) — linha achatada pro painel (tela "Tokens"). */
+/** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
+export interface Competition {
+  topBuilders: { alias: string; blocks: number; competitorTxs: number; ourTxs: number }[];
+  position: { samples: number; bottom10pctPct: number; top10pctPct: number; avgRelative: number };
+}
+
 export interface VettedToken {
   token: string;
   symbol: string;
@@ -299,6 +306,8 @@ export interface LiveSnapshot {
   latency?: { p50Ms: number; p95Ms: number; samples: number };
   /** Resiliência de reorg (Motor 1) — reorgs 24h + órfãs recuperadas. */
   reorgs?: { window24h: number; orphansRecovered: number; orphansDetected: number };
+  /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco. */
+  competition?: Competition;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

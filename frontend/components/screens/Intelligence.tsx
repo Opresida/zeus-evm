@@ -6,7 +6,7 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs } = vm;
+  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
   const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
@@ -147,6 +147,32 @@ export function Intelligence({ vm }: ScreenProps) {
           ))}
         </div>
       </div>
+
+      {/* Item 4 — Diagnóstico de concorrência: quem controla o blockspace + nossa posição no bloco */}
+      {competition && (
+        <div style={css(card + "margin-top:14px;")}>
+          <span style={css("font:600 10.5px/1.2 'IBM Plex Mono'; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);")}>
+            Diagnóstico de concorrência · quem controla o blockspace
+          </span>
+          <div style={css("display:flex; flex-direction:column; margin-top:14px;")}>
+            {competition.builders.length ? (
+              competition.builders.map((b, i) => (
+                <div key={i} className="z-card-row" style={css("display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--border);")}>
+                  <span data-label="Builder" style={css("font:600 12px/1.3 'IBM Plex Mono'; color:var(--text); flex:1;")}>{b.alias}</span>
+                  <span data-label="Blocos" style={css("font:500 11px/1 'IBM Plex Mono'; color:var(--muted);")}>{b.blocks} blocos</span>
+                  <span data-label="Tx concorrentes" style={css("font:600 11px/1 'IBM Plex Mono'; color:var(--gold);")}>{b.competitorTxs} tx rivais</span>
+                  <span data-label="Nossas tx" style={css("font:600 11px/1 'IBM Plex Mono'; color:var(--cyan);")}>{b.ourTxs} nossas</span>
+                </div>
+              ))
+            ) : (
+              <div style={css("font:500 12px/1.4 'IBM Plex Mono'; color:var(--muted);")}>nenhum builder observado ainda</div>
+            )}
+          </div>
+          <div style={{ ...css("margin-top:14px; padding:12px 14px; border-radius:9px; font:500 12px/1.4 'IBM Plex Sans';"), background: "var(--bg2)", color: competition.hasPosition ? "var(--text2)" : "var(--muted)" }}>
+            📍 {competition.positionText}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import type { TxRow } from "./types";
+import type { TxRow, Competition } from "./types";
 
 // ===== Dados representativos portados de ZEUS Command.dc.html =====
 // Servem de fallback (modo demo) e definem o layout exato do painel.
@@ -153,6 +153,15 @@ export const MOCK = {
     { pair: "AERO/WETH", edge: "64%", pct: "64", note: "volátil" },
     { pair: "WETH/DAI", edge: "51%", pct: "51", note: "intermitente" },
   ],
+  // Espelha o AO VIVO (item 4): builders dominantes (do topByCompetitorVolume) + posição no bloco.
+  competition: {
+    topBuilders: [
+      { alias: "beaverbuild", blocks: 412, competitorTxs: 189, ourTxs: 6 },
+      { alias: "Titan Builder", blocks: 298, competitorTxs: 141, ourTxs: 3 },
+      { alias: "0x9a3c…d21f", blocks: 87, competitorTxs: 44, ourTxs: 0 },
+    ],
+    position: { samples: 24, bottom10pctPct: 33, top10pctPct: 12, avgRelative: 0.58 },
+  } as Competition | null,
 
   // Espelha EXATAMENTE o AO VIVO: componentes reais dos 2 motores, rotulados M1·/M2· (o live.ts prefixa por motor).
   // Só há 2 estados reais (READY/DOWN via ok:boolean) — sem "DEGRADED". Snapshot de bot saudável.
@@ -243,6 +252,7 @@ export const EMPTY: typeof MOCK = {
   postmortem: [],
   calib: [],
   edgePairs: [],
+  competition: null,
   components: [],
   cooldowns: [],
   latP50: [],

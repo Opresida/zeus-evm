@@ -515,4 +515,14 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   latency?: HeartbeatLatency;
   /** Resiliência de reorg (Motor 1 mainnet) — reorgs na janela + órfãs recuperadas. */
   reorgs?: HeartbeatReorgs;
+  /** Diagnóstico de concorrência (item 4) — builders dominantes + nossa posição no bloco (tela Inteligência). */
+  competition?: HeartbeatCompetition;
+}
+
+/** Diagnóstico de concorrência: quem controla o blockspace + se caímos no fundo do bloco. */
+export interface HeartbeatCompetition {
+  /** Builders dominantes (por volume de tx de competidores). */
+  topBuilders: { alias: string; blocks: number; competitorTxs: number; ourTxs: number }[];
+  /** Nossa posição no bloco (janela rolante). samples=0 até executarmos de verdade. */
+  position: { samples: number; bottom10pctPct: number; top10pctPct: number; avgRelative: number };
 }

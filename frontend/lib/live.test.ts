@@ -269,11 +269,12 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.combatBundle).toMatchObject({ executionLive: true, walletPoolReady: 22, walletPoolActive: true });
   });
 
-  it("#3 automação: escalada de gás (gasEscalationPct) flui do intel pro snapshot", () => {
+  it("#3+#6 automações: escalada de gás + edge sumindo fluem do intel pro snapshot", () => {
     const snap = deriveSnapshot([], [
-      status({ service: "liquidator", intel: { marketBribeP95Gwei: 2.1, competitorsActive: 4, gasEscalationPct: 64 } }),
+      status({ service: "liquidator", intel: { marketBribeP95Gwei: 2.1, competitorsActive: 4, gasEscalationPct: 64, edgeShiftPct: 34 } }),
     ]);
     expect(snap.intel?.gasEscalationPct).toBe(64);
+    expect(snap.intel?.edgeShiftPct).toBe(34);
   });
 
   it("Itens 1+3 (Saúde): taxa de erro + uptime reais fluem do heartbeat pro snapshot", () => {

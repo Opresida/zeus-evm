@@ -412,6 +412,8 @@ export interface HeartbeatIntel {
   cooldownBaseSec?: number;
   cooldownAdaptiveSec?: number;
   cooldownAdaptiveApplied?: boolean;
+  /** #6 automação — "edge sumindo": queda % da força de edge agregada vs ~1h atrás (só quando ≥30%). */
+  edgeShiftPct?: number;
 }
 
 /**

@@ -6,7 +6,7 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, gasEscalation, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
+  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, gasEscalation, edgeShift, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
   const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
@@ -63,6 +63,11 @@ export function Intelligence({ vm }: ScreenProps) {
           {gasEscalation && (
             <div style={css(`margin-top:10px; padding:12px 14px; background:var(--goldsoft, rgba(208,162,21,.12)); border:1px solid ${gasEscalation.color}; border-radius:9px; font:600 12px/1.4 'IBM Plex Sans'; color:${gasEscalation.color};`)}>
               {gasEscalation.text}
+            </div>
+          )}
+          {edgeShift && (
+            <div style={css(`margin-top:10px; padding:12px 14px; background:var(--redsoft, rgba(239,68,68,.1)); border:1px solid ${edgeShift.color}; border-radius:9px; font:600 12px/1.4 'IBM Plex Sans'; color:${edgeShift.color};`)}>
+              {edgeShift.text}
             </div>
           )}
         </div>

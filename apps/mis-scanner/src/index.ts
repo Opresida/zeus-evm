@@ -559,6 +559,9 @@ async function main(): Promise<void> {
   // Tracker de estratégias (filler) — lido pelo heartbeat (tela "Estratégias" do painel).
   const strategyTracker = new StrategyStatsTracker();
 
+  // Pulso do radar do Motor 2 (Saúde item 4) — pares varridos / viáveis / inviáveis; atualizado a cada scan.
+  const misDiscovery = { positions: 0, dispatched: 0, rejected: 0, atIso: '' };
+
   // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
   // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
   const emitHeartbeat = () => {
@@ -610,6 +613,10 @@ async function main(): Promise<void> {
         : [],
       // Latência de dispatch p50/p95 (paridade Motor 1) — omitida enquanto não há amostra real.
       ...(latencyTracker.stats().samples > 0 ? { latency: latencyTracker.stats() } : {}),
+      // Radar do Motor 2 (Saúde item 4) — pulso da varredura (só depois do 1º scan).
+      ...(misDiscovery.atIso
+        ? { discovery: { positions: misDiscovery.positions, dispatched: misDiscovery.dispatched, rejected: misDiscovery.rejected, atIso: misDiscovery.atIso } }
+        : {}),
       motorStats: [{ tag: 'motor2', ops: mis.stats().totalSamples, netPnl24hUsd: 0 }],
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
@@ -893,6 +900,11 @@ async function main(): Promise<void> {
             }
           }
         }
+        // Radar do Motor 2 (Saúde item 4): pulso da varredura deste tick → heartbeat.
+        misDiscovery.positions = mis.groupCount();
+        misDiscovery.dispatched = execCandidates.length; // viáveis (candidatos de arb)
+        misDiscovery.rejected = Math.max(0, strong.length - execCandidates.length); // observados mas inviáveis
+        misDiscovery.atIso = new Date().toISOString();
       }
 
       // ─── Visão TRIANGULAR (Parte C) — ciclos A→B→C→A na profundidade (read-only) ───

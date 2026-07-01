@@ -72,11 +72,13 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.failures![0].detail).toContain("bob-the-builder.eth");
   });
 
-  it("item 2: discovery do service_status do liquidator", () => {
+  it("item 2/4: discovery multi-motor — mais fresco vence, rotulado por motor", () => {
     const snap = deriveSnapshot([], [
-      status({ service: "liquidator", discovery: { positions: 15, dispatched: 1, rejected: 2, atIso: now() } }),
+      status({ service: "liquidator", discovery: { positions: 15, dispatched: 1, rejected: 2, atIso: now() }, updated_at: "2020-01-01T00:00:00Z" }),
+      status({ service: "mis-scanner", discovery: { positions: 58, dispatched: 3, rejected: 12, atIso: now() }, updated_at: "2020-01-01T00:05:00Z" }),
     ]);
-    expect(snap.discovery).toMatchObject({ service: "liquidator", positions: 15, dispatched: 1, rejected: 2 });
+    // mis-scanner é mais fresco (updated_at maior) → radar mostra o Motor 2, rotulado.
+    expect(snap.discovery).toMatchObject({ service: "Motor 2", positions: 58, dispatched: 3, rejected: 12 });
   });
 
   it("item 3: intel do service_status (market-bribe + drift)", () => {

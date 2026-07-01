@@ -392,7 +392,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     : M.cooldowns;
   // Falhas recentes (item 1) + pulso do radar (item 2) — reais quando há eventos/heartbeat.
   const failures = live?.failures ?? [];
-  const discovery = live?.discovery ?? null;
+  const discovery = live?.discovery ?? (demo ? M.discovery : null);
   const latAll = M.latP50.concat(M.latP95);
   const lmin = Math.min(...latAll);
   const lmax = Math.max(...latAll);

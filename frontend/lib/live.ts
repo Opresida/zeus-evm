@@ -238,13 +238,16 @@ export function deriveSnapshot(
     });
   }
 
-  // ----- item 2: pulso do radar (discovery, do heartbeat em service_status) -----
-  // Prioriza o liquidator (motor que faz discovery); fallback = qualquer serviço com discovery.
-  const discSvc = (byService("liquidator")?.discovery ? byService("liquidator") : statuses.find((s) => s.discovery))!;
+  // ----- item 2/4: pulso do radar (discovery) — multi-motor: pega o serviço MAIS FRESCO com discovery -----
+  // Antes fixava o liquidator (M2 ficava invisível). Agora M1 e M2 emitem radar; mostra o mais recente, rotulado.
+  const discSvc = statuses
+    .filter((s) => s.discovery)
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
   if (discSvc?.discovery) {
     const d = discSvc.discovery;
+    const motor = discSvc.service === "liquidator" ? "Motor 1" : discSvc.service === "mis-scanner" ? "Motor 2" : (discSvc.service ?? "");
     snap.discovery = {
-      service: discSvc.service,
+      service: motor,
       positions: d.positions,
       dispatched: d.dispatched,
       rejected: d.rejected,

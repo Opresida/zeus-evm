@@ -64,14 +64,17 @@ opcional — "enviar TX exige filtro ligado" — disponível se um dia quiser.)
 3. Setar `VETTING_M2_ENFORCE=true` (chave-mestra) → o **botão admin** na tela Tokens aparece.
 4. Apertar o botão quando confiar → o filtro liga ao vivo. **Em DRY_RUN não envia nada** (só treina num universo mais seguro).
 
-## Estado das 7 etapas
+## Estado das 7 etapas — ✅ COMPLETO
 - ✅ **1** — `vetToken`/`policy`/`reasons` + tela Tokens (read-only, DEMO).
 - ✅ **2** — M2 **observar** + log entrou/saiu (`token.entered`/`token.exited`).
 - ✅ **3** — M2 **enforce** (botão admin) → **Motor 2 fechado**.
-- ⏳ **4** — M1 **observar** (colaterais: "dá pra vender com segurança?").
-- ⏳ **5** — M1 **enforce** (botão admin) → Motor 1 fechado.
-- ⏳ **6** — lock **on-chain** (Unicrypt/Team Finance) + liquidez **round-trip** + **re-vet contínuo** (auto-demote, tira o "restart").
-- ⏳ **7** — histórico no DuckDB + hardening + sweep final.
+- ✅ **4** — M1 **observar** (colaterais: "dá pra vender com segurança?", sem filtro de edge).
+- ✅ **5** — M1 **enforce** (botão admin, fail-safe: parcial não bloqueia) → **Motor 1 fechado**.
+- ✅ **6** — liquidez **round-trip** (profundidade real) + **re-vet contínuo** (auto-demote/promote, tira o "restart"). Lock rico Tier 0.
+- ✅ **7** — **histórico no DuckDB** (`token.*` → categoria `token_vetted` via EventIngester; "por que X saiu no dia Y") + hardening (emits isolados) + docs + sweep.
+
+**Histórico:** as transições vão pro ledger DuckDB local (categoria `token_vetted`) E pra tabela `events` do Supabase
+(o painel mostra os últimos 20 no log "Entrou/Saiu"). Tier 1 (lock on-chain) = refinamento opcional (ver acima).
 
 ## Arquivos
 - `packages/execution-utils/src/vetting/` — `tokenVetting.ts`, `policy.ts`, `reasons.ts`, `universeTracker.ts`, `tokenSafety.ts`, `tokenSafetyFilters.ts`.

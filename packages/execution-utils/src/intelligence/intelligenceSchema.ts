@@ -43,7 +43,8 @@ export type EventCategory =
   | 'pnl_reconciled'        // reconciliação PnL: esperado vs realizado + drift + atribuição
   | 'failure_recorded'      // falha categorizada (failureCollector) — pra análise post-mortem
   | 'cluster'               // cluster sybil/co-ocorrência + builder attribution
-  | 'dedup';                // decisão de dedup (posição quase-duplicada suprimida)
+  | 'dedup'                 // decisão de dedup (posição quase-duplicada suprimida)
+  | 'token_vetted';         // porteiro de tokens: token entrou/saiu do universo (com motivo)
 
 export type EventMode = 'dryrun' | 'testnet' | 'mainnet';
 export type EventSeverity = 'info' | 'warn' | 'critical';

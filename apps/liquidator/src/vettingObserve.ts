@@ -9,8 +9,9 @@
  * Sizing da saída (Etapa 4): cota 1 token só pra confirmar rota; profundidade real (round-trip) = Etapa 6.
  */
 
-import { parseUnits, type Address } from 'viem';
-import { vetToken, initCache } from '@zeus-evm/execution-utils';
+import { parseUnits, type Address, type PublicClient } from 'viem';
+import type { ChainConfig } from '@zeus-evm/chain-config';
+import { vetToken, initCache, runRevetTick, type EventBus, type VettedEntry, type VettingUniverseTracker } from '@zeus-evm/execution-utils';
 import type { PipelineDeps } from './pipeline';
 
 /**
@@ -55,6 +56,9 @@ export async function maybeVetCollateralM1(
           quoteToken: usdc,
           quoteTokenDecimals: 6,
           exitNotionalWei: parseUnits('1', collateral.decimals),
+          deepLiquidity: deps.env.VETTING_DEEP_LIQUIDITY,
+          maxRoundtripBps: deps.env.VETTING_MAX_ROUNDTRIP_BPS,
+          roundtripNotionalUsd: deps.env.VETTING_ROUNDTRIP_USD,
           // M1: SEM noEdgeBlocklist — LSDs/stables são colateral válido (aceitos).
         });
         const transition = tracker.record(verdict);
@@ -92,4 +96,71 @@ export async function maybeVetCollateralM1(
     }
   }
   return { skip: false };
+}
+
+type AnyPublicClient = PublicClient<any, any>;
+
+export interface RevetM1Opts {
+  client: AnyPublicClient;
+  chainConfig: ChainConfig;
+  quoteToken: Address;
+  quoteTokenDecimals: number;
+  tracker: VettingUniverseTracker;
+  eventBus?: EventBus;
+  mode: 'dryrun' | 'testnet' | 'mainnet';
+  safetyCacheDir: string;
+  deepLiquidity?: boolean;
+  maxRoundtripBps?: number;
+  roundtripNotionalUsd?: number;
+  enforce?: boolean;
+}
+
+/**
+ * Re-vet contínuo do M1 (Etapa 6): re-checa os colaterais do universo (liquidez round-trip + safety) e
+ * emite as transições (auto-demote se degradou, auto-promote se recuperou). Chamado num setInterval.
+ */
+export async function runVettingRevetM1(opts: RevetM1Opts): Promise<{ entered: number; exited: number; checked: number }> {
+  initCache(opts.safetyCacheDir);
+  return runRevetTick({
+    tracker: opts.tracker,
+    revet: (entry: VettedEntry) =>
+      entry.motor === 'motor1'
+        ? vetToken({
+            motor: 'motor1',
+            token: entry.token as Address,
+            symbol: entry.symbol,
+            decimals: entry.decimals,
+            chainConfig: opts.chainConfig,
+            client: opts.client,
+            quoteToken: opts.quoteToken,
+            quoteTokenDecimals: opts.quoteTokenDecimals,
+            exitNotionalWei: parseUnits('1', entry.decimals),
+            deepLiquidity: opts.deepLiquidity,
+            maxRoundtripBps: opts.maxRoundtripBps,
+            roundtripNotionalUsd: opts.roundtripNotionalUsd,
+          })
+        : Promise.resolve(null),
+    onTransition: (verdict, transition) => {
+      try {
+        opts.eventBus?.emit({
+          type: transition === 'entered' ? 'token.entered' : 'token.exited',
+          timestamp: new Date().toISOString(),
+          chain: opts.chainConfig.name,
+          mode: opts.mode,
+          severity: 'info',
+          token: verdict.token as Address,
+          symbol: verdict.symbol,
+          motor: 'motor1',
+          pair: verdict.symbol,
+          reason: verdict.reasons[0] ?? '',
+          exitDex: verdict.checks.exitRoute.dex,
+          liquidityUsd: verdict.checks.liquidityFloor.usd,
+          locked: verdict.checks.lockStatus.locked,
+          wouldEnforce: !!opts.enforce,
+        });
+      } catch {
+        /* observabilidade — nunca propaga */
+      }
+    },
+  });
 }

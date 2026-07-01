@@ -47,6 +47,7 @@ export {
   type VettingMotor,
 } from './vetting/tokenVetting';
 export { VettingUniverseTracker, type VettedEntry } from './vetting/universeTracker';
+export { runRevetTick, type RevetTickDeps } from './vetting/revet';
 
 export {
   FailureTracker,

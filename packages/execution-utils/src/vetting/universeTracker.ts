@@ -9,6 +9,8 @@ import type { TokenVerdict, VettingMotor } from './tokenVetting';
 export interface VettedEntry {
   token: string;
   symbol: string;
+  /** Decimais — pro re-vet contínuo (Etapa 6) reconstruir a cotação. */
+  decimals: number;
   motor: VettingMotor;
   verdict: 'pass' | 'reject';
   reason: string;
@@ -36,6 +38,7 @@ export class VettingUniverseTracker {
     const entry: VettedEntry = {
       token: v.token,
       symbol: v.symbol,
+      decimals: v.decimals,
       motor: v.motor,
       verdict: v.verdict,
       reason: v.reasons[0] ?? '',

@@ -121,6 +121,7 @@ export async function POST(req: Request) {
         e.vettingEnforce && typeof e.vettingEnforce === "object"
           ? { motor1: Boolean((e.vettingEnforce as Record<string, unknown>).motor1), motor2: Boolean((e.vettingEnforce as Record<string, unknown>).motor2) }
           : null,
+      vetting_revet_at: typeof e.vettingRevetAt === "string" ? e.vettingRevetAt : null,
       discovery: e.discovery ?? null, // pulso do radar (item 2)
       intel: e.intel ?? null, // agregados de inteligência (item 3)
       // Fase 2 — blocos extras (jsonb), só presentes no heartbeat que os trouxe (liquidator/mis).

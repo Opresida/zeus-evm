@@ -317,6 +317,9 @@ export function deriveSnapshot(
     }
   }
   if (sawEnforce) snap.vettingEnforce = { motor1: enfM1, motor2: enfM2 };
+  // Freshness do re-vet: o ISO mais recente entre os serviços.
+  const revetIsos = statuses.map((s) => s.vetting_revet_at).filter((x): x is string => !!x).sort();
+  if (revetIsos.length) snap.vettingRevetAt = revetIsos[revetIsos.length - 1];
 
   // ----- Log de entrou/saiu (tela "Tokens") — dos eventos token.entered/token.exited -----
   const tokenEvts = rows.filter((r) => r.type === "token.entered" || r.type === "token.exited").slice(0, 20);

@@ -76,7 +76,7 @@ import {
   type ResolvedPair,
 } from './poolGroups';
 import { deriveProtocolTokens, buildDerivedPairs } from './deriveTokens';
-import { runVettingObserve } from './vettingObserve';
+import { runVettingObserve, runVettingRevetM2 } from './vettingObserve';
 import { optimizeFlashLoan, fetchEthUsd, fetchTokenUsd } from './flashEstimator';
 import { loadConfig } from './config';
 import { findFreshArb } from './execution/arbOpportunity';
@@ -336,6 +336,7 @@ async function main(): Promise<void> {
   // Estado AO VIVO do filtro (boot + poll do toggle); lido pelo heartbeat (badge) e pelo gate de execução.
   const vettingTracker = new VettingUniverseTracker();
   const vettingEnforce = { m2: false };
+  const vettingLastRevet = { iso: undefined as string | undefined }; // freshness do re-vet (tela "Tokens")
   if (env.VETTING_ENABLED) {
     if (env.VETTING_M2_ENFORCE) {
       vettingEnforce.m2 = await fetchEngineControlEnabled({
@@ -347,8 +348,7 @@ async function main(): Promise<void> {
     if (env.VETTING_M2_OBSERVE) {
       const usdc = chainConfig.tokens?.USDC as `0x${string}` | undefined;
       if (usdc) {
-        await runVettingObserve({
-          groups,
+        const vettingArgs = {
           client,
           chainConfig,
           quoteToken: usdc,
@@ -359,7 +359,25 @@ async function main(): Promise<void> {
           safetyCacheDir: env.VETTING_SAFETY_CACHE_DIR,
           logger,
           enforce: vettingEnforce.m2,
-        }).catch((err) => logger.warn({ err: String(err) }, 'vetting observe falhou — ignorado (não bloqueia o boot)'));
+          deepLiquidity: env.VETTING_DEEP_LIQUIDITY,
+          maxRoundtripBps: env.VETTING_MAX_ROUNDTRIP_BPS,
+          roundtripNotionalUsd: env.VETTING_ROUNDTRIP_USD,
+        };
+        await runVettingObserve({ groups, ...vettingArgs }).catch((err) =>
+          logger.warn({ err: String(err) }, 'vetting observe falhou — ignorado (não bloqueia o boot)'),
+        );
+        // Etapa 6: porteiro VIVO — re-veta o universo num loop (auto-demote/auto-promote).
+        if (env.VETTING_REVET_ENABLED) {
+          const revetTimer = setInterval(() => {
+            runVettingRevetM2(vettingArgs)
+              .then((r) => {
+                if (r.entered || r.exited) logger.info({ ...r }, `🛂 re-vet M2: +${r.entered} entraram · -${r.exited} saíram`);
+                vettingLastRevet.iso = new Date().toISOString();
+              })
+              .catch((err) => logger.debug?.({ err: String(err) }, 're-vet M2 falhou (ignorado)'));
+          }, env.VETTING_REVET_SEC * 1000);
+          revetTimer.unref();
+        }
       } else {
         logger.warn('vetting: sem USDC no chain-config desta chain — vetting pulado');
       }
@@ -552,6 +570,7 @@ async function main(): Promise<void> {
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
       vettingEnforce: { motor2: vettingEnforce.m2 }, // estado do filtro M2 (badge "filtro ligado")
+      ...(vettingLastRevet.iso ? { vettingRevetAt: vettingLastRevet.iso } : {}), // freshness do re-vet
       // Inteligência de gorjeta (Motor 2): mercado + NOSSO lance + estado do auto-liga (nível-feature).
       intel: (() => {
         const mkt = senderRegistry.marketBribeStats();

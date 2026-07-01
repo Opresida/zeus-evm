@@ -15,6 +15,7 @@ import type { Address } from 'viem';
 import { isAddress } from 'viem';
 
 import { loadConfig } from './config';
+import { runVettingRevetM1 } from './vettingObserve';
 import { buildHeartbeatPayload, compactIntel, type HeartbeatInput } from './heartbeat';
 import { useSubgraphDiscovery } from './discoveryGating';
 import { logger } from './logger';
@@ -179,6 +180,8 @@ interface LiquidatorState {
   vettingTracker: VettingUniverseTracker;
   /** Estado AO VIVO do filtro de tokens M1 (toggle vetting_m1_enforce), objeto por-ref (poll+heartbeat+deps veem o mesmo). */
   vettingEnforce: { m1: boolean };
+  /** ISO do último re-vet do porteiro M1 (freshness na tela "Tokens"), por-ref. */
+  vettingLastRevet: { iso?: string };
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -261,6 +264,7 @@ export async function boot(): Promise<LiquidatorState> {
   const vettingTracker = new VettingUniverseTracker();
   // Estado do filtro M1 (por-ref): o poll atualiza, o heartbeat e os deps leem a MESMA referência.
   const vettingEnforce = { m1: false };
+  const vettingLastRevet: { iso?: string } = {}; // freshness do re-vet (por-ref; loop atualiza, heartbeat lê)
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
@@ -1000,6 +1004,7 @@ export async function boot(): Promise<LiquidatorState> {
           strategyStats: strategyTracker.snapshot(),
           vettedUniverse: vettingTracker.snapshot(),
           vettingEnforce: { motor1: vettingEnforce.m1 },
+          vettingRevetAt: vettingLastRevet.iso,
           discovery: discoveryPulse.last,
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
           intel: {
@@ -1288,6 +1293,7 @@ export async function boot(): Promise<LiquidatorState> {
     strategyTracker,
     vettingTracker,
     vettingEnforce,
+    vettingLastRevet,
     discoveryPulse,
     pnlTracker,
     failureTracker,
@@ -2371,6 +2377,33 @@ async function main() {
         logger.debug({ err: err instanceof Error ? err.message : err }, 'poll vetting_m1_enforce falhou'),
       );
     }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
+  }
+
+  // ─── Etapa 6: porteiro VIVO (M1) — re-veta os colaterais do universo num loop (auto-demote/auto-promote) ───
+  const revetUsdc = state.ctx.chainConfig.tokens['USDC'] as `0x${string}` | undefined;
+  if (state.env.VETTING_ENABLED && state.env.VETTING_REVET_ENABLED && revetUsdc) {
+    const revetTimer = setInterval(() => {
+      runVettingRevetM1({
+        client: state.ctx.client,
+        chainConfig: state.ctx.chainConfig,
+        quoteToken: revetUsdc,
+        quoteTokenDecimals: 6,
+        tracker: state.vettingTracker,
+        eventBus: state.eventBus,
+        mode: state.env.LIQUIDATOR_MODE,
+        safetyCacheDir: state.env.VETTING_SAFETY_CACHE_DIR,
+        deepLiquidity: state.env.VETTING_DEEP_LIQUIDITY,
+        maxRoundtripBps: state.env.VETTING_MAX_ROUNDTRIP_BPS,
+        roundtripNotionalUsd: state.env.VETTING_ROUNDTRIP_USD,
+        enforce: state.vettingEnforce.m1,
+      })
+        .then((r) => {
+          if (r.entered || r.exited) logger.info({ ...r }, `🛂 re-vet M1: +${r.entered} entraram · -${r.exited} saíram`);
+          state.vettingLastRevet.iso = new Date().toISOString();
+        })
+        .catch((err) => logger.debug({ err: err instanceof Error ? err.message : err }, 're-vet M1 falhou (ignorado)'));
+    }, state.env.VETTING_REVET_SEC * 1000);
+    revetTimer.unref();
   }
 
   // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───

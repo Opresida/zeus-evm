@@ -466,6 +466,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     tokenCounts,
     tokenLog: live?.tokenLog ?? M.tokenLog ?? [],
     vettingEnforce: live?.vettingEnforce ?? { motor1: false, motor2: false },
+    vettingRevetAt: live?.vettingRevetAt,
     insights,
     ticker,
     txFilters,

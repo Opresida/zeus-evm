@@ -101,6 +101,28 @@ describe('vetToken — porteiro de tokens', () => {
     expect(v.partial).toBe(true); // fail-safe do M1 lê isto: parcial → NÃO bloqueia a liquidação
   });
 
+  it('Etapa 6 (deep): round-trip com perda alta → liquidez fina → REPROVA', async () => {
+    // buy (USDC→token) devolve 100 tokens por $1000; sell (token→USDC) devolve só $900 (10% de perda).
+    const lossySwap = async (o: { tokenIn: string }) =>
+      (o.tokenIn === USDC
+        ? { source: 'x', amountOut: 100n * 10n ** 18n }
+        : { source: 'x', amountOut: 900n * 10n ** 6n }) as never;
+    const v = await vetToken(base({ deepLiquidity: true, maxRoundtripBps: 300 }), {
+      fetchSafety: async () => [safe()],
+      bestSwap: lossySwap,
+    });
+    expect(v.checks.liquidityFloor.ok).toBe(false);
+    expect(v.verdict).toBe('reject');
+  });
+
+  it('Etapa 6 (deep): round-trip sem perda → liquidez ok → PASSA', async () => {
+    const v = await vetToken(base({ deepLiquidity: true, maxRoundtripBps: 300 }), {
+      fetchSafety: async () => [safe()],
+      bestSwap: okSwap, // devolve o mesmo valor nos 2 sentidos → perda 0
+    });
+    expect(v.verdict).toBe('pass');
+  });
+
   it('lock: reflete a flag do GoPlus (source goplus na Etapa 1)', async () => {
     const v = await vetToken(base(), { fetchSafety: async () => [safe({ topHolderIsLocked: true })], bestSwap: okSwap });
     expect(v.checks.lockStatus).toMatchObject({ locked: true, source: 'goplus' });

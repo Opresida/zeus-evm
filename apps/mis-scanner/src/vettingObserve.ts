@@ -14,9 +14,11 @@ import type { ChainConfig } from '@zeus-evm/chain-config';
 import {
   vetToken,
   initCache,
+  runRevetTick,
   VettingUniverseTracker,
   type EventBus,
   type PoolGroup,
+  type VettedEntry,
 } from '@zeus-evm/execution-utils';
 
 type AnyPublicClient = PublicClient<any, any>;
@@ -37,6 +39,10 @@ export interface VettingObserveOpts {
   noEdgeBlocklist?: ReadonlySet<string>;
   /** Etapa 3: true quando o filtro está LIGADO → marca wouldEnforce nos eventos (o painel mostra). */
   enforce?: boolean;
+  /** Etapa 6: liquidez REAL via round-trip. */
+  deepLiquidity?: boolean;
+  maxRoundtripBps?: number;
+  roundtripNotionalUsd?: number;
 }
 
 /** Coleta os tokens distintos do universo (pula o quoteToken — não dá pra cotar USDC→USDC). */
@@ -77,8 +83,11 @@ export async function runVettingObserve(opts: VettingObserveOpts): Promise<{ pas
         client: opts.client,
         quoteToken: opts.quoteToken,
         quoteTokenDecimals: opts.quoteTokenDecimals,
-        exitNotionalWei: parseUnits('1', t.decimals), // Etapa 2: rota-existe; profundidade real = Etapa 6
+        exitNotionalWei: parseUnits('1', t.decimals), // rota-existe (light); profundidade real = round-trip abaixo
         noEdgeBlocklist: opts.noEdgeBlocklist,
+        deepLiquidity: opts.deepLiquidity,
+        maxRoundtripBps: opts.maxRoundtripBps,
+        roundtripNotionalUsd: opts.roundtripNotionalUsd,
       });
     } catch (err) {
       opts.logger.warn({ token: t.token, err: String(err) }, 'vetting: vetToken falhou (observar) — ignorado');
@@ -116,4 +125,55 @@ export async function runVettingObserve(opts: VettingObserveOpts): Promise<{ pas
 
   opts.logger.info({ pass, reject }, `🛂 vetting (observar): ${pass} entraram · ${reject} sairiam (só observando)`);
   return { pass, reject };
+}
+
+/**
+ * Re-vet contínuo do M2 (Etapa 6): re-checa o universo atual (liquidez round-trip + safety) e emite
+ * as transições (auto-demote se degradou, auto-promote se recuperou). Chamado num setInterval.
+ */
+export async function runVettingRevetM2(opts: Omit<VettingObserveOpts, 'groups'>): Promise<{ entered: number; exited: number; checked: number }> {
+  initCache(opts.safetyCacheDir);
+  return runRevetTick({
+    tracker: opts.tracker,
+    revet: (entry: VettedEntry) =>
+      entry.motor === 'motor2'
+        ? vetToken({
+            motor: 'motor2',
+            token: entry.token as Address,
+            symbol: entry.symbol,
+            decimals: entry.decimals,
+            chainConfig: opts.chainConfig,
+            client: opts.client,
+            quoteToken: opts.quoteToken,
+            quoteTokenDecimals: opts.quoteTokenDecimals,
+            exitNotionalWei: parseUnits('1', entry.decimals),
+            noEdgeBlocklist: opts.noEdgeBlocklist,
+            deepLiquidity: opts.deepLiquidity,
+            maxRoundtripBps: opts.maxRoundtripBps,
+            roundtripNotionalUsd: opts.roundtripNotionalUsd,
+          })
+        : Promise.resolve(null),
+    onTransition: (verdict, transition) => {
+      try {
+        opts.eventBus.emit({
+          type: transition === 'entered' ? 'token.entered' : 'token.exited',
+          timestamp: new Date().toISOString(),
+          chain: opts.chainConfig.name,
+          mode: opts.mode,
+          severity: 'info',
+          token: verdict.token as Address,
+          symbol: verdict.symbol,
+          motor: 'motor2',
+          pair: verdict.symbol,
+          reason: verdict.reasons[0] ?? '',
+          exitDex: verdict.checks.exitRoute.dex,
+          liquidityUsd: verdict.checks.liquidityFloor.usd,
+          locked: verdict.checks.lockStatus.locked,
+          wouldEnforce: !!opts.enforce,
+        });
+      } catch {
+        /* observabilidade — nunca propaga */
+      }
+    },
+  });
 }

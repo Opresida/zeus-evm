@@ -39,6 +39,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     strategy_stats: partial.strategy_stats ?? null,
     vetted_universe: partial.vetted_universe ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
+    vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,
     intel: partial.intel ?? null,
     health: partial.health ?? null,

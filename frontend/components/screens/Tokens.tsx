@@ -17,9 +17,14 @@ const LOGGRID = "display:grid; grid-template-columns:64px 100px 56px 1fr; gap:0 
  * (z-card-row + data-label). Dados via heartbeat/eventos; em DEMO usa o mock.
  */
 export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
-  const { tokenCards, tokenCounts, tokenLog, vettingEnforce } = vm;
+  const { tokenCards, tokenCounts, tokenLog, vettingEnforce, vettingRevetAt } = vm;
   const m2On = !!vettingEnforce?.motor2;
   const m1On = !!vettingEnforce?.motor1;
+  const revetAgo = (() => {
+    if (!vettingRevetAt) return null;
+    const sec = Math.max(0, Math.floor((Date.now() - new Date(vettingRevetAt).getTime()) / 1000));
+    return sec < 60 ? `há ${sec}s` : sec < 3600 ? `há ${Math.floor(sec / 60)}min` : `há ${Math.floor(sec / 3600)}h`;
+  })();
 
   return (
     <section>
@@ -31,6 +36,11 @@ export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
         <span style={css(`font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.06em; text-transform:uppercase; padding:5px 9px; border-radius:6px; border:1px solid; color:${m2On ? "var(--green, #4cc08a)" : "var(--muted)"}; border-color:${m2On ? "var(--green, #4cc08a)" : "var(--border)"};`)}>
           {m2On ? "filtro M2 ligado" : "M2 só observando"}
         </span>
+        {revetAgo && (
+          <span style={css("font:500 9.5px/1 'IBM Plex Mono'; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); padding:5px 8px; border-radius:6px; background:var(--bg2);")}>
+            re-vet {revetAgo}
+          </span>
+        )}
       </div>
       <p style={css("font:400 13px/1.4 'IBM Plex Sans'; color:var(--muted); margin:6px 0 16px;")}>
         O porteiro de tokens — quem entrou e quem saiu do universo de trading, e o porquê em linguagem simples.

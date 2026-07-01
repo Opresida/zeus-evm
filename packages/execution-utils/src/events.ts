@@ -490,6 +490,8 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
   vettedUniverse?: VettedEntry[];
   /** Estado do filtro de tokens por motor (badge "filtro ligado" na tela "Tokens"). */
   vettingEnforce?: { motor1?: boolean; motor2?: boolean };
+  /** ISO do último re-vet do porteiro (freshness "re-vet há Xs" na tela "Tokens"). */
+  vettingRevetAt?: string;
   /** Pulso do radar de descoberta (item 2) — opcional (só motores com discovery). */
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência (item 3) — opcional (reusa o que o loop de métricas já calcula). */

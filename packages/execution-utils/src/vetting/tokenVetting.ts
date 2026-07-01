@@ -24,6 +24,8 @@ export type { VettingMotor } from './policy';
 export interface TokenVerdict {
   token: string;
   symbol: string;
+  /** Decimais do token — carregado pra o re-vet contínuo (Etapa 6) reconstruir a cotação. */
+  decimals: number;
   motor: VettingMotor;
   verdict: 'pass' | 'reject';
   reasons: string[];
@@ -57,6 +59,13 @@ export interface VetTokenOpts {
   /** ISO de "agora" injetável (testes determinísticos). */
   nowIso?: string;
   logger?: LoggerLike;
+  // ── Etapa 6 (deep) — liquidez REALMENTE negociável via round-trip ──
+  /** Liga o round-trip (USDC→token→USDC): mede perda real (slippage+fees) num tamanho de verdade. */
+  deepLiquidity?: boolean;
+  /** Notional USD do round-trip (default 1000). */
+  roundtripNotionalUsd?: number;
+  /** Perda máxima aceitável no round-trip, em bps (default 300 = 3%). Acima → liquidez fina/manipulada → reprova. */
+  maxRoundtripBps?: number;
 }
 
 /** Deps injetáveis (testes substituem rede/cotação). */
@@ -115,10 +124,36 @@ export async function vetToken(opts: VetTokenOpts, deps: VetTokenDeps = {}): Pro
     opts.logger?.warn?.({ token: opts.token, err: String(err) }, 'vetting: bestSwap falhou (parcial)');
   }
 
-  // 3) Piso de liquidez (Etapa 1 light): cotação viável no notional = consegue vender esse tamanho.
-  //    `floorUsd` fica registrado pro caller/Etapa 6 endurecer com profundidade real (round-trip + pool depth).
+  // 3) Piso de liquidez. Light (Etapa 1): cotação viável = consegue vender. Deep (Etapa 6): round-trip real.
   void floorUsd;
-  const liquidityOk = exitOk && outUsd > 0;
+  let roundtripBps = 0;
+  if (opts.deepLiquidity && exitOk) {
+    // USDC → token → USDC num tamanho de verdade. Perda alta = liquidez fina / preço manipulado.
+    const notionalUsd = opts.roundtripNotionalUsd ?? 1000;
+    const usdcIn = BigInt(Math.round(notionalUsd * 10 ** opts.quoteTokenDecimals));
+    try {
+      const buy = await bestSwap({
+        client: opts.client, chainConfig: opts.chainConfig,
+        tokenIn: opts.quoteToken, tokenOut: opts.token, amountIn: usdcIn,
+        decimalsIn: opts.quoteTokenDecimals, decimalsOut: opts.decimals,
+      });
+      if (buy && buy.amountOut > 0n) {
+        const sell = await bestSwap({
+          client: opts.client, chainConfig: opts.chainConfig,
+          tokenIn: opts.token, tokenOut: opts.quoteToken, amountIn: buy.amountOut,
+          decimalsIn: opts.decimals, decimalsOut: opts.quoteTokenDecimals,
+        });
+        const finalUsd = sell ? Number(sell.amountOut) / 10 ** opts.quoteTokenDecimals : 0;
+        roundtripBps = finalUsd > 0 ? Math.max(0, Math.round((1 - finalUsd / notionalUsd) * 10_000)) : 99_999;
+      } else {
+        roundtripBps = 99_999; // nem conseguiu COMPRAR o notional → sem liquidez de entrada
+      }
+    } catch (err) {
+      opts.logger?.warn?.({ token: opts.token, err: String(err) }, 'vetting: round-trip falhou (parcial)');
+    }
+  }
+  const deepLiquidityOk = !opts.deepLiquidity || roundtripBps <= (opts.maxRoundtripBps ?? 300);
+  const liquidityOk = exitOk && outUsd > 0 && deepLiquidityOk;
   const liquidityUsd = exitOk ? Math.max(outUsd, 0) : 0;
 
   const result = applyPolicy(opts.motor, {
@@ -134,6 +169,7 @@ export async function vetToken(opts: VetTokenOpts, deps: VetTokenDeps = {}): Pro
   return {
     token: opts.token,
     symbol: opts.symbol,
+    decimals: opts.decimals,
     motor: opts.motor,
     verdict: result.verdict,
     reasons,

@@ -127,6 +127,8 @@ export interface ServiceStatusRow {
     | null;
   /** Estado do filtro de tokens por motor (badge "filtro ligado"). */
   vetting_enforce: { motor1?: boolean; motor2?: boolean } | null;
+  /** ISO do último re-vet do porteiro (freshness). */
+  vetting_revet_at: string | null;
   /** Pulso do radar (item 2) — último tick de descoberta. */
   discovery: { positions: number; dispatched: number; rejected: number; atIso: string } | null;
   /** Agregados de inteligência (item 3) — market-bribe, competidores, drift. */
@@ -248,6 +250,8 @@ export interface LiveSnapshot {
   tokenLog?: { time: string; symbol: string; motor: string; action: string; reason: string; color: string }[];
   /** Estado do filtro de tokens por motor (badge na tela "Tokens"). */
   vettingEnforce?: { motor1?: boolean; motor2?: boolean };
+  /** ISO do último re-vet do porteiro (freshness "re-vet há Xs"). */
+  vettingRevetAt?: string;
 
   // ----- Fase 1: agregados de PnL / gás / relatórios (derivados de events tx.*) -----
   kpi7d?: number;

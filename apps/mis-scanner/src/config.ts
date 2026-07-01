@@ -103,6 +103,12 @@ const envSchema = z.object({
   VETTING_M2_OBSERVE: boolDefault(true), // sob VETTING_ENABLED: veta o M2 e mostra no painel (NÃO filtra)
   VETTING_M2_ENFORCE: boolDefault(false), // chave-mestra do filtro; o liga/desliga AO VIVO é o toggle do painel
   VETTING_SAFETY_CACHE_DIR: z.string().default('.cache'), // onde fica o token-safety-cache.json
+  // ── Etapa 6: porteiro VIVO (re-check contínuo + liquidez round-trip) ──
+  VETTING_REVET_ENABLED: boolDefault(false), // re-veta o universo num loop (auto-demote/auto-promote)
+  VETTING_REVET_SEC: posInt(600), // intervalo do re-vet (10 min)
+  VETTING_DEEP_LIQUIDITY: boolDefault(false), // liga o round-trip (USDC→token→USDC) — liquidez REAL
+  VETTING_MAX_ROUNDTRIP_BPS: posInt(300), // perda máx no round-trip (3%) acima disso = liquidez fina → reprova
+  VETTING_ROUNDTRIP_USD: posInt(1000), // notional do round-trip
 
   // ─── Controle remoto de execução (toggle do Frontend via Supabase `engine_control`) ───
   // Modelo armado-mas-travado: o bot sobe com ARB_EXECUTION_ENABLED=true + ARB_MODE=mainnet (armado),

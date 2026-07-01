@@ -54,6 +54,16 @@ const envSchema = z.object({
   ARB_EXECUTOR_ADDRESS: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
   ARB_PROFIT_RECEIVER: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional()),
 
+  // ─── Wallet-pool (Motor 2): N EOAs paralelos → N frentes de arb ao mesmo tempo (uma carteira/nonce por oportunidade) ───
+  // Liga junto com o toggle de execução (chave-mestra) OU force-on via WALLET_POOL_ENABLED. Requer a seed-mestre.
+  WALLET_POOL_ENABLED: boolDefault(false),
+  /** Seed-mestre BIP-39 DEDICADA (nunca reusar). Sem ela, o pool não sobe (cai no sender único). */
+  WALLET_POOL_MNEMONIC: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Nº de EOAs no pool (espelha o Motor 1: ~22). */
+  WALLET_POOL_SIZE: posInt(22),
+  /** Teto AGREGADO de exposição em voo (ETH) somando todas as carteiras — trava coletiva. */
+  WALLET_POOL_MAX_INFLIGHT_ETH: num(5),
+
   // ─── Filler UniswapX (Motor 2 — F3) — DESLIGADO por padrão (DRY_RUN first) ───
   /** Liga a ingestão+avaliação de ordens UniswapX. Execução segue a trava ARB (armado-mas-travado). */
   UNISWAPX_FILLER_ENABLED: boolDefault(false),

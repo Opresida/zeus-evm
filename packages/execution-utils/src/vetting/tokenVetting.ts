@@ -33,6 +33,8 @@ export interface TokenVerdict {
     liquidityFloor: { ok: boolean; usd: number };
     lockStatus: { ok: boolean; locked: boolean; source: 'goplus' | 'onchain' };
   };
+  /** Dado incompleto (safety indisponível / fonte falhou). Usado pelo fail-safe do M1 (parcial → não bloqueia). */
+  partial: boolean;
   atIso: string;
 }
 
@@ -141,6 +143,7 @@ export async function vetToken(opts: VetTokenOpts, deps: VetTokenDeps = {}): Pro
       liquidityFloor: { ok: liquidityOk, usd: liquidityUsd },
       lockStatus: { ok: true, locked, source: 'goplus' },
     },
+    partial: !safety || !!safety.partial,
     atIso: opts.nowIso ?? new Date().toISOString(),
   };
 }

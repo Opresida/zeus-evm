@@ -15,6 +15,8 @@ export interface VettedEntry {
   exitDex?: string;
   liquidityUsd: number;
   locked: boolean;
+  /** Dado incompleto (safety indisponível) — fail-safe do M1 lê isto pra NÃO bloquear na dúvida. */
+  partial: boolean;
 }
 
 export class VettingUniverseTracker {
@@ -40,6 +42,7 @@ export class VettingUniverseTracker {
       exitDex: v.checks.exitRoute.dex,
       liquidityUsd: v.checks.liquidityFloor.usd,
       locked: v.checks.lockStatus.locked,
+      partial: v.partial,
     };
     this.byKey.set(k, entry);
     if (prev && prev.verdict === v.verdict) return null; // sem mudança

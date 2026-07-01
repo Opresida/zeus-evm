@@ -177,6 +177,8 @@ interface LiquidatorState {
   strategyTracker: StrategyStatsTracker;
   /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */
   vettingTracker: VettingUniverseTracker;
+  /** Estado AO VIVO do filtro de tokens M1 (toggle vetting_m1_enforce), objeto por-ref (poll+heartbeat+deps veem o mesmo). */
+  vettingEnforce: { m1: boolean };
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -257,6 +259,8 @@ export async function boot(): Promise<LiquidatorState> {
   const strategyTracker = new StrategyStatsTracker();
   // Porteiro de tokens (M1) — verdict por colateral, lido pelo heartbeat (tela "Tokens").
   const vettingTracker = new VettingUniverseTracker();
+  // Estado do filtro M1 (por-ref): o poll atualiza, o heartbeat e os deps leem a MESMA referência.
+  const vettingEnforce = { m1: false };
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
@@ -995,6 +999,7 @@ export async function boot(): Promise<LiquidatorState> {
           netPnl24hUsd: pnlStats.netPnlUsd,
           strategyStats: strategyTracker.snapshot(),
           vettedUniverse: vettingTracker.snapshot(),
+          vettingEnforce: { motor1: vettingEnforce.m1 },
           discovery: discoveryPulse.last,
           // Inteligência (item 3): agregados que o loop acima já computou — sem cálculo novo.
           intel: {
@@ -1282,6 +1287,7 @@ export async function boot(): Promise<LiquidatorState> {
     preLiqSenderPool,
     strategyTracker,
     vettingTracker,
+    vettingEnforce,
     discoveryPulse,
     pnlTracker,
     failureTracker,
@@ -1652,6 +1658,7 @@ export async function processOpportunity(
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1699,6 +1706,7 @@ export async function processCompoundOpportunity(
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1743,6 +1751,7 @@ export async function processMorphoOpportunity(
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1787,6 +1796,7 @@ export async function processMoonwellOpportunity(
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     competitiveBribeEnabled: state.env.COMPETITIVE_BRIBE_ENABLED,
     bribeTargetPercentile: state.env.BRIBE_TARGET_PERCENTILE,
     maxBribeWei: BigInt(Math.floor(state.env.MAX_BRIBE_GWEI * 1e9)),
@@ -1831,6 +1841,7 @@ export async function processMorphoPreLiquidationOpportunity(
     liveExecutionEnabled: state.liveExecutionEnabled,
     strategyTracker: state.strategyTracker,
     vettingTracker: state.vettingTracker,
+    vettingEnforceM1: state.vettingEnforce.m1,
     senderPool: state.preLiqSenderPool,
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });
@@ -2332,6 +2343,35 @@ async function main() {
       logger.debug({ err: err instanceof Error ? err.message : err }, 'poll engine_control falhou (mantém travado)'),
     );
   }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
+
+  // ─── Toggle do FILTRO de tokens M1 (vetting_m1_enforce) — poll ao vivo, vale mesmo em DRY_RUN ───
+  // Chave-mestra = env VETTING_M1_ENFORCE; liga/desliga ao vivo = botão admin do painel. Fail-safe:
+  // erro/sem-config → false (filtro off). E dado PARCIAL por token → M1 não bloqueia (no vetToken/pipeline).
+  const pollVettingEnforceM1 = async () => {
+    if (!(state.env.VETTING_ENABLED && state.env.VETTING_M1_ENFORCE)) return;
+    const next = await fetchEngineControlEnabled({
+      supabaseUrl: state.env.SUPABASE_URL,
+      supabaseKey: state.env.SUPABASE_KEY,
+      motor: 'vetting_m1_enforce',
+    });
+    if (next !== state.vettingEnforce.m1) {
+      state.vettingEnforce.m1 = next;
+      logger.warn(
+        { vettingEnforceM1: next },
+        next
+          ? '🛂 TOGGLE: filtro de tokens M1 LIGADO — colateral reprovado é pulado pré-dispatch (dado parcial NÃO bloqueia)'
+          : '🛂 TOGGLE: filtro de tokens M1 DESLIGADO',
+      );
+    }
+  };
+  if (state.env.VETTING_ENABLED && state.env.VETTING_M1_ENFORCE) {
+    await pollVettingEnforceM1();
+    setInterval(() => {
+      pollVettingEnforceM1().catch((err) =>
+        logger.debug({ err: err instanceof Error ? err.message : err }, 'poll vetting_m1_enforce falhou'),
+      );
+    }, state.env.ENGINE_CONTROL_POLL_SEC * 1000);
+  }
 
   // ─── OIE Etapa C: thresholds adaptativos (recalc periódico) ───
   // Adapta dos sinais de observação do ledger. Default = só COMPUTA + LOGA (você vê o

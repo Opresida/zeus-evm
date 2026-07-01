@@ -98,6 +98,7 @@ describe('vetToken — porteiro de tokens', () => {
     });
     expect(v.verdict).toBe('reject');
     expect(v.checks.safety.ok).toBe(false);
+    expect(v.partial).toBe(true); // fail-safe do M1 lê isto: parcial → NÃO bloqueia a liquidação
   });
 
   it('lock: reflete a flag do GoPlus (source goplus na Etapa 1)', async () => {

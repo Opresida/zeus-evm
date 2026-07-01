@@ -29,50 +29,67 @@ function extractCollateral(p: Record<string, unknown>): { token: Address; symbol
  * Veta (observar) o colateral do M1 se o porteiro estiver ligado e o token for NOVO. Idempotente por token.
  * Isolado em try/catch: observabilidade NUNCA pode derrubar o pipeline de liquidação.
  */
-export async function maybeVetCollateralM1(deps: PipelineDeps, position: Record<string, unknown>): Promise<void> {
+export async function maybeVetCollateralM1(
+  deps: PipelineDeps,
+  position: Record<string, unknown>,
+): Promise<{ skip: boolean; reason?: string }> {
   const tracker = deps.vettingTracker;
-  if (!tracker || !deps.env.VETTING_ENABLED || !deps.env.VETTING_M1_OBSERVE) return;
+  if (!tracker || !deps.env.VETTING_ENABLED) return { skip: false };
   const collateral = extractCollateral(position);
-  if (!collateral) return;
-  if (tracker.current(collateral.token, 'motor1')) return; // já vetado (re-vet contínuo = Etapa 6)
+  if (!collateral) return { skip: false };
 
-  const chainConfig = deps.ctx.chainConfig;
-  const usdc = chainConfig.tokens['USDC'] as Address | undefined;
-  if (!usdc) return;
-
-  try {
-    initCache(deps.env.VETTING_SAFETY_CACHE_DIR);
-    const verdict = await vetToken({
-      motor: 'motor1',
-      token: collateral.token,
-      symbol: collateral.symbol,
-      decimals: collateral.decimals,
-      chainConfig,
-      client: deps.ctx.client,
-      quoteToken: usdc,
-      quoteTokenDecimals: 6,
-      exitNotionalWei: parseUnits('1', collateral.decimals),
-      // M1: SEM noEdgeBlocklist — LSDs/stables são colateral válido (aceitos).
-    });
-    const transition = tracker.record(verdict);
-    if (!transition) return;
-    deps.eventBus?.emit({
-      type: transition === 'entered' ? 'token.entered' : 'token.exited',
-      timestamp: new Date().toISOString(),
-      chain: chainConfig.name,
-      mode: deps.env.LIQUIDATOR_MODE,
-      severity: 'info',
-      token: collateral.token,
-      symbol: collateral.symbol,
-      motor: 'motor1',
-      pair: collateral.symbol,
-      reason: verdict.reasons[0] ?? '',
-      exitDex: verdict.checks.exitRoute.dex,
-      liquidityUsd: verdict.checks.liquidityFloor.usd,
-      locked: verdict.checks.lockStatus.locked,
-      wouldEnforce: !!deps.env.VETTING_M1_ENFORCE,
-    });
-  } catch {
-    // Nunca propaga — vetting M1 é observabilidade, não pode bloquear a liquidação.
+  // 1) OBSERVAR: veta se for NOVO (idempotente por token; re-vet contínuo = Etapa 6) + emite a transição.
+  if (deps.env.VETTING_M1_OBSERVE && !tracker.current(collateral.token, 'motor1')) {
+    const chainConfig = deps.ctx.chainConfig;
+    const usdc = chainConfig.tokens['USDC'] as Address | undefined;
+    if (usdc) {
+      try {
+        initCache(deps.env.VETTING_SAFETY_CACHE_DIR);
+        const verdict = await vetToken({
+          motor: 'motor1',
+          token: collateral.token,
+          symbol: collateral.symbol,
+          decimals: collateral.decimals,
+          chainConfig,
+          client: deps.ctx.client,
+          quoteToken: usdc,
+          quoteTokenDecimals: 6,
+          exitNotionalWei: parseUnits('1', collateral.decimals),
+          // M1: SEM noEdgeBlocklist — LSDs/stables são colateral válido (aceitos).
+        });
+        const transition = tracker.record(verdict);
+        if (transition) {
+          deps.eventBus?.emit({
+            type: transition === 'entered' ? 'token.entered' : 'token.exited',
+            timestamp: new Date().toISOString(),
+            chain: chainConfig.name,
+            mode: deps.env.LIQUIDATOR_MODE,
+            severity: 'info',
+            token: collateral.token,
+            symbol: collateral.symbol,
+            motor: 'motor1',
+            pair: collateral.symbol,
+            reason: verdict.reasons[0] ?? '',
+            exitDex: verdict.checks.exitRoute.dex,
+            liquidityUsd: verdict.checks.liquidityFloor.usd,
+            locked: verdict.checks.lockStatus.locked,
+            wouldEnforce: !!deps.vettingEnforceM1,
+          });
+        }
+      } catch {
+        // Nunca propaga — vetting M1 é observabilidade, não pode bloquear a liquidação.
+      }
+    }
   }
+
+  // 2) ENFORCE (Etapa 5): filtro LIGADO (env + toggle ao vivo) → pula colateral reprovado.
+  // FAIL-SAFE do M1: só pula se o verdict for reject E o dado for COMPLETO (parcial → NÃO bloqueia,
+  // nunca perde uma liquidação lucrativa por falha de RPC/GoPlus). É o oposto do M2 (que rejeita na dúvida).
+  if (deps.env.VETTING_M1_ENFORCE && deps.vettingEnforceM1) {
+    const entry = tracker.current(collateral.token, 'motor1');
+    if (entry && entry.verdict === 'reject' && !entry.partial) {
+      return { skip: true, reason: `porteiro M1: colateral ${collateral.symbol} reprovado — ${entry.reason}` };
+    }
+  }
+  return { skip: false };
 }

@@ -45,6 +45,8 @@ export interface HeartbeatInput {
   strategyStats?: HeartbeatStrategyStat[];
   /** Universo vetado por colateral (porteiro M1) — tela "Tokens". */
   vettedUniverse?: VettedEntry[];
+  /** Estado do filtro de tokens por motor (badge na tela "Tokens"). */
+  vettingEnforce?: { motor1?: boolean; motor2?: boolean };
   /** Pulso do radar de descoberta — omitido por motores sem discovery. */
   discovery?: HeartbeatDiscovery;
   /** Agregados de inteligência — omitido quando não há dados. */
@@ -76,6 +78,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     // Só inclui se houver dado — mantém o payload enxuto (intel/discovery são opcionais no tipo).
     ...(i.strategyStats && i.strategyStats.length ? { strategyStats: i.strategyStats } : {}),
     ...(i.vettedUniverse && i.vettedUniverse.length ? { vettedUniverse: i.vettedUniverse } : {}),
+    ...(i.vettingEnforce ? { vettingEnforce: i.vettingEnforce } : {}),
     ...(i.discovery ? { discovery: i.discovery } : {}),
     ...(i.intel ? { intel: i.intel } : {}),
     ...(i.health && i.health.components.length ? { health: i.health } : {}),

@@ -19,11 +19,15 @@ const LOGGRID = "display:grid; grid-template-columns:64px 100px 56px 1fr; gap:0 
 export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
   const { tokenCards, tokenCounts, tokenLog, vettingEnforce } = vm;
   const m2On = !!vettingEnforce?.motor2;
+  const m1On = !!vettingEnforce?.motor1;
 
   return (
     <section>
       <div style={css("display:flex; align-items:center; gap:10px; flex-wrap:wrap;")}>
         <h1 style={css("font:700 22px/1.1 'IBM Plex Sans'; margin:0;")}>Tokens</h1>
+        <span style={css(`font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.06em; text-transform:uppercase; padding:5px 9px; border-radius:6px; border:1px solid; color:${m1On ? "var(--green, #4cc08a)" : "var(--muted)"}; border-color:${m1On ? "var(--green, #4cc08a)" : "var(--border)"};`)}>
+          {m1On ? "filtro M1 ligado" : "M1 só observando"}
+        </span>
         <span style={css(`font:600 9.5px/1 'IBM Plex Mono'; letter-spacing:.06em; text-transform:uppercase; padding:5px 9px; border-radius:6px; border:1px solid; color:${m2On ? "var(--green, #4cc08a)" : "var(--muted)"}; border-color:${m2On ? "var(--green, #4cc08a)" : "var(--border)"};`)}>
           {m2On ? "filtro M2 ligado" : "M2 só observando"}
         </span>
@@ -33,12 +37,15 @@ export function Tokens({ vm, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
         O mesmo token pode entrar num motor e sair no outro (M1 aceita colateral; M2 exige edge de arbitragem).
       </p>
 
-      {/* Botão admin: liga/desliga o FILTRO do M2 de verdade (engine_control vetting_m2_enforce) */}
+      {/* Botões admin: ligam/desligam o FILTRO de cada motor (engine_control vetting_mX_enforce) */}
       {isAdmin && (
         <div style={css(card + "margin-bottom:14px;")}>
+          <ExecutionControl motor="vetting_m1_enforce" label="Filtro de tokens — Motor 1 (liquidação)" />
+          <div style={css("height:1px; background:var(--border); margin:14px 0;")} />
           <ExecutionControl motor="vetting_m2_enforce" label="Filtro de tokens — Motor 2 (arbitragem)" />
-          <p style={css("font:400 11px/1.5 'IBM Plex Sans'; color:var(--muted); margin:10px 0 0;")}>
-            Ligar aqui faz o bot DEIXAR DE OLHAR tokens reprovados no porteiro (sem saída / sem liquidez / inseguros).
+          <p style={css("font:400 11px/1.5 'IBM Plex Sans'; color:var(--muted); margin:12px 0 0;")}>
+            Ligar faz o bot DEIXAR DE tocar tokens reprovados no porteiro (sem saída / sem liquidez / inseguros).
+            No M1, dado incompleto NÃO bloqueia (nunca perde liquidação lucrativa); no M2, na dúvida ele fica de fora.
             Em DRY_RUN não envia nada — só treina num universo mais seguro. Só você (admin) liga.
           </p>
         </div>

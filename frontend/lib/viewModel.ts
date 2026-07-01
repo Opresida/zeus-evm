@@ -439,6 +439,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   // Taxa de erro real (Fase G) — do FailureTracker via heartbeat. 0 ops (DRY_RUN) → "—" honesto, sem inventar.
   // Chave-mestra (Fase C) — pacote de combate que acende com o toggle de execução.
   const combatBundle = live?.combatBundle ?? (demo ? M.combatBundle : null);
+  const combatBundleM1 = live?.combatBundleM1 ?? (demo ? M.combatBundleM1 : null);
   const em = live?.errorMetrics ?? (demo ? M.errorMetrics : null);
   const errKpi =
     em && em.totalOps > 0
@@ -551,6 +552,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     gasEscalation,
     edgeShift,
     combatBundle,
+    combatBundleM1,
     driftAlarms,
     intelLive,
     failures,

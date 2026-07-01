@@ -64,6 +64,15 @@ export interface HeartbeatInput {
   reorgs?: HeartbeatReorgs;
   competition?: HeartbeatCompetition;
   errorMetrics?: { failedOps: number; totalOps: number };
+  /** Chave-mestra — "pacote de combate" do Motor 1 (espelha o do Motor 2; transparência no painel). */
+  combatBundle?: {
+    executionLive: boolean;
+    adaptive: boolean;
+    competitiveBribe: boolean;
+    slippagePerDex?: boolean;
+    walletPoolReady: number;
+    walletPoolActive: boolean;
+  };
 }
 
 /** Constrói o evento `zeus.heartbeat` a partir de valores já coletados pelo loop de métricas. */
@@ -96,6 +105,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     ...(i.reorgs ? { reorgs: i.reorgs } : {}),
     ...(i.competition ? { competition: i.competition } : {}),
     ...(i.errorMetrics ? { errorMetrics: i.errorMetrics } : {}),
+    ...(i.combatBundle ? { combatBundle: i.combatBundle } : {}),
   };
 }
 

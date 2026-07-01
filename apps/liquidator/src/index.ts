@@ -184,6 +184,15 @@ interface LiquidatorState {
   vettingEnforce: { m1: boolean };
   /** ISO do último re-vet do porteiro M1 (freshness na tela "Tokens"), por-ref. */
   vettingLastRevet: { iso?: string };
+  /** Espelho do pacote de combate M1 (por-ref): toggle poll escreve, heartbeat lê → painel "MOTOR 1". */
+  combatMirror: {
+    executionLive: boolean;
+    adaptive: boolean;
+    competitiveBribe: boolean;
+    slippagePerDex: boolean;
+    walletPoolReady: number;
+    walletPoolActive: boolean;
+  };
   /** PnL tracker — rolling 24h + kill switch automático */
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
@@ -267,6 +276,16 @@ export async function boot(): Promise<LiquidatorState> {
   // Estado do filtro M1 (por-ref): o poll atualiza, o heartbeat e os deps leem a MESMA referência.
   const vettingEnforce = { m1: false };
   const vettingLastRevet: { iso?: string } = {}; // freshness do re-vet (por-ref; loop atualiza, heartbeat lê)
+  // 🔑 Espelho do "pacote de combate" do Motor 1 (por-ref): o toggle poll (fora do boot) atualiza,
+  // o heartbeat (closure do metricsSyncInterval) lê a MESMA referência → painel mostra "MOTOR 1 (LIGADO)".
+  const combatMirror = {
+    executionLive: false,
+    adaptive: false,
+    competitiveBribe: false,
+    slippagePerDex: false,
+    walletPoolReady: 0,
+    walletPoolActive: false,
+  };
   const pnlTracker = new PnlTracker({
     dailyLossLimitUsd: env.DAILY_LOSS_LIMIT_USD,
     logFilePath: resolvePath(process.cwd(), env.PNL_LOG_FILE),
@@ -1113,6 +1132,8 @@ export async function boot(): Promise<LiquidatorState> {
             const fs = failureTracker.stats();
             return { failedOps: fs.totalFailures, totalOps: fs.totalFailures + fs.totalSuccesses };
           })(),
+          // 🔑 Pacote de combate do Motor 1 (espelha o do M2) — objeto por-ref atualizado pelo toggle poll.
+          combatBundle: { ...combatMirror },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }
@@ -1352,6 +1373,7 @@ export async function boot(): Promise<LiquidatorState> {
     strategyTracker,
     vettingTracker,
     vettingEnforce,
+    combatMirror,
     vettingLastRevet,
     discoveryPulse,
     pnlTracker,
@@ -2394,6 +2416,8 @@ async function main() {
   const combatDefaults = {
     slippagePerDex: state.env.SLIPPAGE_PER_DEX_ENABLED, // #5 slippage por-DEX (calculators leem state.env fresco)
     adaptiveCooldown: state.env.ADAPTIVE_COOLDOWN_ENABLED, // #4 cooldown adaptativo (FailureTracker via setter)
+    adaptiveThresholds: state.env.ADAPTIVE_THRESHOLDS_ENABLED, // piso de EV (acoplado inline nas deps)
+    competitiveBribe: state.env.COMPETITIVE_BRIBE_ENABLED, // bribe competitivo (acoplado inline nas deps)
   };
   const applyCombatBundle = (live: boolean) => {
     // #5 — os 4 calculators leem `state.env.SLIPPAGE_PER_DEX_ENABLED` fresco a cada tick → mutar propaga.
@@ -2401,6 +2425,13 @@ async function main() {
     // #4 — FailureTracker construído 1× no boot; setter religa a política ao vivo.
     state.failureTracker.setAdaptiveCooldown(live || combatDefaults.adaptiveCooldown);
     // (adaptive thresholds + bribe competitivo já são computados inline com state.liveExecutionEnabled nas deps.)
+    // Espelho pro painel (heartbeat) — "MOTOR 1 (LIGADO)" + quais features do pacote acenderam.
+    state.combatMirror.executionLive = live;
+    state.combatMirror.adaptive = live || combatDefaults.adaptiveThresholds;
+    state.combatMirror.competitiveBribe = live || combatDefaults.competitiveBribe;
+    state.combatMirror.slippagePerDex = state.env.SLIPPAGE_PER_DEX_ENABLED;
+    state.combatMirror.walletPoolReady = state.preLiqSenderPool ? state.preLiqSenderPool.size : 0;
+    state.combatMirror.walletPoolActive = !!state.preLiqSenderPool; // no M1, pool construído = pool usado no dispatch
   };
   applyCombatBundle(state.liveExecutionEnabled); // estado inicial coerente com o toggle no boot
   const pollEngineControl = async () => {

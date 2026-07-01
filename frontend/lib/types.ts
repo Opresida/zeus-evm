@@ -333,8 +333,10 @@ export interface LiveSnapshot {
   errorMetrics?: { failedOps: number; totalOps: number };
   /** Uptime real (KPI Saúde) — segundos, do heartbeat mais fresco. */
   uptimeSec?: number;
-  /** Chave-mestra — pacote de combate (Motor 2). */
+  /** Chave-mestra — pacote de combate (Motor 2 / arb). */
   combatBundle?: CombatBundle;
+  /** Chave-mestra — pacote de combate (Motor 1 / liquidação). */
+  combatBundleM1?: CombatBundle;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

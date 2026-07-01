@@ -26,7 +26,9 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
 - **ISOLADO com motivo (decisão honesta, NÃO acoplado):** `BRIBE_ENABLED` — bribe **flat-%-do-lucro cego**; na Base (FCFS)
   é **superado pelo bribe competitivo** (que já é do pacote e só paga quando perde corrida). Acoplar os dois = **double-bribe
   queimando lucro**. Fica como **override manual** pra chains de leilão. (Cai na exceção "uma ou outra pode ficar isolada".)
-- Painel (Configurações) mostra o pacote via `combatBundle` no heartbeat do M2 (transparência).
+- Painel (Configurações) mostra o pacote via `combatBundle` no heartbeat — **agora dos DOIS motores** (M1 emite
+  o `combatMirror` via objeto por-ref, igual o `vettingEnforce`; `live.ts` funde em `combatBundle` (M2) +
+  `combatBundleM1`; Settings.tsx renderiza um card por motor). Antes só o M2 aparecia → não dava pra ver o que o M1 acendia.
 
 ## 👛 Wallet-pool — N frentes paralelas (relocado p/ execution-utils)
 - Módulo compartilhado em `packages/execution-utils/src/walletPool/` (era `apps/liquidator/src/walletPool/`).

@@ -117,7 +117,7 @@ function Toggle({ on, trackBg, knobLeft, onClick }: { on: boolean; trackBg: stri
 }
 
 export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?: boolean }) {
-  const { notifRules, channels, combatBundle } = vm;
+  const { notifRules, channels, combatBundle, combatBundleM1 } = vm;
   const [pushMsg, setPushMsg] = useState<string | null>(null);
 
   const onChan = async (key: string, on: boolean) => {
@@ -140,26 +140,35 @@ export function Settings({ vm, ui, actions, isAdmin }: ScreenProps & { isAdmin?:
         </div>
       )}
 
-      {/* Chave-mestra (Fase C): o "pacote de combate" que acende quando o toggle de execução liga (Motor 2). */}
-      {isAdmin && combatBundle && (
-        <div style={css(card + "margin-top:14px;")}>
-          <span style={css(kicker)}>Pacote de combate · Motor 2 {combatBundle.executionLive ? "(LIGADO)" : "(observando)"}</span>
-          <p style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--muted); margin:8px 0 12px;")}>
-            Ligar o toggle de execução acende tudo isto de uma vez — o porteiro de tokens fica independente.
-          </p>
-          <div style={css("display:flex; gap:10px; flex-wrap:wrap;")}>
-            {[
-              { on: combatBundle.adaptive, label: "Piso de EV auto-calibrável" },
-              { on: combatBundle.competitiveBribe, label: "Bribe competitivo" },
-              { on: !!combatBundle.slippagePerDex, label: "Slippage por-DEX (Dune)" },
-              { on: combatBundle.walletPoolActive, label: `Wallet-pool (${combatBundle.walletPoolReady} carteiras)` },
-            ].map((f, i) => (
-              <span key={i} style={{ ...css("font:600 11px/1 'IBM Plex Mono'; padding:7px 11px; border-radius:20px; display:inline-flex; align-items:center; gap:6px;"), background: f.on ? "var(--greensoft, rgba(34,197,94,.12))" : "var(--bg2)", color: f.on ? "var(--green)" : "var(--muted)" }}>
-                <span style={{ ...css("width:7px; height:7px; border-radius:50%;"), background: f.on ? "var(--green)" : "var(--muted)" }} />
-                {f.on ? "●" : "○"} {f.label}
-              </span>
-            ))}
-          </div>
+      {/* Chave-mestra (Fase C): o "pacote de combate" que acende quando o toggle de execução liga — POR MOTOR. */}
+      {isAdmin && (combatBundle || combatBundleM1) && (
+        <div style={css("display:grid; gap:14px; margin-top:14px;")}>
+          {([
+            { cb: combatBundleM1, motor: "Motor 1", desc: "liquidação + pré-liquidação" },
+            { cb: combatBundle, motor: "Motor 2", desc: "arbitragem cross-DEX" },
+          ] as const).map(({ cb, motor, desc }) =>
+            cb ? (
+              <div key={motor} style={css(card)}>
+                <span style={css(kicker)}>Pacote de combate · {motor} ({desc}) {cb.executionLive ? "· LIGADO" : "· observando"}</span>
+                <p style={css("font:400 11.5px/1.4 'IBM Plex Sans'; color:var(--muted); margin:8px 0 12px;")}>
+                  Ligar o toggle de execução deste motor acende tudo isto de uma vez — o porteiro de tokens fica independente.
+                </p>
+                <div style={css("display:flex; gap:10px; flex-wrap:wrap;")}>
+                  {[
+                    { on: cb.adaptive, label: "Piso de EV auto-calibrável" },
+                    { on: cb.competitiveBribe, label: "Bribe competitivo" },
+                    { on: !!cb.slippagePerDex, label: "Slippage por-DEX (Dune)" },
+                    { on: cb.walletPoolActive, label: `Wallet-pool (${cb.walletPoolReady} carteiras)` },
+                  ].map((f, i) => (
+                    <span key={i} style={{ ...css("font:600 11px/1 'IBM Plex Mono'; padding:7px 11px; border-radius:20px; display:inline-flex; align-items:center; gap:6px;"), background: f.on ? "var(--greensoft, rgba(34,197,94,.12))" : "var(--bg2)", color: f.on ? "var(--green)" : "var(--muted)" }}>
+                      <span style={{ ...css("width:7px; height:7px; border-radius:50%;"), background: f.on ? "var(--green)" : "var(--muted)" }} />
+                      {f.on ? "●" : "○"} {f.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null,
+          )}
         </div>
       )}
 

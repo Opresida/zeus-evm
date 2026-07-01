@@ -400,9 +400,16 @@ export function deriveSnapshot(
   const errSvc = liq?.error_metrics ? liq : statuses.find((s) => s.error_metrics);
   if (errSvc?.error_metrics) snap.errorMetrics = errSvc.error_metrics;
 
-  // Chave-mestra — pacote de combate (Motor 2 emite; mostra o que acende com o toggle).
-  const cbSvc = byService("mis-scanner")?.combat_bundle ? byService("mis-scanner") : statuses.find((s) => s.combat_bundle);
-  if (cbSvc?.combat_bundle) snap.combatBundle = cbSvc.combat_bundle;
+  // Chave-mestra — pacote de combate POR MOTOR (cada motor emite o seu; painel mostra os dois).
+  const m2cb = byService("mis-scanner")?.combat_bundle;
+  if (m2cb) snap.combatBundle = m2cb; // Motor 2 (arb)
+  const m1cb = byService("liquidator")?.combat_bundle;
+  if (m1cb) snap.combatBundleM1 = m1cb; // Motor 1 (liquidação)
+  // Fallback: se só um motor emitiu, usa o que existir pro card genérico.
+  if (!snap.combatBundle && !snap.combatBundleM1) {
+    const anyCb = statuses.find((s) => s.combat_bundle)?.combat_bundle;
+    if (anyCb) snap.combatBundle = anyCb;
+  }
 
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).

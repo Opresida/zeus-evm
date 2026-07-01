@@ -269,6 +269,15 @@ describe("deriveSnapshot — cobertura do Motor 1 (itens 1-4)", () => {
     expect(snap.combatBundle).toMatchObject({ executionLive: true, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: true });
   });
 
+  it("Chave-mestra: combat_bundle do Motor 1 (liquidator) flui pro snap.combatBundleM1 — painel mostra os 2 motores", () => {
+    const snap = deriveSnapshot([], [
+      status({ service: "mis-scanner", combat_bundle: { executionLive: true, adaptive: true, competitiveBribe: true, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: true } }),
+      status({ service: "liquidator", combat_bundle: { executionLive: true, adaptive: true, competitiveBribe: true, slippagePerDex: true, walletPoolReady: 0, walletPoolActive: false } }),
+    ]);
+    expect(snap.combatBundle).toMatchObject({ executionLive: true, walletPoolReady: 22 }); // M2
+    expect(snap.combatBundleM1).toMatchObject({ executionLive: true, slippagePerDex: true, walletPoolActive: false }); // M1
+  });
+
   it("#3+#6 automações: escalada de gás + edge sumindo fluem do intel pro snapshot", () => {
     const snap = deriveSnapshot([], [
       status({ service: "liquidator", intel: { marketBribeP95Gwei: 2.1, competitorsActive: 4, gasEscalationPct: 64, edgeShiftPct: 34 } }),

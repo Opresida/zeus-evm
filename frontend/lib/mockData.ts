@@ -175,6 +175,9 @@ export const MOCK = {
     gasCalibration: { samples: 42, observedP50Usd: 0.04, observedP95Usd: 0.06, configuredUsd: 0.5, driftPct: -0.88, wouldAdjustToUsd: 0.06, applied: false },
     quarantine: [{ token: "cbETH→USDC", symbol: "cbETH", failures: 3, wouldQuarantine: false }],
     poolDepth: { tracked: 58, degraded: [{ poolKey: "WETH/USDC:aero", label: "WETH/USDC", nowUsd: 62000, refUsd: 100000, dropPct: 0.38 }] },
+    scanThrottle: { currentMs: 2000, recommendedMs: 3400, reason: "sem edge ativo — desaceleraria (economia RPC)", applied: false },
+    revetDynamic: { currentMs: 600000, recommendedMs: 420000, reason: "2 tokens rejeitados — re-vet mais cedo", applied: false },
+    // #12 walletRebalance omitido no mock: o pool só existe fora do dryrun (honesto).
   } as LiveAutomations | null,
   // Radar de descoberta (item 4) — espelha o AO VIVO: mostra o motor mais fresco (aqui, Motor 2 / arb).
   discovery: { service: "Motor 2", positions: 58, dispatched: 3, rejected: 12, ago: "8s" } as

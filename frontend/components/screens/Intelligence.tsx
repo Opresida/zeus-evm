@@ -225,6 +225,31 @@ export function Intelligence({ vm }: ScreenProps) {
                     ))}
               </div>
             )}
+            {/* #10 throttle de varredura */}
+            {automations.scanThrottle && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>⏱️ Ritmo da varredura</b> — atual {(automations.scanThrottle.currentMs / 1000).toFixed(1)}s,
+                recomendaria <b>{(automations.scanThrottle.recommendedMs / 1000).toFixed(1)}s</b>{" "}
+                <span style={css("color:var(--muted);")}>({automations.scanThrottle.reason})</span>
+              </div>
+            )}
+            {/* #11 revet dinâmico */}
+            {automations.revetDynamic && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>🔁 Re-vet do porteiro</b> — atual {(automations.revetDynamic.currentMs / 1000).toFixed(0)}s,
+                recomendaria <b>{(automations.revetDynamic.recommendedMs / 1000).toFixed(0)}s</b>{" "}
+                <span style={css("color:var(--muted);")}>({automations.revetDynamic.reason})</span>
+              </div>
+            )}
+            {/* #12 wallet-pool rebalance */}
+            {automations.walletRebalance && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>⚖️ Rebalance do wallet-pool</b> — {automations.walletRebalance.senders} carteiras.{" "}
+                <span style={{ color: automations.walletRebalance.needsRebalance ? "var(--gold, #d0a215)" : "var(--muted)" }}>
+                  {automations.walletRebalance.summary}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

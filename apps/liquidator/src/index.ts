@@ -65,6 +65,8 @@ import {
   FailureTracker,
   GasCalibrationTracker,
   TokenQuarantineTracker,
+  computeWalletRebalance,
+  type WalletRebalancePlan,
   PositionDedupTracker,
   GasReserveTracker,
   EventBus,
@@ -203,6 +205,8 @@ interface LiquidatorState {
   gasCalibration: GasCalibrationTracker;
   /** #7 automação — quarentena de token por falhas repetidas (observe-first). */
   tokenQuarantine: TokenQuarantineTracker;
+  /** #12 automação — plano de rebalance do wallet-pool (por-ref; discoveryTick computa, heartbeat lê). */
+  walletRebalance: { plan?: WalletRebalancePlan };
   /** Dedup tracker — evita re-submeter mesma position */
   dedupTracker: PositionDedupTracker;
   /** Gas reserve tracker — monitora ETH balance da bot wallet */
@@ -341,6 +345,7 @@ export async function boot(): Promise<LiquidatorState> {
   // Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás + #7 quarentena de token.
   const gasCalibration = new GasCalibrationTracker({ configuredUsd: env.GAS_COST_USD_ESTIMATE });
   const tokenQuarantine = new TokenQuarantineTracker({ threshold: env.QUARANTINE_FAILURE_THRESHOLD });
+  const walletRebalance: { plan?: WalletRebalancePlan } = {}; // #12 (por-ref; só popula quando o pool existe)
 
   // Position Dedup Tracker — evita re-submit em ticks consecutivos
   const dedupTracker = new PositionDedupTracker({
@@ -1151,10 +1156,11 @@ export async function boot(): Promise<LiquidatorState> {
           })(),
           // 🔑 Pacote de combate do Motor 1 (espelha o do M2) — objeto por-ref atualizado pelo toggle poll.
           combatBundle: { ...combatMirror },
-          // 🤖 Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás + #7 quarentena.
+          // 🤖 Automações "vivas" (observe-first) — #9 calibração de gás + #7 quarentena + #12 rebalance do pool.
           liveAutomations: {
             gasCalibration: gasCalibration.stats(env.GAS_CALIBRATION_ENABLED),
             quarantine: tokenQuarantine.snapshot().slice(0, 8),
+            ...(walletRebalance.plan ? { walletRebalance: walletRebalance.plan } : {}),
           },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
@@ -1406,6 +1412,7 @@ export async function boot(): Promise<LiquidatorState> {
     failureTracker,
     gasCalibration,
     tokenQuarantine,
+    walletRebalance,
     dedupTracker,
     gasReserveTracker,
     eventBus,
@@ -2101,6 +2108,29 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
     }
   } catch {
     /* gasOracle indisponível neste tick — ignora a amostra (sem inventar sinal) */
+  }
+
+  // #12 wallet-pool rebalance (observe-first) — só quando o pool EXISTE (mainnet/armado; cinza em dryrun).
+  // Throttle 5min: lê o saldo das EOAs do pool e mostra "reabasteceria X" (não move nada).
+  if (state.preLiqSenderPool) {
+    const holder = state.walletRebalance as { plan?: WalletRebalancePlan; _lastMs?: number };
+    const nowMs = Date.now();
+    if (nowMs - (holder._lastMs ?? 0) > 5 * 60 * 1000) {
+      holder._lastMs = nowMs;
+      try {
+        const balances = new Map<Address, bigint>();
+        for (const a of state.preLiqSenderPool.addresses()) {
+          balances.set(a, await ctx.client.getBalance({ address: a }));
+        }
+        const toWei = (eth: number) => BigInt(Math.round(eth * 1e9)) * 1_000_000_000n;
+        holder.plan = computeWalletRebalance(balances, {
+          minWei: toWei(state.env.WALLET_POOL_MIN_GAS_ETH),
+          targetWei: toWei(state.env.WALLET_POOL_TARGET_GAS_ETH),
+        });
+      } catch {
+        /* leitura de saldo falhou — mantém o plano anterior */
+      }
+    }
   }
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───

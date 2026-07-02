@@ -26,6 +26,7 @@ import { BASE_MAINNET, AVALANCHE_MAINNET, type ChainConfig } from '@zeus-evm/cha
 import {
   MarketInefficiencyScanner,
   PoolDepthTracker,
+  AdaptiveIntervalAdvisor,
   TimeseriesStore,
   buildObservationEvent,
   resolveIntelligenceDbPath,
@@ -363,6 +364,10 @@ async function main(): Promise<void> {
   // #8 automação — pool depth (observe-first): usa o tamanho ótimo que o pool absorve (do optimizeFlashLoan,
   // zero RPC extra) como proxy de profundidade; alerta em queda ≥30% na janela. Só observa/avisa (não age).
   const poolDepth = new PoolDepthTracker();
+  // #10/#11 automações — intervalo adaptativo (observe-first): recomenda acelerar/desacelerar a varredura
+  // (economiza RPC quando parado) e o re-vet (mais frequente quando o universo muda muito). Só mostra "o que faria".
+  const scanThrottle = new AdaptiveIntervalAdvisor({ baseMs: SCAN_INTERVAL_MS, minMs: Math.round(SCAN_INTERVAL_MS * 0.6), maxMs: SCAN_INTERVAL_MS * 5 });
+  const revetThrottle = new AdaptiveIntervalAdvisor({ baseMs: env.VETTING_REVET_SEC * 1000, minMs: env.VETTING_REVET_SEC * 500, maxMs: env.VETTING_REVET_SEC * 3000 });
 
   // ── Porteiro de tokens (Etapas 2-3) — VETA antes de registrar (pra poder FILTRAR no enforce) ──
   // Estado AO VIVO do filtro (boot + poll do toggle); lido pelo heartbeat (badge) e pelo gate de execução.
@@ -655,8 +660,18 @@ async function main(): Promise<void> {
         walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
         walletPoolActive: !!walletPool && armed && (live || env.WALLET_POOL_ENABLED),
       },
-      // 🤖 Automações "vivas" Leva 3 — #8 pool depth (observe-first).
-      liveAutomations: { poolDepth: poolDepth.summary() },
+      // 🤖 Automações "vivas" — #8 pool depth (L3) + #10 throttle varredura + #11 revet dinâmico (L4, observe-first).
+      liveAutomations: (() => {
+        const rankCount = mis.ranking().length;
+        const scanActivity = Math.min(1, rankCount / 10); // + oportunidades rastreadas → varrer mais rápido
+        const rejects = vettingTracker.snapshot().filter((e) => e.verdict === 'reject').length;
+        const revetActivity = Math.min(1, rejects / 5); // + tokens rejeitados → universo em fluxo → re-vet mais cedo
+        return {
+          poolDepth: poolDepth.summary(),
+          scanThrottle: scanThrottle.recommend(scanActivity, rankCount > 0 ? `${rankCount} pares com edge — manter ritmo` : 'sem edge ativo — desaceleraria (economia RPC)'),
+          revetDynamic: revetThrottle.recommend(revetActivity, rejects > 0 ? `${rejects} tokens rejeitados — re-vet mais cedo` : 'universo estável — re-vet mais espaçado'),
+        };
+      })(),
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
       vettingEnforce: { motor2: vettingEnforce.m2 }, // estado do filtro M2 (badge "filtro ligado")

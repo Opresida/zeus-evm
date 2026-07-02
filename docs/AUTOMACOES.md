@@ -72,7 +72,15 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
   (5) → "quarentenaria" (histerese: sucesso alivia). Feed no evento `failure.recorded` (novo campo `collateralSymbol`) do M1.
   Ação real gated por `QUARANTINE_ENABLED` (default false).
 
-**Falta:** Leva 4 (#10 throttle · #11 revet dinâmico · #12 wallet-pool rebalance) · Leva 5 (#13 flashloan health · #14 relay latency).
+**Leva 4 (feita — 2026-07-02, observe-first):**
+- **#10 Throttle de varredura** + **#11 Revet dinâmico** (`AdaptiveIntervalAdvisor`) — recomendam acelerar/desacelerar a
+  varredura (economia de RPC quando parado) e o re-vet (mais frequente quando o universo muda muito), com histerese.
+  Feed no heartbeat do M2 (sinal = nº de pares com edge / nº de tokens rejeitados). Só mostram "reduziria pra Xs".
+- **#12 Wallet-pool rebalance** (`computeWalletRebalance`, reusa `planGasTopUps`/`planGasSweeps`) — lê o saldo das EOAs do
+  pool e mostra "reabasteceria X ETH" (não move nada). Só quando o pool EXISTE (mainnet/armado; omitido em dryrun, honesto).
+  Feed no `discoveryTick` do M1 (throttle 5min). Config `WALLET_POOL_MIN_GAS_ETH`/`WALLET_POOL_TARGET_GAS_ETH`.
+
+**Falta:** Leva 5 (#13 flashloan health · #14 relay latency).
 
 ## 🎯 #5 slippage por DEX — via DUNE (ideia do Humberto, aprovada)
 **Bloqueio:** o `slippageRealTracker` só decodifica slippage REAL — no DRY_RUN não há swap pra medir. Calibrar o

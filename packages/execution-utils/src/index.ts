@@ -172,6 +172,10 @@ export {
   type PoolDepthSummary,
   TokenQuarantineTracker,
   type TokenQuarantineEntry,
+  AdaptiveIntervalAdvisor,
+  type IntervalRecommendation,
+  computeWalletRebalance,
+  type WalletRebalancePlan,
 } from './intelligence';
 
 // ─── Health (Item 12 H3+H7+H8+H10+H11) ───

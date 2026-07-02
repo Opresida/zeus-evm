@@ -125,6 +125,29 @@ function sanitizeLiveAutomations(raw: unknown) {
         : [],
     };
   }
+  const interval = (raw2: unknown) => {
+    if (!raw2 || typeof raw2 !== "object") return undefined;
+    const x = raw2 as Record<string, unknown>;
+    return {
+      currentMs: Math.max(0, finNum(x.currentMs)),
+      recommendedMs: Math.max(0, finNum(x.recommendedMs)),
+      reason: String(x.reason ?? "").slice(0, 120),
+      applied: Boolean(x.applied),
+    };
+  };
+  if (interval(r.scanThrottle)) out.scanThrottle = interval(r.scanThrottle);
+  if (interval(r.revetDynamic)) out.revetDynamic = interval(r.revetDynamic);
+  const wr = r.walletRebalance as Record<string, unknown> | undefined;
+  if (wr && typeof wr === "object") {
+    out.walletRebalance = {
+      senders: Math.max(0, finNum(wr.senders)),
+      belowFloor: Math.max(0, finNum(wr.belowFloor)),
+      topUpEth: Math.max(0, finNum(wr.topUpEth)),
+      withExcess: Math.max(0, finNum(wr.withExcess)),
+      needsRebalance: Boolean(wr.needsRebalance),
+      summary: String(wr.summary ?? "").slice(0, 160),
+    };
+  }
   return Object.keys(out).length ? out : null;
 }
 

@@ -55,3 +55,7 @@ export {
 export { GasCalibrationTracker, type GasCalibrationStats } from './gasCalibrationTracker';
 export { PoolDepthTracker, type PoolDepthAlert, type PoolDepthSummary } from './poolDepthTracker';
 export { TokenQuarantineTracker, type TokenQuarantineEntry } from './tokenQuarantineTracker';
+
+// Automações "vivas" Leva 4 (observe-first) — #10 throttle, #11 revet dinâmico, #12 wallet-pool rebalance.
+export { AdaptiveIntervalAdvisor, type IntervalRecommendation } from './adaptiveIntervalAdvisor';
+export { computeWalletRebalance, type WalletRebalancePlan } from './walletRebalanceAdvisor';

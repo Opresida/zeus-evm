@@ -247,6 +247,10 @@ export const envSchema = z.object({
   QUARANTINE_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   /** #7 automação — aplica a quarentena de verdade (pula o token). Default false → só observa/avisa. */
   QUARANTINE_ENABLED: boolEnv(false),
+  /** #12 automação — piso de gás (ETH) por carteira do pool; abaixo disso, "reabasteceria". */
+  WALLET_POOL_MIN_GAS_ETH: z.coerce.number().positive().default(0.005),
+  /** #12 automação — alvo de gás (ETH) pós-reabastecimento por carteira. */
+  WALLET_POOL_TARGET_GAS_ETH: z.coerce.number().positive().default(0.02),
   /** Teto do cooldown adaptativo (segundos). Default 30min — trava contra backoff descontrolado. */
   COOLDOWN_MAX_SEC: z.coerce.number().int().positive().default(1800),
 

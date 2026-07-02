@@ -76,6 +76,7 @@ export interface HeartbeatInput {
       applied: boolean;
     };
     quarantine?: Array<{ token: string; symbol?: string; failures: number; wouldQuarantine: boolean }>;
+    walletRebalance?: { senders: number; belowFloor: number; topUpEth: number; withExcess: number; needsRebalance: boolean; summary: string };
   };
   /** Chave-mestra — "pacote de combate" do Motor 1 (espelha o do Motor 2; transparência no painel). */
   combatBundle?: {

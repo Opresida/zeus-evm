@@ -197,6 +197,10 @@ export interface LiveAutomations {
     tracked: number;
     degraded: Array<{ poolKey: string; label?: string; nowUsd: number; refUsd: number; dropPct: number }>;
   };
+  // Leva 4 — #10 throttle de varredura, #11 revet dinâmico, #12 wallet-pool rebalance.
+  scanThrottle?: { currentMs: number; recommendedMs: number; reason: string; applied: boolean };
+  revetDynamic?: { currentMs: number; recommendedMs: number; reason: string; applied: boolean };
+  walletRebalance?: { senders: number; belowFloor: number; topUpEth: number; withExcess: number; needsRebalance: boolean; summary: string };
 }
 
 /** Linha de `wallet_snapshots` (Fase 2b — snapshot diário de saldo p/ o gráfico 30d). */

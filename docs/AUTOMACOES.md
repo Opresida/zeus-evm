@@ -80,7 +80,16 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
   pool e mostra "reabasteceria X ETH" (não move nada). Só quando o pool EXISTE (mainnet/armado; omitido em dryrun, honesto).
   Feed no `discoveryTick` do M1 (throttle 5min). Config `WALLET_POOL_MIN_GAS_ETH`/`WALLET_POOL_TARGET_GAS_ETH`.
 
-**Falta:** Leva 5 (#13 flashloan health · #14 relay latency).
+**Leva 5 (feita — 2026-07-02, observe-first):**
+- **#13 Saúde do flashloan** (`FlashHealthTracker`) — registra a fonte escolhida a cada seleção (Morpho/Balancer 0% ×
+  Aave 0,05% pago) na janela 6h; avisa quando >25% cai no fallback PAGO (fontes 0% sem liquidez pro tamanho). Feed nos
+  4 sites de `selectFlashSource` do M1 (roda em dryrun — é probe read). Só observa.
+- **#14 Latência de relay/dispatch** (`RelayLatencyAdvisor`) — reusa o `LatencyTracker` que o bot já tem; guarda a
+  baseline (melhor p95) e avisa quando degrada ≥2×. Feed no heartbeat do M2. Sem amostra em dryrun (sem dispatch) → honesto.
+
+**✅ TODAS AS 14 AUTOMAÇÕES FEITAS.** Trackers em `packages/execution-utils/src/intelligence/`, card único "Automações
+vivas" na aba Inteligência (fundido dos 2 motores via `live_automations`). Nenhuma auto-liga execução; tudo mostra "o
+que faria" e é gated por flag. Contratos INTOCADOS.
 
 ## 🎯 #5 slippage por DEX — via DUNE (ideia do Humberto, aprovada)
 **Bloqueio:** o `slippageRealTracker` só decodifica slippage REAL — no DRY_RUN não há swap pra medir. Calibrar o

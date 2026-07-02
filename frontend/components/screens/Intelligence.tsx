@@ -250,6 +250,26 @@ export function Intelligence({ vm }: ScreenProps) {
                 </span>
               </div>
             )}
+            {/* #13 saúde do flashloan */}
+            {automations.flashHealth && automations.flashHealth.samples > 0 && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>⚡ Saúde do flashloan</b> — Morpho {(automations.flashHealth.morphoPct * 100).toFixed(0)}% ·
+                Balancer {(automations.flashHealth.balancerPct * 100).toFixed(0)}% ·
+                Aave {(automations.flashHealth.aavePct * 100).toFixed(0)}%.{" "}
+                <span style={{ color: automations.flashHealth.degraded ? "var(--red, #e5484d)" : "var(--muted)" }}>
+                  {automations.flashHealth.summary}
+                </span>
+              </div>
+            )}
+            {/* #14 latência de relay */}
+            {automations.relayLatency && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>📡 Latência de dispatch</b>{" "}
+                <span style={{ color: automations.relayLatency.degraded ? "var(--red, #e5484d)" : "var(--muted)" }}>
+                  {automations.relayLatency.summary}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

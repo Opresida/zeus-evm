@@ -27,6 +27,7 @@ import {
   MarketInefficiencyScanner,
   PoolDepthTracker,
   AdaptiveIntervalAdvisor,
+  RelayLatencyAdvisor,
   TimeseriesStore,
   buildObservationEvent,
   resolveIntelligenceDbPath,
@@ -368,6 +369,8 @@ async function main(): Promise<void> {
   // (economiza RPC quando parado) e o re-vet (mais frequente quando o universo muda muito). Só mostra "o que faria".
   const scanThrottle = new AdaptiveIntervalAdvisor({ baseMs: SCAN_INTERVAL_MS, minMs: Math.round(SCAN_INTERVAL_MS * 0.6), maxMs: SCAN_INTERVAL_MS * 5 });
   const revetThrottle = new AdaptiveIntervalAdvisor({ baseMs: env.VETTING_REVET_SEC * 1000, minMs: env.VETTING_REVET_SEC * 500, maxMs: env.VETTING_REVET_SEC * 3000 });
+  // #14 automação — latência de relay/dispatch (observe-first): reusa o LatencyTracker; avisa degradação vs baseline.
+  const relayLatency = new RelayLatencyAdvisor();
 
   // ── Porteiro de tokens (Etapas 2-3) — VETA antes de registrar (pra poder FILTRAR no enforce) ──
   // Estado AO VIVO do filtro (boot + poll do toggle); lido pelo heartbeat (badge) e pelo gate de execução.
@@ -666,10 +669,12 @@ async function main(): Promise<void> {
         const scanActivity = Math.min(1, rankCount / 10); // + oportunidades rastreadas → varrer mais rápido
         const rejects = vettingTracker.snapshot().filter((e) => e.verdict === 'reject').length;
         const revetActivity = Math.min(1, rejects / 5); // + tokens rejeitados → universo em fluxo → re-vet mais cedo
+        const lat = latencyTracker.stats();
         return {
           poolDepth: poolDepth.summary(),
           scanThrottle: scanThrottle.recommend(scanActivity, rankCount > 0 ? `${rankCount} pares com edge — manter ritmo` : 'sem edge ativo — desaceleraria (economia RPC)'),
           revetDynamic: revetThrottle.recommend(revetActivity, rejects > 0 ? `${rejects} tokens rejeitados — re-vet mais cedo` : 'universo estável — re-vet mais espaçado'),
+          relayLatency: relayLatency.status(lat.p95Ms, lat.samples), // #14
         };
       })(),
       strategyStats: strategyTracker.snapshot(),

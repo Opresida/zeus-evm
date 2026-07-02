@@ -560,6 +560,9 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
     scanThrottle?: { currentMs: number; recommendedMs: number; reason: string; applied: boolean };
     revetDynamic?: { currentMs: number; recommendedMs: number; reason: string; applied: boolean };
     walletRebalance?: { senders: number; belowFloor: number; topUpEth: number; withExcess: number; needsRebalance: boolean; summary: string };
+    // Leva 5 — #13 saúde do flashloan, #14 latência de relay.
+    flashHealth?: { samples: number; morphoPct: number; balancerPct: number; aavePct: number; freeSharePct: number; degraded: boolean; summary: string };
+    relayLatency?: { samples: number; currentP95Ms: number; baselineP95Ms: number; ratio: number; degraded: boolean; summary: string };
   };
 }
 

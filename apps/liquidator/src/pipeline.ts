@@ -131,6 +131,8 @@ export interface PipelineDeps {
   liveExecutionEnabled?: boolean;
   /** Wallet-pool (opt-in) — SÓ a pré-liquidação usa (grind de presença paralela). Default ausente. */
   senderPool?: import('@zeus-evm/execution-utils').WalletPoolOrchestrator;
+  /** #13 automação — saúde do flashloan (registra a fonte escolhida). */
+  flashHealth?: import('@zeus-evm/execution-utils').FlashHealthTracker;
   /** Tracker de estratégias (candidatos+executados por estratégia) → heartbeat → tela "Estratégias". */
   strategyTracker?: import('@zeus-evm/execution-utils').StrategyStatsTracker;
   /** Porteiro de tokens (M1) — verdict por colateral → heartbeat → tela "Tokens". */
@@ -511,6 +513,7 @@ async function _runAavePipelineInner(
     ctx.chainConfig,
     position.debtAsset as Address,
     decision.flashloanAmount,
+    deps.flashHealth, // #13 saúde do flashloan (observe-first)
   );
   decision.flashSource = aaveFlashSel.flashSource;
   decision.flashPremiumBps = aaveFlashSel.flashPremiumBps;
@@ -815,6 +818,7 @@ async function _runCompoundPipelineInner(
     ctx.chainConfig,
     position.baseToken as Address,
     decision.flashloanAmount,
+    deps.flashHealth, // #13 saúde do flashloan (observe-first)
   );
   decision.flashSource = compoundFlashSel.flashSource;
   decision.flashPremiumBps = compoundFlashSel.flashPremiumBps;
@@ -1057,6 +1061,7 @@ async function _runMorphoPipelineInner(
     ctx.chainConfig,
     position.loanToken as Address,
     decision.flashloanAmount,
+    deps.flashHealth, // #13 saúde do flashloan (observe-first)
   );
   decision.flashSource = morphoFlashSel.flashSource;
   decision.flashPremiumBps = morphoFlashSel.flashPremiumBps;
@@ -1268,6 +1273,7 @@ async function _runMoonwellPipelineInner(
     ctx.chainConfig,
     position.borrowedUnderlying as Address,
     decision.flashloanAmount,
+    deps.flashHealth, // #13 saúde do flashloan (observe-first)
   );
   decision.flashSource = moonwellFlashSel.flashSource;
   decision.flashPremiumBps = moonwellFlashSel.flashPremiumBps;

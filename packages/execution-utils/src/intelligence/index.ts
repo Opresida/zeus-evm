@@ -59,3 +59,7 @@ export { TokenQuarantineTracker, type TokenQuarantineEntry } from './tokenQuaran
 // Automações "vivas" Leva 4 (observe-first) — #10 throttle, #11 revet dinâmico, #12 wallet-pool rebalance.
 export { AdaptiveIntervalAdvisor, type IntervalRecommendation } from './adaptiveIntervalAdvisor';
 export { computeWalletRebalance, type WalletRebalancePlan } from './walletRebalanceAdvisor';
+
+// Automações "vivas" Leva 5 (observe-first) — #13 saúde do flashloan, #14 latência de relay.
+export { FlashHealthTracker, type FlashHealthStats, type FlashSourceKey } from './flashHealthTracker';
+export { RelayLatencyAdvisor, type RelayLatencyStatus } from './relayLatencyAdvisor';

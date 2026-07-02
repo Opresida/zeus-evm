@@ -106,16 +106,26 @@ export async function probeFlashLiquidity(
  * Seleção end-to-end: probe on-chain + decisão pura.
  * Em qualquer erro de RPC, faz fail-safe pro Aave (sempre funciona).
  */
+/** Nome curto da fonte pra observabilidade (#13 saúde do flashloan). */
+export function flashSourceKey(fs: FlashSource): 'morpho' | 'balancer' | 'aave' {
+  return fs === FlashSource.Morpho ? 'morpho' : fs === FlashSource.Balancer ? 'balancer' : 'aave';
+}
+
 export async function selectFlashSource(
   client: AnyPublicClient,
   chainConfig: ChainConfig,
   token: Address,
   amount: bigint,
+  /** #13 automação (observe-first) — registra a fonte escolhida (opcional). */
+  flashHealth?: { observe: (key: string) => void },
 ): Promise<FlashSourceSelection> {
+  let sel: FlashSourceSelection;
   try {
     const liquidity = await probeFlashLiquidity(client, chainConfig, token);
-    return pickFlashSourceByLiquidity(amount, liquidity);
+    sel = pickFlashSourceByLiquidity(amount, liquidity);
   } catch {
-    return { flashSource: FlashSource.Aave, flashPremiumBps: FLASH_SOURCE_PREMIUM_BPS[FlashSource.Aave] };
+    sel = { flashSource: FlashSource.Aave, flashPremiumBps: FLASH_SOURCE_PREMIUM_BPS[FlashSource.Aave] };
   }
+  flashHealth?.observe(flashSourceKey(sel.flashSource));
+  return sel;
 }

@@ -176,6 +176,11 @@ export {
   type IntervalRecommendation,
   computeWalletRebalance,
   type WalletRebalancePlan,
+  FlashHealthTracker,
+  type FlashHealthStats,
+  type FlashSourceKey,
+  RelayLatencyAdvisor,
+  type RelayLatencyStatus,
 } from './intelligence';
 
 // ─── Health (Item 12 H3+H7+H8+H10+H11) ───

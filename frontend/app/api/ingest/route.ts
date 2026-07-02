@@ -148,6 +148,29 @@ function sanitizeLiveAutomations(raw: unknown) {
       summary: String(wr.summary ?? "").slice(0, 160),
     };
   }
+  const fh = r.flashHealth as Record<string, unknown> | undefined;
+  if (fh && typeof fh === "object") {
+    out.flashHealth = {
+      samples: Math.max(0, finNum(fh.samples)),
+      morphoPct: Math.max(0, Math.min(1, finNum(fh.morphoPct))),
+      balancerPct: Math.max(0, Math.min(1, finNum(fh.balancerPct))),
+      aavePct: Math.max(0, Math.min(1, finNum(fh.aavePct))),
+      freeSharePct: Math.max(0, Math.min(1, finNum(fh.freeSharePct))),
+      degraded: Boolean(fh.degraded),
+      summary: String(fh.summary ?? "").slice(0, 160),
+    };
+  }
+  const rlat = r.relayLatency as Record<string, unknown> | undefined;
+  if (rlat && typeof rlat === "object") {
+    out.relayLatency = {
+      samples: Math.max(0, finNum(rlat.samples)),
+      currentP95Ms: Math.max(0, finNum(rlat.currentP95Ms)),
+      baselineP95Ms: Math.max(0, finNum(rlat.baselineP95Ms)),
+      ratio: Math.max(0, finNum(rlat.ratio)),
+      degraded: Boolean(rlat.degraded),
+      summary: String(rlat.summary ?? "").slice(0, 160),
+    };
+  }
   return Object.keys(out).length ? out : null;
 }
 

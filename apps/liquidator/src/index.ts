@@ -65,6 +65,7 @@ import {
   FailureTracker,
   GasCalibrationTracker,
   TokenQuarantineTracker,
+  FlashHealthTracker,
   computeWalletRebalance,
   type WalletRebalancePlan,
   PositionDedupTracker,
@@ -207,6 +208,8 @@ interface LiquidatorState {
   tokenQuarantine: TokenQuarantineTracker;
   /** #12 automação — plano de rebalance do wallet-pool (por-ref; discoveryTick computa, heartbeat lê). */
   walletRebalance: { plan?: WalletRebalancePlan };
+  /** #13 automação — saúde do flashloan (registra a fonte escolhida a cada seleção). */
+  flashHealth: FlashHealthTracker;
   /** Dedup tracker — evita re-submeter mesma position */
   dedupTracker: PositionDedupTracker;
   /** Gas reserve tracker — monitora ETH balance da bot wallet */
@@ -346,6 +349,7 @@ export async function boot(): Promise<LiquidatorState> {
   const gasCalibration = new GasCalibrationTracker({ configuredUsd: env.GAS_COST_USD_ESTIMATE });
   const tokenQuarantine = new TokenQuarantineTracker({ threshold: env.QUARANTINE_FAILURE_THRESHOLD });
   const walletRebalance: { plan?: WalletRebalancePlan } = {}; // #12 (por-ref; só popula quando o pool existe)
+  const flashHealth = new FlashHealthTracker(); // #13 saúde do flashloan (observe-first)
 
   // Position Dedup Tracker — evita re-submit em ticks consecutivos
   const dedupTracker = new PositionDedupTracker({
@@ -1160,6 +1164,7 @@ export async function boot(): Promise<LiquidatorState> {
           liveAutomations: {
             gasCalibration: gasCalibration.stats(env.GAS_CALIBRATION_ENABLED),
             quarantine: tokenQuarantine.snapshot().slice(0, 8),
+            flashHealth: flashHealth.stats(), // #13 saúde do flashloan
             ...(walletRebalance.plan ? { walletRebalance: walletRebalance.plan } : {}),
           },
         };
@@ -1413,6 +1418,7 @@ export async function boot(): Promise<LiquidatorState> {
     gasCalibration,
     tokenQuarantine,
     walletRebalance,
+    flashHealth,
     dedupTracker,
     gasReserveTracker,
     eventBus,
@@ -1965,6 +1971,7 @@ export async function processMorphoPreLiquidationOpportunity(
     vettingTracker: state.vettingTracker,
     vettingEnforceM1: state.vettingEnforce.m1,
     senderPool: state.preLiqSenderPool,
+    flashHealth: state.flashHealth, // #13 saúde do flashloan (observe-first)
     preLiquidatorAddress: state.env.PRE_LIQUIDATOR_ADDRESS as Address | undefined,
   });
 }

@@ -660,7 +660,7 @@ async function main(): Promise<void> {
         slippagePerDex: live || env.SLIPPAGE_PER_DEX_ENABLED, // #5 gate de avaliação (default on) → verde em dryrun
         // 🔴 CANÁRIO: features de EXECUÇÃO só no envio → cinza em DRY_RUN, verdes só armado+ligado (senão = bug).
         competitiveBribe: !!arbExec && armed && (live || env.COMPETITIVE_BRIBE_ENABLED),
-        walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
+        walletPoolReady: env.WALLET_POOL_MNEMONIC ? env.WALLET_POOL_SIZE : 0, // N configuradas quando há seed
         walletPoolActive: !!walletPool && armed && (live || env.WALLET_POOL_ENABLED),
       },
       // 🤖 Automações "vivas" — #8 pool depth (L3) + #10 throttle varredura + #11 revet dinâmico (L4, observe-first).

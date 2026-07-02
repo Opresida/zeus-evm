@@ -2515,7 +2515,10 @@ async function main() {
     state.combatMirror.slippagePerDex = state.env.SLIPPAGE_PER_DEX_ENABLED; // gate de avaliação (default on)
     // 🔴 só na execução real (cinza em DRY_RUN; verde só armado+ligado, senão = bug):
     state.combatMirror.competitiveBribe = armed && (live || combatDefaults.competitiveBribe);
-    state.combatMirror.walletPoolReady = state.preLiqSenderPool ? state.preLiqSenderPool.size : 0;
+    // Reporta as N configuradas quando a SEED existe (mesmo sem pool construído em dryrun) → card não mostra "0" à toa.
+    state.combatMirror.walletPoolReady = state.preLiqSenderPool
+      ? state.preLiqSenderPool.size
+      : state.env.WALLET_POOL_MNEMONIC ? state.env.WALLET_POOL_SIZE : 0;
     state.combatMirror.walletPoolActive = !!state.preLiqSenderPool && armed && (live || combatDefaults.walletPoolEnabled);
   };
   applyCombatBundle(state.liveExecutionEnabled); // estado inicial coerente com o toggle no boot

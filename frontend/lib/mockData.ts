@@ -1,4 +1,4 @@
-import type { TxRow, Competition, CombatBundle } from "./types";
+import type { TxRow, Competition, CombatBundle, LiveAutomations } from "./types";
 
 // ===== Dados representativos portados de ZEUS Command.dc.html =====
 // Servem de fallback (modo demo) e definem o layout exato do painel.
@@ -170,6 +170,12 @@ export const MOCK = {
   // execução (Bribe + Wallet-pool) CINZA até ligar o TX. Se no DRY_RUN real não bater isto → bug.
   combatBundle: { executionLive: false, adaptive: true, competitiveBribe: false, slippagePerDex: true, walletPoolReady: 22, walletPoolActive: false } as CombatBundle | null,
   combatBundleM1: { executionLive: false, adaptive: true, competitiveBribe: false, slippagePerDex: true, walletPoolReady: 0, walletPoolActive: false } as CombatBundle | null,
+  // Automações Leva 3 (observe-first) — mock espelha o AO VIVO: gás calibrado, 1 token sob pressão, 1 pool degradando.
+  automations: {
+    gasCalibration: { samples: 42, observedP50Usd: 0.04, observedP95Usd: 0.06, configuredUsd: 0.5, driftPct: -0.88, wouldAdjustToUsd: 0.06, applied: false },
+    quarantine: [{ token: "cbETH→USDC", symbol: "cbETH", failures: 3, wouldQuarantine: false }],
+    poolDepth: { tracked: 58, degraded: [{ poolKey: "WETH/USDC:aero", label: "WETH/USDC", nowUsd: 62000, refUsd: 100000, dropPct: 0.38 }] },
+  } as LiveAutomations | null,
   // Radar de descoberta (item 4) — espelha o AO VIVO: mostra o motor mais fresco (aqui, Motor 2 / arb).
   discovery: { service: "Motor 2", positions: 58, dispatched: 3, rejected: 12, ago: "8s" } as
     | { service: string; positions: number; dispatched: number; rejected: number; ago: string }
@@ -268,6 +274,7 @@ export const EMPTY: typeof MOCK = {
   errorMetrics: null,
   combatBundle: null,
   combatBundleM1: null,
+  automations: null,
   discovery: null,
   components: [],
   cooldowns: [],

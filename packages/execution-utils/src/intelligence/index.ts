@@ -50,3 +50,8 @@ export {
   type TopPairRow,
   type TopPairsOpts,
 } from './observation';
+
+// Automações "vivas" Leva 3 (observe-first) — #7 quarentena, #8 pool depth, #9 calibração de gás.
+export { GasCalibrationTracker, type GasCalibrationStats } from './gasCalibrationTracker';
+export { PoolDepthTracker, type PoolDepthAlert, type PoolDepthSummary } from './poolDepthTracker';
+export { TokenQuarantineTracker, type TokenQuarantineEntry } from './tokenQuarantineTracker';

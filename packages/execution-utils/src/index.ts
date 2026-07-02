@@ -165,6 +165,13 @@ export {
   type ObservationInput,
   type TopPairRow,
   type TopPairsOpts,
+  GasCalibrationTracker,
+  type GasCalibrationStats,
+  PoolDepthTracker,
+  type PoolDepthAlert,
+  type PoolDepthSummary,
+  TokenQuarantineTracker,
+  type TokenQuarantineEntry,
 } from './intelligence';
 
 // ─── Health (Item 12 H3+H7+H8+H10+H11) ───

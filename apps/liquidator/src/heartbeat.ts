@@ -64,6 +64,19 @@ export interface HeartbeatInput {
   reorgs?: HeartbeatReorgs;
   competition?: HeartbeatCompetition;
   errorMetrics?: { failedOps: number; totalOps: number };
+  /** Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás + #7 quarentena de token. */
+  liveAutomations?: {
+    gasCalibration?: {
+      samples: number;
+      observedP50Usd: number;
+      observedP95Usd: number;
+      configuredUsd: number;
+      driftPct: number;
+      wouldAdjustToUsd: number;
+      applied: boolean;
+    };
+    quarantine?: Array<{ token: string; symbol?: string; failures: number; wouldQuarantine: boolean }>;
+  };
   /** Chave-mestra — "pacote de combate" do Motor 1 (espelha o do Motor 2; transparência no painel). */
   combatBundle?: {
     executionLive: boolean;
@@ -106,6 +119,7 @@ export function buildHeartbeatPayload(i: HeartbeatInput): ZeusHeartbeatEvent {
     ...(i.competition ? { competition: i.competition } : {}),
     ...(i.errorMetrics ? { errorMetrics: i.errorMetrics } : {}),
     ...(i.combatBundle ? { combatBundle: i.combatBundle } : {}),
+    ...(i.liveAutomations ? { liveAutomations: i.liveAutomations } : {}),
   };
 }
 

@@ -241,6 +241,12 @@ export const envSchema = z.object({
   COOLDOWN_DURATION_SEC: z.coerce.number().int().positive().default(300),
   /** #4 automação — injeta o cooldown ADAPTATIVO (backoff por cooldowns repetidos). Default false → observa "o que faria". */
   ADAPTIVE_COOLDOWN_ENABLED: boolEnv(false),
+  /** #9 automação — injeta o custo de gás CALIBRADO (p95 observado) no gate de EV. Default false → só observa. */
+  GAS_CALIBRATION_ENABLED: boolEnv(false),
+  /** #7 automação — quantas falhas/reverts num token na janela 24h pra "quarentenar". */
+  QUARANTINE_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
+  /** #7 automação — aplica a quarentena de verdade (pula o token). Default false → só observa/avisa. */
+  QUARANTINE_ENABLED: boolEnv(false),
   /** Teto do cooldown adaptativo (segundos). Default 30min — trava contra backoff descontrolado. */
   COOLDOWN_MAX_SEC: z.coerce.number().int().positive().default(1800),
 

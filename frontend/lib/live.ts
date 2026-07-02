@@ -411,6 +411,17 @@ export function deriveSnapshot(
     if (anyCb) snap.combatBundle = anyCb;
   }
 
+  // Automações "vivas" Leva 3 — funde os 2 motores (M1: gás+quarentena; M2: pool depth).
+  const m1la = byService("liquidator")?.live_automations;
+  const m2la = byService("mis-scanner")?.live_automations;
+  if (m1la || m2la) {
+    snap.automations = {
+      gasCalibration: m1la?.gasCalibration ?? m2la?.gasCalibration,
+      quarantine: m1la?.quarantine ?? m2la?.quarantine,
+      poolDepth: m2la?.poolDepth ?? m1la?.poolDepth,
+    };
+  }
+
   // Fase 2b — histórico de saldo 30d (de wallet_snapshots, ordenado asc por ts). Saldo em ETH
   // (mesma unidade do mock/gráfico de reserva de gás; cores do design assumem ETH).
   if (walletSnaps.length) {

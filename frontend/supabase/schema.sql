@@ -69,6 +69,7 @@ alter table public.service_status add column if not exists vetting_revet_at text
 alter table public.service_status add column if not exists competition jsonb;
 alter table public.service_status add column if not exists error_metrics jsonb;
 alter table public.service_status add column if not exists combat_bundle jsonb;
+alter table public.service_status add column if not exists live_automations jsonb; -- Leva 3: quarentena/pool-depth/gás
 
 -- ---------- realtime ----------
 -- habilita streaming de INSERT na tabela events + UPDATE/INSERT em service_status

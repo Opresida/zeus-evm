@@ -62,8 +62,17 @@ Ao ligar "enviar TX" de um motor (`liveExecutionEnabled` via `engine_control`), 
 - **#6 Edge sumindo** — soma dos top-5 scores do `mis.ranking()` cai ≥30% em ~1h → banner.
 - **#5 slippage por DEX — ADIADO / via DUNE (ver abaixo).**
 
-**Falta:** Leva 3 (#7 quarentena token · #8 pool depth · #9 calibração de gás) · Leva 4 (#10 throttle · #11 revet
-dinâmico · #12 wallet-pool rebalance) · Leva 5 (#13 flashloan health · #14 relay latency).
+**Leva 3 (feita — 2026-07-02, observe-first):** trackers em `execution-utils/src/intelligence/`, card na aba Inteligência.
+- **#9 Calibração de gás** (`GasCalibrationTracker`) — amostra o custo AO VIVO (baseFee fresco × gas típico × ethUsd) na
+  janela 24h (p50/p95), compara com o `GAS_COST_USD_ESTIMATE` estático e mostra "ajustaria p/ $X". Injeta só com
+  `GAS_CALIBRATION_ENABLED=true` (observe-first). Feed no `discoveryTick` do M1 (cache por bloco → ~0 RPC extra).
+- **#8 Pool depth** (`PoolDepthTracker`) — usa o tamanho ótimo que o pool absorve (do `optimizeFlashLoan`, ZERO RPC extra)
+  como proxy de profundidade; alerta em queda ≥30% na janela 1h. Feed no scan do M2. Só avisa.
+- **#7 Quarentena de token** (`TokenQuarantineTracker`) — acumula reverts por token/par na janela 24h; ≥`QUARANTINE_FAILURE_THRESHOLD`
+  (5) → "quarentenaria" (histerese: sucesso alivia). Feed no evento `failure.recorded` (novo campo `collateralSymbol`) do M1.
+  Ação real gated por `QUARANTINE_ENABLED` (default false).
+
+**Falta:** Leva 4 (#10 throttle · #11 revet dinâmico · #12 wallet-pool rebalance) · Leva 5 (#13 flashloan health · #14 relay latency).
 
 ## 🎯 #5 slippage por DEX — via DUNE (ideia do Humberto, aprovada)
 **Bloqueio:** o `slippageRealTracker` só decodifica slippage REAL — no DRY_RUN não há swap pra medir. Calibrar o

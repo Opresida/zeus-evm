@@ -63,6 +63,8 @@ import {
   StrategyStatsTracker,
   VettingUniverseTracker,
   FailureTracker,
+  GasCalibrationTracker,
+  TokenQuarantineTracker,
   PositionDedupTracker,
   GasReserveTracker,
   EventBus,
@@ -197,6 +199,10 @@ interface LiquidatorState {
   pnlTracker: PnlTracker;
   /** Failure tracker — cooldown após N falhas consecutivas */
   failureTracker: FailureTracker;
+  /** #9 automação — calibração de gás (observe-first). */
+  gasCalibration: GasCalibrationTracker;
+  /** #7 automação — quarentena de token por falhas repetidas (observe-first). */
+  tokenQuarantine: TokenQuarantineTracker;
   /** Dedup tracker — evita re-submeter mesma position */
   dedupTracker: PositionDedupTracker;
   /** Gas reserve tracker — monitora ETH balance da bot wallet */
@@ -331,6 +337,10 @@ export async function boot(): Promise<LiquidatorState> {
     },
     `🛡️ Failure tracker pronto — cooldown ${env.COOLDOWN_DURATION_SEC}s após ${env.MAX_CONSECUTIVE_FAILURES} falhas consecutivas`,
   );
+
+  // Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás + #7 quarentena de token.
+  const gasCalibration = new GasCalibrationTracker({ configuredUsd: env.GAS_COST_USD_ESTIMATE });
+  const tokenQuarantine = new TokenQuarantineTracker({ threshold: env.QUARANTINE_FAILURE_THRESHOLD });
 
   // Position Dedup Tracker — evita re-submit em ticks consecutivos
   const dedupTracker = new PositionDedupTracker({
@@ -734,6 +744,13 @@ export async function boot(): Promise<LiquidatorState> {
         category: event.failureCategory,
         protocol: event.protocol,
       });
+      // #7 quarentena de token (observe-first): acumula falhas por token/par na janela 24h.
+      if (event.collateralSymbol) {
+        tokenQuarantine.recordFailure(event.collateralSymbol, {
+          symbol: event.collateralSymbol,
+          reason: event.failureCategory,
+        });
+      }
     }
   });
 
@@ -1134,6 +1151,11 @@ export async function boot(): Promise<LiquidatorState> {
           })(),
           // 🔑 Pacote de combate do Motor 1 (espelha o do M2) — objeto por-ref atualizado pelo toggle poll.
           combatBundle: { ...combatMirror },
+          // 🤖 Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás + #7 quarentena.
+          liveAutomations: {
+            gasCalibration: gasCalibration.stats(env.GAS_CALIBRATION_ENABLED),
+            quarantine: tokenQuarantine.snapshot().slice(0, 8),
+          },
         };
         eventBus.emit(buildHeartbeatPayload(hbInput));
       }
@@ -1382,6 +1404,8 @@ export async function boot(): Promise<LiquidatorState> {
     discoveryPulse,
     pnlTracker,
     failureTracker,
+    gasCalibration,
+    tokenQuarantine,
     dedupTracker,
     gasReserveTracker,
     eventBus,
@@ -2062,6 +2086,22 @@ export async function discoveryTick(state: LiquidatorState): Promise<void> {
 
   // Check gas reserve antes de qualquer trabalho — atualiza estado interno
   await state.gasReserveTracker.check(ctx.client, ctx.watchAccount ?? ctx.account);
+
+  // #9 calibração de gás (observe-first) — amostra o custo estimado AO VIVO (baseFee fresco × gas típico
+  // × ethUsd); cache por bloco no gasOracle → ~0 RPC extra. Compara com o GAS_COST_USD_ESTIMATE estático.
+  try {
+    const fees = await state.gasOracle.getFees(ctx.client);
+    const TYPICAL_GAS_UNITS = 400_000n; // liquidação típica na Base (~300-500k)
+    const gasWei = (fees.baseFeePerGas + fees.maxPriorityFeePerGas) * TYPICAL_GAS_UNITS;
+    const gasUsd = (Number(gasWei / 1_000_000_000n) / 1e9) * state.env.ETH_USD_PRICE_ESTIMATE;
+    state.gasCalibration.observe(gasUsd);
+    // Injeta o gás calibrado no gate SÓ se ligado explicitamente (observe-first; Claude nunca auto-liga).
+    if (state.env.GAS_CALIBRATION_ENABLED) {
+      state.env.GAS_COST_USD_ESTIMATE = state.gasCalibration.effectiveGasCostUsd(true); // calculators leem fresco
+    }
+  } catch {
+    /* gasOracle indisponível neste tick — ignora a amostra (sem inventar sinal) */
+  }
 
   // ─── Aave V3 + forks (Doutrina multi-market: aave-v3 core, seamless, etc) ───
   // H3 (resiliência): NÃO gateamos o loop inteiro em THEGRAPH_API_KEY. O discovery on-chain

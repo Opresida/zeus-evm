@@ -281,6 +281,8 @@ export interface FailureRecordedEvent extends BaseEvent {
   protocol: string;
   /** Categoria da falha (FailureCategory: lost_race, reverted_on_chain, ...). */
   failureCategory: string;
+  /** #7 automação — token/par associado à falha (chave da quarentena de token). Opcional. */
+  collateralSymbol?: string;
   txHash?: `0x${string}`;
   /** Gás USD perdido (quando a falha custou gas — revert on-chain). */
   gasUsdLost?: number;
@@ -537,6 +539,23 @@ export interface ZeusHeartbeatEvent extends BaseEvent {
     slippagePerDex?: boolean;    // #5 — gate de slippage calibrado por DEX (seed do Dune) ativo?
     walletPoolReady: number;     // nº de carteiras paralelas derivadas (0 = sender único)
     walletPoolActive: boolean;   // pool efetivamente em uso (live ou force-on)?
+  };
+  /** Automações "vivas" Leva 3 (observe-first) — #7 quarentena, #8 pool depth, #9 calibração de gás. */
+  liveAutomations?: {
+    gasCalibration?: {
+      samples: number;
+      observedP50Usd: number;
+      observedP95Usd: number;
+      configuredUsd: number;
+      driftPct: number;
+      wouldAdjustToUsd: number;
+      applied: boolean;
+    };
+    quarantine?: Array<{ token: string; symbol?: string; failures: number; wouldQuarantine: boolean }>;
+    poolDepth?: {
+      tracked: number;
+      degraded: Array<{ poolKey: string; label?: string; nowUsd: number; refUsd: number; dropPct: number }>;
+    };
   };
 }
 

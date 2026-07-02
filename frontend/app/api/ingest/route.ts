@@ -79,6 +79,55 @@ function sanitizeVettedUniverse(raw: unknown) {
   return out.length ? out : null;
 }
 
+/** Leva 3 (observe-first): calibração de gás + quarentena + pool depth. Allowlist + números finitos + caps. */
+function sanitizeLiveAutomations(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const gc = r.gasCalibration as Record<string, unknown> | undefined;
+  if (gc && typeof gc === "object") {
+    out.gasCalibration = {
+      samples: Math.max(0, finNum(gc.samples)),
+      observedP50Usd: Math.max(0, finNum(gc.observedP50Usd)),
+      observedP95Usd: Math.max(0, finNum(gc.observedP95Usd)),
+      configuredUsd: Math.max(0, finNum(gc.configuredUsd)),
+      driftPct: finNum(gc.driftPct),
+      wouldAdjustToUsd: Math.max(0, finNum(gc.wouldAdjustToUsd)),
+      applied: Boolean(gc.applied),
+    };
+  }
+  if (Array.isArray(r.quarantine)) {
+    out.quarantine = r.quarantine
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+      .slice(0, 20)
+      .map((t) => ({
+        token: String(t.token ?? "?").slice(0, 42),
+        symbol: t.symbol != null ? String(t.symbol).slice(0, 24) : undefined,
+        failures: Math.max(0, finNum(t.failures)),
+        wouldQuarantine: Boolean(t.wouldQuarantine),
+      }));
+  }
+  const pd = r.poolDepth as Record<string, unknown> | undefined;
+  if (pd && typeof pd === "object") {
+    out.poolDepth = {
+      tracked: Math.max(0, finNum(pd.tracked)),
+      degraded: Array.isArray(pd.degraded)
+        ? pd.degraded
+            .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
+            .slice(0, 20)
+            .map((d) => ({
+              poolKey: String(d.poolKey ?? "?").slice(0, 60),
+              label: d.label != null ? String(d.label).slice(0, 40) : undefined,
+              nowUsd: Math.max(0, finNum(d.nowUsd)),
+              refUsd: Math.max(0, finNum(d.refUsd)),
+              dropPct: Math.max(0, Math.min(1, finNum(d.dropPct))),
+            }))
+        : [],
+    };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** Mapeia um ZeusEvent para colunas da tabela `events`. */
 function toRow(e: ZeusEvent) {
   return {
@@ -172,6 +221,7 @@ export async function POST(req: Request) {
             walletPoolActive: Boolean(e.combatBundle.walletPoolActive),
           }
         : null,
+      live_automations: sanitizeLiveAutomations(e.liveAutomations), // Leva 3 (quarentena/pool-depth/gás)
       updated_at: e.timestamp ?? new Date().toISOString(),
     }));
     const { error: hbErr } = await sb.from("service_status").upsert(statusRows, { onConflict: "service" });

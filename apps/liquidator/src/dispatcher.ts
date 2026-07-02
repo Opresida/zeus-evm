@@ -446,6 +446,9 @@ export async function dispatch(input: DispatchInput): Promise<DispatchOutcome> {
           severity: 'warn',
           protocol,
           failureCategory: 'reverted_on_chain',
+          // #7 quarentena — chave do token/par (o que mais reverte). Best-effort a partir do summary.
+          collateralSymbol: [summary.collateral, summary.pair, summary.winner, summary.market]
+            .find((v) => typeof v === 'string') as string | undefined,
           txHash,
           gasUsdLost: revertGasUsd,
           reason: 'on-chain revert',

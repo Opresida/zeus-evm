@@ -440,6 +440,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
   // Chave-mestra (Fase C) — pacote de combate que acende com o toggle de execução.
   const combatBundle = live?.combatBundle ?? (demo ? M.combatBundle : null);
   const combatBundleM1 = live?.combatBundleM1 ?? (demo ? M.combatBundleM1 : null);
+  const automations = live?.automations ?? (demo ? M.automations : null); // Leva 3 (observe-first)
   const em = live?.errorMetrics ?? (demo ? M.errorMetrics : null);
   const errKpi =
     em && em.totalOps > 0
@@ -553,6 +554,7 @@ export function buildViewModel(ui: UiState, live?: LiveSnapshot | null) {
     edgeShift,
     combatBundle,
     combatBundleM1,
+    automations,
     driftAlarms,
     intelLive,
     failures,

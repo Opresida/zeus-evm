@@ -25,6 +25,7 @@ import pino from 'pino';
 import { BASE_MAINNET, AVALANCHE_MAINNET, type ChainConfig } from '@zeus-evm/chain-config';
 import {
   MarketInefficiencyScanner,
+  PoolDepthTracker,
   TimeseriesStore,
   buildObservationEvent,
   resolveIntelligenceDbPath,
@@ -359,6 +360,10 @@ async function main(): Promise<void> {
   logger.info({ pairs: allPairs.length }, '🔍 resolvendo pools on-chain...');
   const groups = await resolvePoolGroups({ client, chainConfig, pairs: allPairs, logger });
 
+  // #8 automação — pool depth (observe-first): usa o tamanho ótimo que o pool absorve (do optimizeFlashLoan,
+  // zero RPC extra) como proxy de profundidade; alerta em queda ≥30% na janela. Só observa/avisa (não age).
+  const poolDepth = new PoolDepthTracker();
+
   // ── Porteiro de tokens (Etapas 2-3) — VETA antes de registrar (pra poder FILTRAR no enforce) ──
   // Estado AO VIVO do filtro (boot + poll do toggle); lido pelo heartbeat (badge) e pelo gate de execução.
   const vettingTracker = new VettingUniverseTracker();
@@ -650,6 +655,8 @@ async function main(): Promise<void> {
         walletPoolReady: walletPool ? env.WALLET_POOL_SIZE : 0,
         walletPoolActive: !!walletPool && armed && (live || env.WALLET_POOL_ENABLED),
       },
+      // 🤖 Automações "vivas" Leva 3 — #8 pool depth (observe-first).
+      liveAutomations: { poolDepth: poolDepth.summary() },
       strategyStats: strategyTracker.snapshot(),
       vettedUniverse: vettingTracker.snapshot(), // porteiro de tokens (tela "Tokens")
       vettingEnforce: { motor2: vettingEnforce.m2 }, // estado do filtro M2 (badge "filtro ligado")
@@ -852,6 +859,9 @@ async function main(): Promise<void> {
             }
 
             const b = opt.best!;
+
+            // #8 pool depth (observe-first): o tamanho ótimo absorvido = profundidade efetiva do par.
+            try { poolDepth.observe(o.groupLabel, b.loanUsd, b.pair); } catch { /* nunca derruba a varredura */ }
 
             // Estratégia "arb" (Fase B — item 3): candidato LUCRATIVO visto na varredura → tela Estratégias.
             // Vale em DRY_RUN: mostra o POTENCIAL do Motor 2 (o que ganharia) antes de ligar a execução.

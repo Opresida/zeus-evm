@@ -6,7 +6,7 @@ const card = "background:var(--panel); border:1px solid var(--border); border-ra
 const COMPGRID = "display:grid; grid-template-columns:1.4fr 90px 90px 1fr 90px; gap:0;";
 
 export function Intelligence({ vm }: ScreenProps) {
-  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, gasEscalation, edgeShift, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition } = vm;
+  const { bribe, ourBribe, bribeNote, bribeAutoEnabled, gasEscalation, edgeShift, driftAlarms, intelLive, competitors, postmortem, calib, edgePairs, competition, automations } = vm;
   const fmt = (v: number | undefined, suf = "") => (v != null && Number.isFinite(v) ? `${v}${suf}` : "—");
   return (
     <section>
@@ -180,6 +180,51 @@ export function Intelligence({ vm }: ScreenProps) {
           </div>
           <div style={{ ...css("margin-top:14px; padding:12px 14px; border-radius:9px; font:500 12px/1.4 'IBM Plex Sans';"), background: "var(--bg2)", color: competition.hasPosition ? "var(--text2)" : "var(--muted)" }}>
             📍 {competition.positionText}
+          </div>
+        </div>
+      )}
+
+      {/* Automações "vivas" Leva 3 (observe-first) — #9 calibração de gás · #7 quarentena · #8 pool depth. */}
+      {automations && (
+        <div style={css(card + "margin-top:16px;")}>
+          <span style={css("font:700 11px/1 'IBM Plex Mono'; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted);")}>
+            Automações vivas · observando (o que fariam)
+          </span>
+          <div style={css("display:grid; gap:10px; margin-top:12px;")}>
+            {/* #9 calibração de gás */}
+            {automations.gasCalibration && automations.gasCalibration.samples > 0 && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>⛽ Calibração de gás</b> — config diz <b>${automations.gasCalibration.configuredUsd.toFixed(2)}</b>,
+                real (p95) <b>${automations.gasCalibration.observedP95Usd.toFixed(3)}</b>
+                {" "}({(automations.gasCalibration.driftPct * 100).toFixed(0)}%).{" "}
+                {automations.gasCalibration.applied
+                  ? <span style={css("color:var(--green);")}>injetando o calibrado ✓</span>
+                  : <span style={css("color:var(--muted);")}>ajustaria p/ ${automations.gasCalibration.wouldAdjustToUsd.toFixed(3)} (ligar GAS_CALIBRATION_ENABLED)</span>}
+              </div>
+            )}
+            {/* #7 quarentena de token */}
+            {automations.quarantine && automations.quarantine.length > 0 && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>🚫 Quarentena de token</b> — {automations.quarantine.map((q, i) => (
+                  <span key={i} style={{ color: q.wouldQuarantine ? "var(--red, #e5484d)" : "var(--text2)" }}>
+                    {i > 0 ? " · " : " "}{q.symbol ?? q.token} ({q.failures} falhas{q.wouldQuarantine ? " → quarentenaria" : ""})
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* #8 pool depth */}
+            {automations.poolDepth && (
+              <div style={css("padding:11px 13px; background:var(--bg2); border-radius:9px; font:500 12px/1.5 'IBM Plex Sans';")}>
+                <b>🌊 Profundidade de pool</b> — {automations.poolDepth.tracked} pools vigiados.{" "}
+                {automations.poolDepth.degraded.length === 0
+                  ? <span style={css("color:var(--muted);")}>nenhum degradando</span>
+                  : automations.poolDepth.degraded.map((d, i) => (
+                      <span key={i} style={css("color:var(--red, #e5484d);")}>
+                        {i > 0 ? " · " : " "}{d.label ?? d.poolKey} caiu {(d.dropPct * 100).toFixed(0)}%
+                      </span>
+                    ))}
+              </div>
+            )}
           </div>
         </div>
       )}

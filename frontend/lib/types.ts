@@ -88,6 +88,7 @@ export interface ZeusEvent {
   motorStats?: { tag: string; ops: number; netPnl24hUsd: number }[];
   errorMetrics?: { failedOps: number; totalOps: number };
   combatBundle?: { executionLive: boolean; adaptive: boolean; competitiveBribe: boolean; slippagePerDex?: boolean; walletPoolReady: number; walletPoolActive: boolean };
+  liveAutomations?: LiveAutomations;
   // catch-all
   [k: string]: unknown;
 }
@@ -176,7 +177,26 @@ export interface ServiceStatusRow {
   competition: Competition | null;
   error_metrics: { failedOps: number; totalOps: number } | null;
   combat_bundle: CombatBundle | null;
+  live_automations: LiveAutomations | null;
   updated_at: string;
+}
+
+/** Automações "vivas" Leva 3 (observe-first) — #7 quarentena, #8 pool depth, #9 calibração de gás. */
+export interface LiveAutomations {
+  gasCalibration?: {
+    samples: number;
+    observedP50Usd: number;
+    observedP95Usd: number;
+    configuredUsd: number;
+    driftPct: number;
+    wouldAdjustToUsd: number;
+    applied: boolean;
+  };
+  quarantine?: Array<{ token: string; symbol?: string; failures: number; wouldQuarantine: boolean }>;
+  poolDepth?: {
+    tracked: number;
+    degraded: Array<{ poolKey: string; label?: string; nowUsd: number; refUsd: number; dropPct: number }>;
+  };
 }
 
 /** Linha de `wallet_snapshots` (Fase 2b — snapshot diário de saldo p/ o gráfico 30d). */
@@ -337,6 +357,8 @@ export interface LiveSnapshot {
   combatBundle?: CombatBundle;
   /** Chave-mestra — pacote de combate (Motor 1 / liquidação). */
   combatBundleM1?: CombatBundle;
+  /** Automações "vivas" Leva 3 (fundidas dos 2 motores) — #7 quarentena, #8 pool depth, #9 gás. */
+  automations?: LiveAutomations;
   /** Histórico de saldo (USD) p/ o gráfico 30d — de wallet_snapshots. */
   whRaw?: number[];
 }

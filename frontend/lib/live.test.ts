@@ -41,6 +41,7 @@ function status(partial: Partial<ServiceStatusRow> & { service: string }): Servi
     competition: partial.competition ?? null,
     error_metrics: partial.error_metrics ?? null,
     combat_bundle: partial.combat_bundle ?? null,
+    live_automations: partial.live_automations ?? null,
     vetting_enforce: partial.vetting_enforce ?? null,
     vetting_revet_at: partial.vetting_revet_at ?? null,
     discovery: partial.discovery ?? null,

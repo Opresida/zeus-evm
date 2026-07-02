@@ -364,7 +364,7 @@ async function main(): Promise<void> {
 
   // #8 automação — pool depth (observe-first): usa o tamanho ótimo que o pool absorve (do optimizeFlashLoan,
   // zero RPC extra) como proxy de profundidade; alerta em queda ≥30% na janela. Só observa/avisa (não age).
-  const poolDepth = new PoolDepthTracker();
+  const poolDepth = new PoolDepthTracker({ dropThreshold: env.ALERT_POOL_DEPTH_DROP_PCT / 100 });
   // #10/#11 automações — intervalo adaptativo (observe-first): recomenda acelerar/desacelerar a varredura
   // (economiza RPC quando parado) e o re-vet (mais frequente quando o universo muda muito). Só mostra "o que faria".
   const scanThrottle = new AdaptiveIntervalAdvisor({ baseMs: SCAN_INTERVAL_MS, minMs: Math.round(SCAN_INTERVAL_MS * 0.6), maxMs: SCAN_INTERVAL_MS * 5 });
@@ -594,7 +594,7 @@ async function main(): Promise<void> {
   const misDiscovery = { positions: 0, dispatched: 0, rejected: 0, atIso: '' };
   // #6 automação — histórico da força de edge agregada (soma dos top-5 scores) p/ detectar "edge sumindo".
   const edgeHistory: { ts: number; edge: number }[] = [];
-  const EDGE_WINDOW_MS = 60 * 60 * 1000; // compara com ~1h atrás
+  const EDGE_WINDOW_MS = env.ALERT_EDGE_SHIFT_WINDOW_MIN * 60 * 1000; // #6 configurável
 
   // ─── Heartbeat (~30s) — snapshot ao vivo pro painel (gauges + estado REAL do toggle) ───
   // O front consome via service_status. autoPaused = execução ARMADA mas travada (toggle OFF).
@@ -694,7 +694,7 @@ async function main(): Promise<void> {
           while (edgeHistory.length && edgeHistory[0]!.ts < nowMs - EDGE_WINDOW_MS) edgeHistory.shift();
           const base = edgeHistory[0]?.edge ?? 0; // edge do começo da janela (~1h atrás)
           const dropPct = base > 0 ? Math.round(((base - edgeNow) / base) * 100) : 0;
-          edgeShiftPct = dropPct >= 30 ? dropPct : 0; // só alerta em queda ≥30% (histerese natural pela janela)
+          edgeShiftPct = dropPct >= env.ALERT_EDGE_SHIFT_PCT ? dropPct : 0; // #6 configurável (histerese natural pela janela)
         }
         return {
           marketBribeP50Gwei: mkt.p50Gwei,

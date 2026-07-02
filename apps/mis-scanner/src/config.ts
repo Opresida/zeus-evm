@@ -34,6 +34,12 @@ const envSchema = z.object({
   /** Default = MIS_MIN_DIVERGENCE_BPS quando ausente (resolvido no loadConfig). */
   MIS_FLASH_MIN_BPS: z.coerce.number().finite().optional(),
   MIS_MAX_SLIPPAGE_BPS: num(500),
+  /** #6 alerta — edge sumindo: % de queda da soma dos top-5 scores pra disparar o banner. */
+  ALERT_EDGE_SHIFT_PCT: num(30),
+  /** #6 alerta — janela (min) de comparação do edge. */
+  ALERT_EDGE_SHIFT_WINDOW_MIN: num(60),
+  /** #8 automação — queda de profundidade de pool (%) pra alertar. */
+  ALERT_POOL_DEPTH_DROP_PCT: num(30),
   /** #5 automação — usa a tolerância de slippage POR DEX (seed do Dune) no lugar do global. Default TRUE:
    *  feature de AVALIAÇÃO (roda em DRY_RUN) calibrada de dado real; o gate de LUCRO (EV) protege o dinheiro.
    *  false = kill-switch. Verde no painel já no DRY_RUN (canary). */

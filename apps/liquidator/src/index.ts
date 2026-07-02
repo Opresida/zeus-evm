@@ -976,7 +976,7 @@ export async function boot(): Promise<LiquidatorState> {
   const lastSuppressed: Record<string, number> = { pending: 0, confirmed: 0, failed: 0 };
   // #3 automação — histórico do p95 de bribe do mercado (pra detectar escalada de gás dos competidores).
   const gasP95History: { ts: number; p95: number }[] = [];
-  const GAS_ESCALATION_WINDOW_MS = 30 * 60 * 1000; // compara com ~30min atrás
+  const GAS_ESCALATION_WINDOW_MS = env.ALERT_GAS_ESCALATION_WINDOW_MIN * 60 * 1000; // #3 configurável
   let gasEscalationPct = 0; // aviso: aumento % (0 = sem escalada); lido pelo heartbeat
   const metricsSyncInterval = setInterval(() => {
     try {
@@ -1038,7 +1038,7 @@ export async function boot(): Promise<LiquidatorState> {
         const base = gasP95History[0]?.p95 ?? 0; // p95 do começo da janela (~30min atrás)
         const pct = base > 0 ? Math.round(((mkt.p95Gwei - base) / base) * 100) : 0;
         // Só alerta com escalada real: +50% E vários competidores ativos (não é 1 tx cara isolada); histerese natural pela janela.
-        gasEscalationPct = pct >= 50 && mkt.competitorsActive >= 2 ? pct : 0;
+        gasEscalationPct = pct >= env.ALERT_GAS_ESCALATION_PCT && mkt.competitorsActive >= env.ALERT_GAS_ESCALATION_MIN_COMPETITORS ? pct : 0;
       }
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p50Gwei, { chain, percentile: 'p50' });
       metricRegistry.set('zeus_market_bribe_priority_fee_gwei', mkt.p75Gwei, { chain, percentile: 'p75' });

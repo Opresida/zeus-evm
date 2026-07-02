@@ -247,6 +247,12 @@ export const envSchema = z.object({
   QUARANTINE_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(5),
   /** #7 automação — aplica a quarentena de verdade (pula o token). Default false → só observa/avisa. */
   QUARANTINE_ENABLED: boolEnv(false),
+  /** #3 alerta — escalada de gás do competidor: % de subida do p95 do market-bribe pra disparar o banner. */
+  ALERT_GAS_ESCALATION_PCT: z.coerce.number().positive().default(50),
+  /** #3 alerta — mínimo de competidores ativos junto com a subida de gás pra disparar. */
+  ALERT_GAS_ESCALATION_MIN_COMPETITORS: z.coerce.number().int().positive().default(2),
+  /** #3 alerta — janela (min) de comparação da escalada de gás. */
+  ALERT_GAS_ESCALATION_WINDOW_MIN: z.coerce.number().positive().default(30),
   /** #12 automação — piso de gás (ETH) por carteira do pool; abaixo disso, "reabasteceria". */
   WALLET_POOL_MIN_GAS_ETH: z.coerce.number().positive().default(0.005),
   /** #12 automação — alvo de gás (ETH) pós-reabastecimento por carteira. */
